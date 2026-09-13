@@ -23,7 +23,7 @@ export class FloatingText {
         ctx.font = `bold ${this.size}px Cinzel, serif`;
         ctx.fillStyle = this.color;
         ctx.shadowColor = this.color;
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = window.__atLowQuality ? 0 : 8;
         ctx.textAlign = 'center';
         ctx.fillText(this.text, this.x, this.y);
         ctx.restore();

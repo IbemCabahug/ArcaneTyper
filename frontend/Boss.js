@@ -158,7 +158,7 @@ export class Boss {
 
         // Health bar (only when intro done and alive)
         if (this.introFinished && !this.isDead) {
-            ctx.shadowBlur = 0;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 0;
             const barWidth = 60;
             const barHeight = 6;
             const yOffset = -60;

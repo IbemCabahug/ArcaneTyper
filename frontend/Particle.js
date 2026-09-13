@@ -144,6 +144,11 @@ export class Particle {
     draw(ctx) {
         if (this.life <= 0) return;
 
+        // shadowBlur is the single most expensive Canvas2D operation; on
+        // low-quality mode (slow PC auto-detected) all particle glow is
+        // skipped — visually dimmer but functionally identical.
+        const lowQ = window.__atLowQuality === true;
+
         ctx.save();
         ctx.globalAlpha = Math.max(0, this.life);
 
@@ -153,7 +158,7 @@ export class Particle {
             ctx.strokeStyle = this.color;
             ctx.lineWidth = Math.max(1, 10 * this.life); // Ring gets thinner as it fades
             ctx.shadowColor = this.color;
-            ctx.shadowBlur = 10;
+            ctx.shadowBlur = lowQ ? 0 : 10;
             ctx.stroke();
         } else if (this.isSlashLine) {
             // Draw a bright slash line from center
@@ -168,7 +173,7 @@ export class Particle {
             ctx.lineWidth = this.slashWidth * this.life;
             ctx.lineCap = 'round';
             ctx.shadowColor = this.color;
-            ctx.shadowBlur = 12;
+            ctx.shadowBlur = lowQ ? 0 : 12;
             ctx.stroke();
 
             // Inner bright core line
@@ -178,7 +183,7 @@ export class Particle {
             ctx.lineTo(this.x + dx * 0.7, this.y + dy * 0.7);
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = this.slashWidth * this.life * 0.4;
-            ctx.shadowBlur = 6;
+            ctx.shadowBlur = lowQ ? 0 : 6;
             ctx.stroke();
         } else if (this.isHexShield) {
             // Draw a hexagon
@@ -196,7 +201,7 @@ export class Particle {
             ctx.strokeStyle = this.color;
             ctx.lineWidth = 1.2;
             ctx.shadowColor = this.color;
-            ctx.shadowBlur = 8;
+            ctx.shadowBlur = lowQ ? 0 : 8;
             ctx.stroke();
 
             // Faint fill
@@ -221,20 +226,20 @@ export class Particle {
             ctx.strokeStyle = this.color;
             ctx.lineWidth = this.ringWidth * this.life;
             ctx.shadowColor = this.color;
-            ctx.shadowBlur = 6;
+            ctx.shadowBlur = lowQ ? 0 : 6;
             ctx.stroke();
         } else if (this.isRune) {
             ctx.font = `${Math.max(4, this.size * 3)}px serif`;
             ctx.fillStyle = this.color;
             ctx.shadowColor = this.color;
-            ctx.shadowBlur = 6;
+            ctx.shadowBlur = lowQ ? 0 : 6;
             ctx.fillText(this.runeChar, this.x, this.y);
         } else {
             ctx.beginPath();
             ctx.arc(this.x, this.y, Math.max(0.5, this.size), 0, Math.PI * 2);
             ctx.fillStyle = this.color;
             ctx.shadowColor = this.color;
-            ctx.shadowBlur = 8;
+            ctx.shadowBlur = lowQ ? 0 : 8;
             ctx.fill();
         }
         ctx.restore();

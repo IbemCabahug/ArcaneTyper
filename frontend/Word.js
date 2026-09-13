@@ -163,7 +163,7 @@ export class Word {
 
         if (this.isTargeted) {
             ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 15;
         }
 
         ctx.font = 'bold 32px Cinzel, serif';
@@ -254,9 +254,9 @@ export class Word {
             ctx.lineWidth = 2;
             ctx.strokeStyle = this.elementColors.untypedTargeted;
             ctx.shadowColor = this.elementColors.untypedTargeted;
-            ctx.shadowBlur = 10;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 10;
             ctx.stroke();
-            ctx.shadowBlur = 0; // reset
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 0; // reset
         }
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
@@ -294,7 +294,7 @@ export class Word {
                 ctx.globalAlpha = 1.0 - deathProgress * 0.5;
                 ctx.strokeStyle = '#ff1744';
                 ctx.shadowColor = '#ff1744';
-                ctx.shadowBlur = 12;
+                ctx.shadowBlur = window.__atLowQuality ? 0 : 12;
                 ctx.lineWidth = 3 * (1 - deathProgress);
                 ctx.lineCap = 'round';
 
@@ -318,7 +318,7 @@ export class Word {
                 ctx.globalAlpha = (1 - deathProgress) * 0.6;
                 ctx.fillStyle = '#e040fb';
                 ctx.shadowColor = '#e040fb';
-                ctx.shadowBlur = 20 * (1 - deathProgress);
+                ctx.shadowBlur = window.__atLowQuality ? 0 : 20 * (1 - deathProgress);
                 ctx.beginPath();
                 if (ctx.roundRect) {
                     ctx.roundRect(boxX - 3, boxY - 3, boxWidth + 6, boxHeight + 6, 8);

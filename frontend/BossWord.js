@@ -105,7 +105,7 @@ export class BossWord extends Word {
 
         // Intimidating red shadow always present for boss, gold if targeted
         ctx.shadowColor = this.isTargeted ? 'rgba(255, 215, 0, 0.9)' : 'rgba(255, 0, 0, 0.6)';
-        ctx.shadowBlur = this.isTargeted ? 20 : 10;
+        ctx.shadowBlur = window.__atLowQuality ? 0 : (this.isTargeted ? 20 : 10);
 
         ctx.font = 'bold 32px Cinzel, serif';
         ctx.textAlign = 'left';

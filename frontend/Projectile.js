@@ -49,7 +49,7 @@ export class Projectile {
             ctx.globalAlpha = 1.0;
             ctx.strokeStyle = this.colors[0];
             ctx.shadowColor = this.colors[0];
-            ctx.shadowBlur = 12;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 12;
             ctx.lineCap = 'round';
             
             const angle = Math.atan2(this.vy, this.vx);
@@ -68,7 +68,7 @@ export class Projectile {
             
             // Bright white core on center slash
             ctx.strokeStyle = '#ffffff';
-            ctx.shadowBlur = 6;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 6;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.arc(0, 0, 12, -Math.PI / 4, Math.PI / 4);
@@ -89,7 +89,7 @@ export class Projectile {
             // Outer glow slash
             ctx.strokeStyle = this.colors[0];
             ctx.shadowColor = this.colors[0];
-            ctx.shadowBlur = 25;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 25;
             ctx.lineWidth = 5;
             ctx.lineCap = 'round';
             ctx.beginPath();
@@ -99,7 +99,7 @@ export class Projectile {
             // Inner bright core
             ctx.strokeStyle = '#ffea00';
             ctx.shadowColor = '#ffea00';
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 15;
             ctx.lineWidth = 2.5;
             ctx.beginPath();
             ctx.arc(0, 0, 25, -Math.PI / 4, Math.PI / 4);
@@ -107,7 +107,7 @@ export class Projectile {
             
             // White hot center
             ctx.strokeStyle = '#ffffff';
-            ctx.shadowBlur = 8;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 8;
             ctx.lineWidth = 1.2;
             ctx.beginPath();
             ctx.arc(0, 0, 25, -Math.PI / 6, Math.PI / 6);
@@ -129,14 +129,14 @@ export class Projectile {
                     ctx.lineWidth = 1.5;
                     ctx.globalAlpha = alpha;
                     ctx.shadowColor = this.colors[0];
-                    ctx.shadowBlur = 8 * t;
+                    ctx.shadowBlur = window.__atLowQuality ? 0 : 8 * t;
                     ctx.stroke();
                 }
             }
 
             ctx.globalAlpha = 1.0;
             ctx.shadowColor = this.colors[0];
-            ctx.shadowBlur = 25;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 25;
             
             // Outer glowing core
             ctx.beginPath();
@@ -148,7 +148,7 @@ export class Projectile {
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius * 0.45, 0, Math.PI * 2);
             ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 5;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 5;
             ctx.fill();
             
             ctx.restore();
@@ -170,7 +170,7 @@ export class Projectile {
                 ctx.lineCap = 'round';
                 ctx.globalAlpha = alpha;
                 ctx.shadowColor = this.colors[0];
-                ctx.shadowBlur = 10 * t;
+                ctx.shadowBlur = window.__atLowQuality ? 0 : 10 * t;
                 ctx.stroke();
             }
         }
@@ -178,14 +178,14 @@ export class Projectile {
         // Draw glowing core
         ctx.globalAlpha = 1.0;
         ctx.shadowColor = this.colors[0];
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = window.__atLowQuality ? 0 : 20;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.colors[1] || '#ffffff';
         ctx.fill();
 
         // Bright inner core
-        ctx.shadowBlur = 5;
+        ctx.shadowBlur = window.__atLowQuality ? 0 : 5;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius * 0.4, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
