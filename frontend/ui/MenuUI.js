@@ -11,6 +11,22 @@ export class MenuUI {
 
         this.patchNotes = [
             {
+                version: "v2.3.0",
+                date: "September 13, 2026",
+                desc: "Code Health & Security Release",
+                changes: [
+                    "Security: the hidden admin test mode now requires a real, logged-in account named exactly \"admin\" — guest names no longer unlock anything.",
+                    "New: Mage Profile now shows a WPM History chart of your last 10 runs (works offline and for guests).",
+                    "Fixed: XP economy — levels were inflating mid-session and dropping after reload; XP is now granted exactly once per run.",
+                    "Fixed: Practice (Scribe's Trial) sometimes rendered completely invisible words due to a duplicated hidden screen element.",
+                    "Fixed: a duplicate hidden input element that risked breaking mobile typing.",
+                    "New: Escape now pauses the Arena (Resume or return to menu; paused during boss fights and duels).",
+                    "New: progressive waves — every 30 seconds or 12 words, the assault intensifies (WAVE N announced in the HUD).",
+                    "New: press Enter on the main menu to instantly start a run.",
+                    "Improved: the codebase was split into clean modules (game engine, UI, backend services) for faster, safer updates."
+                ]
+            },
+            {
                 version: "v2.2.6",
                 date: "March 15, 2026",
                 desc: "Mobile Responsiveness Overhaul",

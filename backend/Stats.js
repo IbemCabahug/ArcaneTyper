@@ -450,7 +450,18 @@ export class Stats {
                         best_score: this.bestScore,
                         best_wpm: this.bestWPM
                     }], { onConflict: 'id' }).then(({ error }) => {
-                        if (error) console.warn("[Stats] Supabase profiles sync error:", error);
+                        if (error) {
+                            // AT-L10 diagnostics: a bare console.warn of the error
+                            // object hid the cause of the observed HTTP 400. Log
+                            // every PostgREST field so the next occurrence names
+                            // the failing column/constraint/policy directly.
+                            console.warn("[Stats] Supabase profiles sync error:", {
+                                message: error.message,
+                                details: error.details,
+                                hint: error.hint,
+                                code: error.code
+                            });
+                        }
                     });
                 }
             });
