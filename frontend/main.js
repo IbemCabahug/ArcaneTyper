@@ -1091,7 +1091,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateWorkshopUI();
 
         // Play purchase sound
-        game.audio.playExplosionSound();
+        game.audio.playExplosion();
       }
     });
   });

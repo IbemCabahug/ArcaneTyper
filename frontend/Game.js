@@ -257,7 +257,7 @@ export class Game {
                 if (waveDisplay) waveDisplay.textContent = this.wave;
 
                 // Play encouraging magic sound
-                this.audio.playExplosionSound();
+                this.audio.playExplosion();
 
                 // Show giant "WAVE X" announcement float text in the middle of screen
                 const announcementX = this.canvas.width / 2;
