@@ -11,6 +11,19 @@ import { supabase } from '../backend/supabaseClient.js';
 
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Global error routing: ANY uncaught error or rejected promise anywhere in
+  // the app is surfaced in the on-screen banner instead of dying silently in
+  // some handler (e.g. keydown) where it could break gameplay invisibly.
+  const routeToBanner = (msg) => {
+    console.error('[ArcaneTyper] global:', msg);
+    const gameRef = window.game;
+    if (gameRef && gameRef._reportError) {
+      gameRef._reportError(msg instanceof Error ? msg : new Error(String(msg)), 'global');
+    }
+  };
+  window.addEventListener('error', (e) => routeToBanner(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => routeToBanner(e.reason));
+
   // Ultra-strict font preloader for Canvas
   // This physically forces the browser to download and parse the font before
   // any Javascript rendering logic continues.
@@ -24,6 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await document.fonts.ready;
 
   const game = new Game('game-canvas');
+  window.game = game; // global error router + Stats.js combo-sound hook rely on this
   const leaderboard = new Leaderboard();
   const scribe = new Scribe(game.dictionary, game.stats);
 
@@ -1219,7 +1233,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const castNovaMobile = (e) => {
     e.preventDefault(); // prevent double-trigger from click if touchstart fires first
     if (game.isRunning) {
-      game.castUltimateSpell();
+      game.combatSystem.castUltimateSpell();
       // Keep focus on the typing field after casting
       mobileInput.focus();
     }

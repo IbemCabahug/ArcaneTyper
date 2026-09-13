@@ -1,4 +1,11 @@
 export class Sprite {
+    // Module-level cache: the void-element flood fill (removeOuterBlack) is a
+    // full-image pixel walk done synchronously on the main thread. Previously
+    // it re-ran on EVERY void-word spawn (new Sprite -> new Image -> onload),
+    // causing a large hitch each time. The processed result is identical per
+    // source URL, so compute it once and share it.
+    static _processedCache = new Map();
+
     constructor(imageSrc, frames = 0, ticksPerFrame = 5, scale = 1.0, elementName = '') {
         this.image = new Image();
         this.image.src = imageSrc;
@@ -28,7 +35,13 @@ export class Sprite {
             }
 
             if (this.elementName === 'void') {
-                this.processedImage = this.removeOuterBlack(this.image);
+                const cached = Sprite._processedCache.get(imageSrc);
+                if (cached) {
+                    this.processedImage = cached;
+                } else {
+                    this.processedImage = this.removeOuterBlack(this.image);
+                    Sprite._processedCache.set(imageSrc, this.processedImage);
+                }
             } else {
                 this.processedImage = this.image;
             }

@@ -8,6 +8,17 @@ export class CombatSystem {
     }
 
     castUltimateSpell() {
+        // Wrapped so a failure mid-cast can never freeze the game; the
+        // flash/particles may be partial but play always continues.
+        try {
+            this._castUltimateSpellInner();
+        } catch (err) {
+            console.error('[ArcaneTyper] castUltimateSpell failed:', err);
+            if (this.game && this.game._reportError) this.game._reportError(err, 'ultimate');
+        }
+    }
+
+    _castUltimateSpellInner() {
         if (!this.game.stats.useMana(100)) return;
 
         // Mana Overflow Skill: Ultimate restores 1 Barrier
@@ -165,6 +176,25 @@ export class CombatSystem {
         const colors = elementColors.particles;
         let numParticles = 35 + Math.random() * 20; // More energetic burst
         numParticles *= (1 + bonusMultiplier);
+
+        // Performance guard: cap the total live particle population.
+        // Every particle costs a shadowed canvas draw; uncapped Nova casts
+        // (7x multiplier ≈ 380 particles) stagger slow machines. When the
+        // budget is exhausted, oldest particles are recycled first.
+        const MAX_PARTICLES = window.__atLowQuality ? 150 : 400;
+        const room = MAX_PARTICLES - this.game.particles.length;
+        if (room <= 0) {
+            // Recycle: replace the oldest third rather than growing the array
+            const recycleCount = Math.min(numParticles, Math.floor(MAX_PARTICLES / 3));
+            for (let i = 0; i < recycleCount; i++) {
+                const old = this.game.particles.shift();
+                if (!old) break;
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                this.game.particles.push(new Particle(x, y, color));
+            }
+            return;
+        }
+        numParticles = Math.min(numParticles, room);
 
         for (let i = 0; i < numParticles; i++) {
             const color = colors[Math.floor(Math.random() * colors.length)];

@@ -118,10 +118,35 @@ export class Game {
         this.inputHandler.enable();
         this.lastTime = performance.now();
         this.animationFrameId = requestAnimationFrame((t) => this.gameLoop(t));
+
+        // --- Frame resurrection watchdog ---
+        // If the rAF chain ever dies silently (a stray stop(), an edge case
+        // that swallows scheduling, a browser throttling bug) the game would
+        // freeze with no error to report. A 1-second interval notices "no
+        // frame executed since the last tick while the game should be
+        // running" and re-kicks the loop. Covers every silent-stop case;
+        // a truly blocked main thread can't run this timer either, so it
+        // is harmless there.
+        if (this._heartbeatInterval) clearInterval(this._heartbeatInterval);
+        this._frameTicked = true;
+        this._heartbeatInterval = setInterval(() => {
+            if (!this.isRunning) return;
+            if (this._frameTicked) {
+                this._frameTicked = false;
+                return;
+            }
+            console.warn('[ArcaneTyper] no frame for 1s while running — resurrecting game loop');
+            this.lastTime = performance.now();
+            this.animationFrameId = requestAnimationFrame((t) => this.gameLoop(t));
+        }, 1000);
     }
 
     stop() {
         this.isRunning = false;
+        if (this._heartbeatInterval) {
+            clearInterval(this._heartbeatInterval);
+            this._heartbeatInterval = null;
+        }
         this.audio.stopBackgroundMusic();
         this.inputHandler.disable();
         if (this.animationFrameId) {
@@ -202,15 +227,54 @@ export class Game {
 
     gameLoop(currentTime) {
         if (!this.isRunning) return;
+        this._frameTicked = true; // heartbeat for the resurrection watchdog
 
         let dt = currentTime - this.lastTime;
         dt = Math.min(dt, 50);
         this.lastTime = currentTime;
 
-        if (!this.isPaused) {
-            this.update(dt);
+        // --- Adaptive quality monitor ---
+        // Tracks frame rate; on sustained slow frames (slow PC / heavy scenes)
+        // flips a global low-quality flag that renderers consult to skip
+        // expensive effects (shadowBlur, gradients). Recovers automatically.
+        this._fpsAccum = (this._fpsAccum || 0) + dt;
+        this._fpsFrames = (this._fpsFrames || 0) + 1;
+        if (this._fpsAccum >= 1000) {
+            const fps = this._fpsFrames / (this._fpsAccum / 1000);
+            this._fpsFrames = 0;
+            this._fpsAccum = 0;
+            if (fps < 40) {
+                this._lowFpsStrikes = (this._lowFpsStrikes || 0) + 1;
+                if (this._lowFpsStrikes >= 2 && !window.__atLowQuality) {
+                    window.__atLowQuality = true;
+                    console.warn('[Perf] FPS ' + fps.toFixed(0) + ' — enabling low-quality render mode');
+                }
+            } else {
+                this._lowFpsStrikes = 0;
+                if (fps > 55 && window.__atLowQuality) {
+                    window.__atLowQuality = false;
+                    console.info('[Perf] FPS recovered — restoring full quality');
+                }
+            }
         }
-        this.draw();
+
+        // --- Crash-proof update/draw ---
+        // A throw inside update() or draw() previously killed the
+        // requestAnimationFrame chain and permanently froze the page.
+        // Errors are now contained: the failing subsystem is skipped for
+        // that frame, the error is surfaced on-screen, and play continues.
+        if (!this.isPaused) {
+            try {
+                this.update(dt);
+            } catch (err) {
+                this._reportError(err, 'update');
+            }
+        }
+        try {
+            this.draw();
+        } catch (err) {
+            this._reportError(err, 'draw');
+        }
 
         if (this.isRunning) {
             this.animationFrameId = requestAnimationFrame((t) => this.gameLoop(t));
@@ -218,9 +282,33 @@ export class Game {
 
         // Throttled HUD update: only update DOM stats every 200ms
         if (!this.isPaused && currentTime - this.lastHudUpdate >= 200) {
-            this.stats.updateHUD();
+            try {
+                this.stats.updateHUD();
+            } catch (err) {
+                this._reportError(err, 'hud');
+            }
             this.lastHudUpdate = currentTime;
         }
+    }
+
+    _reportError(err, subsystem) {
+        console.error('[ArcaneTyper] error in ' + subsystem + '():', err);
+        // Throttle identical reports to once per second
+        const now = performance.now();
+        if (this._lastErrReport && now - this._lastErrReport < 1000) return;
+        this._lastErrReport = now;
+        let banner = document.getElementById('at-error-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'at-error-banner';
+            banner.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;' +
+                'max-width:70%;background:rgba(60,0,0,0.85);color:#ff8a80;' +
+                'font:12px/1.4 monospace;padding:8px 10px;border-radius:6px;' +
+                'border:1px solid #ff1744;pointer-events:none;white-space:pre-wrap;';
+            document.body.appendChild(banner);
+        }
+        banner.textContent = '⚠ ' + subsystem + ' error (game kept running):\n' +
+            (err && err.stack ? err.stack.split('\n').slice(0, 4).join('\n') : String(err));
     }
 
     pause() {
@@ -652,7 +740,7 @@ export class Game {
                     const gs = 8 + Math.sin(now * 0.002 + i) * 4;
                     this.ctx.strokeStyle = '#e040fb';
                     this.ctx.shadowColor = '#e040fb';
-                    this.ctx.shadowBlur = 10;
+                    this.ctx.shadowBlur = window.__atLowQuality ? 0 : 10;
                     this.ctx.lineWidth = 1;
                     this.ctx.strokeRect(gx - gs / 2, gy - gs / 2, gs, gs);
                 }
@@ -670,7 +758,7 @@ export class Game {
                     );
                     this.ctx.strokeStyle = 'rgba(170, 0, 255, 0.4)';
                     this.ctx.lineWidth = 1.5;
-                    this.ctx.shadowBlur = 0;
+                    this.ctx.shadowBlur = window.__atLowQuality ? 0 : 0;
                     this.ctx.stroke();
                 }
             } else if (this.domainType === 'shrine') {
@@ -691,7 +779,7 @@ export class Game {
                 this.ctx.strokeStyle = '#ff1744';
                 this.ctx.lineWidth = 1;
                 this.ctx.shadowColor = '#ff1744';
-                this.ctx.shadowBlur = 8;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 8;
 
                 // Left pillars
                 for (let p = 0; p < 3; p++) {
@@ -713,7 +801,7 @@ export class Game {
                 this.ctx.globalAlpha = this.domainAlpha * 0.35;
                 this.ctx.font = '20px serif';
                 this.ctx.fillStyle = '#ff1744';
-                this.ctx.shadowBlur = 12;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 12;
                 for (let s = 0; s < 8; s++) {
                     const sx = (Math.sin(now * 0.0002 + s * 2.1) * 0.4 + 0.5) * this.canvas.width;
                     const sy = (Math.cos(now * 0.0003 + s * 1.7) * 0.4 + 0.5) * this.canvas.height;
@@ -742,7 +830,7 @@ export class Game {
                 this.ctx.strokeStyle = color;
                 this.ctx.lineWidth = 4;
                 this.ctx.shadowColor = color;
-                this.ctx.shadowBlur = 18;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 18;
                 this.ctx.stroke();
 
                 // Faint spatial folding ring (outer concentric echo)
@@ -752,7 +840,7 @@ export class Game {
                 this.ctx.strokeStyle = color;
                 this.ctx.globalAlpha = 0.35;
                 this.ctx.lineWidth = 1.5;
-                this.ctx.shadowBlur = 8;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 8;
                 this.ctx.stroke();
                 this.ctx.restore();
             }
@@ -764,7 +852,7 @@ export class Game {
 
                 const segs = 6;
                 this.ctx.shadowColor = color;
-                this.ctx.shadowBlur = 15;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 15;
                 
                 for (let k = 0; k < segs; k++) {
                     const startAngle = Math.PI + (k / segs) * Math.PI;
@@ -799,14 +887,14 @@ export class Game {
                     this.ctx.strokeStyle = barrier.color;
                     this.ctx.lineWidth = 3;
                     this.ctx.shadowColor = barrier.color;
-                    this.ctx.shadowBlur = 15;
+                    this.ctx.shadowBlur = window.__atLowQuality ? 0 : 15;
                     this.ctx.stroke();
                 }
             });
         }
 
         this.ctx.restore();
-        this.ctx.shadowBlur = 0;
+        this.ctx.shadowBlur = window.__atLowQuality ? 0 : 0;
 
         // --- Aura / Weapon / Character Silhouette Drawing ---
         if (this.stats.selectedCharacter === 'wizard') {
@@ -834,7 +922,7 @@ export class Game {
             this.ctx.fill();
 
             this.ctx.restore();
-            this.ctx.shadowBlur = 0;
+            this.ctx.shadowBlur = window.__atLowQuality ? 0 : 0;
 
             // --- Wizard Silhouette ---
             this.ctx.fillStyle = '#110a17';
@@ -890,7 +978,7 @@ export class Game {
                 this.ctx.closePath();
                 this.ctx.strokeStyle = '#00e5ff';
                 this.ctx.shadowColor = '#00e5ff';
-                this.ctx.shadowBlur = 6;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 6;
                 this.ctx.lineWidth = 1.0;
                 this.ctx.stroke();
             }
@@ -917,7 +1005,7 @@ export class Game {
                 this.ctx.closePath();
                 this.ctx.strokeStyle = h % 2 === 0 ? '#00e5ff' : '#0077ff';
                 this.ctx.shadowColor = '#00e5ff';
-                this.ctx.shadowBlur = 8;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 8;
                 this.ctx.lineWidth = 1.2;
                 this.ctx.stroke();
             }
@@ -944,7 +1032,7 @@ export class Game {
             this.ctx.arc(wizX - 25, wizY - 20 + floatOffset, 5, 0, Math.PI * 2);
             this.ctx.fillStyle = '#00e5ff';
             this.ctx.shadowColor = '#00e5ff';
-            this.ctx.shadowBlur = 12 + animProgress * 15;
+            this.ctx.shadowBlur = window.__atLowQuality ? 0 : 12 + animProgress * 15;
             this.ctx.fill();
             
             // Red Orb (Reversal)
@@ -952,7 +1040,7 @@ export class Game {
             this.ctx.arc(wizX + 25, wizY - 20 - floatOffset, 5, 0, Math.PI * 2);
             this.ctx.fillStyle = '#ff1744';
             this.ctx.shadowColor = '#ff1744';
-            this.ctx.shadowBlur = 12 + animProgress * 15;
+            this.ctx.shadowBlur = window.__atLowQuality ? 0 : 12 + animProgress * 15;
             this.ctx.fill();
             this.ctx.restore();
 
@@ -988,7 +1076,7 @@ export class Game {
                 this.ctx.arc(wizX + 40, wizY - 24, 2.5, 0, Math.PI * 2);
                 this.ctx.fillStyle = '#e040fb';
                 this.ctx.shadowColor = '#e040fb';
-                this.ctx.shadowBlur = 15 * animProgress;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 15 * animProgress;
                 this.ctx.fill();
 
                 // Purple shockwave ring from fingertip
@@ -998,7 +1086,7 @@ export class Game {
                 this.ctx.arc(wizX + 40, wizY - 24, shockRadius, 0, Math.PI * 2);
                 this.ctx.strokeStyle = `rgba(224, 64, 251, ${shockAlpha})`;
                 this.ctx.shadowColor = '#e040fb';
-                this.ctx.shadowBlur = 12 * animProgress;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 12 * animProgress;
                 this.ctx.lineWidth = 2.5 * animProgress;
                 this.ctx.stroke();
 
@@ -1088,7 +1176,7 @@ export class Game {
             
             this.ctx.strokeStyle = '#ff1744';
             this.ctx.shadowColor = '#ff1744';
-            this.ctx.shadowBlur = 10 + animProgress * 10;
+            this.ctx.shadowBlur = window.__atLowQuality ? 0 : 10 + animProgress * 10;
             this.ctx.lineWidth = 1.8;
             
             this.ctx.beginPath();
@@ -1136,13 +1224,13 @@ export class Game {
                 this.ctx.arc(wizX + 38, wizY - 23, 2, 0, Math.PI * 2);
                 this.ctx.fillStyle = '#ff1744';
                 this.ctx.shadowColor = '#ff1744';
-                this.ctx.shadowBlur = 15 * animProgress;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 15 * animProgress;
                 this.ctx.fill();
 
                 // Cleave slash lines (visual-only, 2-3 diagonal slashes)
                 this.ctx.strokeStyle = '#ff1744';
                 this.ctx.shadowColor = '#ff1744';
-                this.ctx.shadowBlur = 12 * animProgress;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 12 * animProgress;
                 this.ctx.lineWidth = 2 * animProgress;
                 this.ctx.lineCap = 'round';
                 const slashAlpha = animProgress * 0.8;
@@ -1212,13 +1300,13 @@ export class Game {
                 this.ctx.ellipse(wizX, wizY + 2, 4, 2, 0, 0, Math.PI * 2);
                 this.ctx.fillStyle = '#ff1744';
                 this.ctx.shadowColor = '#ff1744';
-                this.ctx.shadowBlur = 8;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 8;
                 this.ctx.fill();
                 // Pupil slit
                 this.ctx.beginPath();
                 this.ctx.ellipse(wizX, wizY + 2, 1.5, 0.6, 0, 0, Math.PI * 2);
                 this.ctx.fillStyle = '#000000';
-                this.ctx.shadowBlur = 0;
+                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 0;
                 this.ctx.fill();
 
                 this.ctx.globalAlpha = 1.0;
