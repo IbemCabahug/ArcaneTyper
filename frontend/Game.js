@@ -3,6 +3,7 @@ import { Boss } from './Boss.js';
 import { Projectile } from './Projectile.js';
 import { WordDictionary } from './WordDictionary.js';
 import { Stats } from '../backend/Stats.js';
+import { RenderCache } from './RenderCache.js';
 
 import { Particle } from './Particle.js';
 import { AudioController } from './AudioController.js';
@@ -76,6 +77,31 @@ export class Game {
                 brightness: Math.random() * 0.5 + 0.3
             });
         }
+
+        // Layered starfield: the star pattern is baked ONCE into two offscreen
+        // canvases (normal + high-combo red tint) with the glow burned into the
+        // pixels. Each frame costs two drawImage blits plus a scroll/wrap instead
+        // of ~120 individually shadowed path draws. Re-bake on resize.
+        const baseKey = `at_stars_${this.canvas.width}x${this.canvas.height}`;
+        const bakeStars = (isRed) => RenderCache.bake(baseKey + (isRed ? '_r' : '_w'), this.canvas.width, this.canvas.height, (ctx) => {
+            this.stars.forEach(star => {
+                ctx.globalAlpha = Math.max(0.35, Math.min(1, star.brightness));
+                if (isRed) {
+                    ctx.fillStyle = '#ffccdd';
+                    ctx.shadowColor = '#ff2266';
+                } else {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowColor = '#aaaaff';
+                }
+                ctx.shadowBlur = star.size * 4;
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+        });
+        // Bake both tints now (the closures above will run through RenderCache).
+        bakeStars(false);
+        bakeStars(true);
 
         // Init ambient atmospheric particles (dust motes)
         this.ambientParticles = [];
@@ -434,38 +460,14 @@ export class Game {
             }
         }
 
-        // Gojo Infinity barrier — continuously spawn hex shields and distortion rings
+        // Gojo Infinity barrier AMBIENCE — replaced the old per-400ms particle
+        // spawner (which grew the particle array forever and churned the GC)
+        // with a single lightweight pulse timer. The visual ambience itself is
+        // now a baked ring blitted in the character render, so no particles are
+        // created while idle.
         if (this.stats.selectedCharacter === 'gojo' && this.isRunning) {
             this.infinitySpawnTimer += dt;
-            if (this.infinitySpawnTimer >= this.infinitySpawnInterval) {
-                this.infinitySpawnTimer = 0;
-                const wizX = this.canvas.width / 2;
-                const wizY = this.canvas.height;
-                
-                // Spawn hex shield particle
-                const hexAngle = Math.random() * Math.PI * 2;
-                const hexOrbitR = 28 + Math.random() * 18;
-                this.particles.push(new Particle(wizX, wizY - 15, {
-                    type: 'hex_shield',
-                    color: Math.random() > 0.3 ? '#00e5ff' : '#0077ff',
-                    orbitAngle: hexAngle,
-                    orbitRadius: hexOrbitR,
-                    radius: 5 + Math.random() * 4,
-                    originX: wizX,
-                    originY: wizY - 15
-                }));
-
-                // Spawn distortion ring every other cycle
-                if (Math.random() > 0.5) {
-                    this.particles.push(new Particle(wizX, wizY - 15, {
-                        type: 'distortion_ring',
-                        color: 'rgba(0, 229, 255, 0.4)',
-                        startRadius: 5,
-                        expansionRate: 2.5,
-                        ringWidth: 1.0
-                    }));
-                }
-            }
+            if (this.infinitySpawnTimer > 6000) this.infinitySpawnTimer = 0;
         }
 
         // Boss Logic
@@ -543,7 +545,7 @@ export class Game {
                             if (w.dying || w.isBossAttack) continue;
                             this.stats.addScore(w.text.length, false);
                             w.dying = true;
-                            this.combatSystem.spawnExplosion(w.x, w.y, w.elementColors, 0.5);
+                            this.combatSystem.spawnBurst(w.x, w.y, w.elementColors.particles);
                             if (w === this.targetedWord) this.targetedWord = null;
                         }
 
@@ -823,55 +825,14 @@ export class Game {
                 let color = '#00e5ff'; // 3+ hits
                 if (this.stats.lives === 3) color = '#5c6bc0'; // 2 hits
                 else if (this.stats.lives === 2) color = '#d81b60'; // 1 hit
-
-                // Solid primary Infinity arc
-                this.ctx.beginPath();
-                this.ctx.arc(wizX, wizY, 85, Math.PI, 0, false);
-                this.ctx.strokeStyle = color;
-                this.ctx.lineWidth = 4;
-                this.ctx.shadowColor = color;
-                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 18;
-                this.ctx.stroke();
-
-                // Faint spatial folding ring (outer concentric echo)
-                this.ctx.save();
-                this.ctx.beginPath();
-                this.ctx.arc(wizX, wizY, 91, Math.PI, 0, false);
-                this.ctx.strokeStyle = color;
-                this.ctx.globalAlpha = 0.35;
-                this.ctx.lineWidth = 1.5;
-                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 8;
-                this.ctx.stroke();
-                this.ctx.restore();
+                this._blitBarrier(this._barrierImg('gojo', color, 0, 0), wizX, wizY);
             }
         } else if (char === 'sukuna') {
             if (this.stats.lives >= 2) {
                 let color = '#ff1744'; // 3+ hits
                 if (this.stats.lives === 3) color = '#ffab00'; // 2 hits
                 else if (this.stats.lives === 2) color = '#b71c1c'; // 1 hit
-
-                const segs = 6;
-                this.ctx.shadowColor = color;
-                this.ctx.shadowBlur = window.__atLowQuality ? 0 : 15;
-                
-                for (let k = 0; k < segs; k++) {
-                    const startAngle = Math.PI + (k / segs) * Math.PI;
-                    const endAngle = Math.PI + ((k + 1.25) / segs) * Math.PI;
-
-                    // Draw outer slash segment
-                    this.ctx.beginPath();
-                    this.ctx.arc(wizX, wizY, 85, startAngle, endAngle, false);
-                    this.ctx.strokeStyle = color;
-                    this.ctx.lineWidth = 3.5;
-                    this.ctx.stroke();
-
-                    // Draw overlapping inner sharp claw arc
-                    this.ctx.beginPath();
-                    this.ctx.arc(wizX, wizY, 81, startAngle + 0.08, endAngle - 0.08, false);
-                    this.ctx.strokeStyle = color;
-                    this.ctx.lineWidth = 2.0;
-                    this.ctx.stroke();
-                }
+                this._blitBarrier(this._barrierImg('sukuna', color, 0, 0), wizX, wizY);
             }
         } else {
             const barriers = [
@@ -882,13 +843,7 @@ export class Game {
 
             barriers.forEach(barrier => {
                 if (barrier.active) {
-                    this.ctx.beginPath();
-                    this.ctx.arc(wizX, wizY, barrier.radius, Math.PI, 0, false);
-                    this.ctx.strokeStyle = barrier.color;
-                    this.ctx.lineWidth = 3;
-                    this.ctx.shadowColor = barrier.color;
-                    this.ctx.shadowBlur = window.__atLowQuality ? 0 : 15;
-                    this.ctx.stroke();
+                    this._blitBarrier(this._barrierImg('def', barrier.color, barrier.radius, 0), wizX, wizY);
                 }
             });
         }
@@ -1418,38 +1373,97 @@ export class Game {
     }
 
     _drawStars(comboIntensity = 0) {
+        // Layered starfield: two baked canvases (white calm / red high-combo)
+        // are scrolled downward slowly and cross-faded on combo intensity.
+        // The individual per-star twinkle from the original is approximated by
+        // a uniform slow shimmer; motion and the red shift are preserved at a
+        // fraction of the cost (2 drawImage + 2 solid fills, vs ~80 shadowed
+        // arcs per frame before).
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const white = RenderCache.get(`at_stars_${w}x${h}_w`);
+        const red = RenderCache.get(`at_stars_${w}x${h}_r`);
+        if (!white || !red) return;
+
         const now = performance.now();
+        // Downward drift: base ~12 px/s, up to ~90 px/s at full combo
+        const pxPerSec = 12 + comboIntensity * 78;
+        const scroll = (now / 1000 * pxPerSec) % h;
+
+        // Cross-fade white -> red for comboIntensity above 0.5
+        const redMix = Math.max(0, Math.min(1, (comboIntensity - 0.5) * 2));
+        // Uniform shimmer approximating the old per-star twinkle
+        const shimmer = 0.88 + 0.12 * Math.sin(now / 350);
+
         this.ctx.save();
-        this.stars.forEach(star => {
-            // Stars twinkle and move faster at high combo
-            const speedMod = 1 + (comboIntensity * 2);
-            const twinkle = star.brightness + Math.sin((now / (star.speed / speedMod)) + star.phase) * 0.25;
-
-            // Move stars slowly downwards to give a feeling of forward momentum
-            star.y += (1 + comboIntensity * 5) * 0.2;
-            if (star.y > this.canvas.height) {
-                star.y = 0;
-                star.x = Math.random() * this.canvas.width;
-            }
-
-            const alpha = Math.max(0.05, Math.min(1, twinkle));
-            this.ctx.globalAlpha = alpha;
-
-            // Stars shift from white to slight reddish/purple at max combo
-            if (comboIntensity > 0.5) {
-                this.ctx.fillStyle = '#ffccdd';
-                this.ctx.shadowColor = '#ff2266';
-            } else {
-                this.ctx.fillStyle = '#ffffff';
-                this.ctx.shadowColor = '#aaaaff';
-            }
-
-            this.ctx.shadowBlur = star.size * 2 + (comboIntensity * 4);
-            this.ctx.beginPath();
-            this.ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-            this.ctx.fill();
-        });
+        this.ctx.globalAlpha = (1 - redMix) * shimmer;
+        if (this.ctx.globalAlpha > 0.005) {
+            this.ctx.drawImage(white, 0, scroll - h);
+            this.ctx.drawImage(white, 0, scroll);
+        }
+        this.ctx.globalAlpha = redMix * shimmer;
+        if (this.ctx.globalAlpha > 0.005) {
+            this.ctx.drawImage(red, 0, scroll - h);
+            this.ctx.drawImage(red, 0, scroll);
+        }
         this.ctx.restore();
+    }
+
+    // --- Baked barriers ---
+    // Shield rings used to be three shadowed stroked arcs redrawn every frame.
+    // They're now painted once (glow included, in the pixels) and blitted per
+    // frame — the shield glow no longer costs anything at runtime.
+    _barrierImg(kind, color, radius, echoRadius = 0) {
+        const useEcho = kind === 'gojo';
+        const R = useEcho ? 91 : Math.max(radius, echoRadius);
+        const pad = 10;
+        const key = `at_barr_${kind}_${color}_${R}`;
+        return RenderCache.bake(key, 2 * R + 2 * pad, R + 2 * pad, (ctx) => {
+            const cx = R + pad;
+            const cy = R + pad;
+            const arc = (r, lw, alpha) => {
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, Math.PI, 0, false);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = lw;
+                ctx.globalAlpha = alpha;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 15;
+                ctx.stroke();
+            };
+            if (useEcho) {
+                arc(85, 4, 1);
+                arc(91, 1.5, 0.35); // spatial-folding echo ring
+            } else if (kind === 'sukuna') {
+                for (let k = 0; k < 6; k++) {
+                    const s = Math.PI + (k / 6) * Math.PI;
+                    const e = Math.PI + ((k + 1.25) / 6) * Math.PI;
+                    arc(85, 3.5, 1);
+                    const s2 = s + 0.08, e2 = e - 0.08;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 81, s2, e2, false);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2.0;
+                    ctx.globalAlpha = 1;
+                    ctx.stroke();
+                }
+            } else {
+                arc(radius, 3, 1);
+            }
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+        });
+    }
+
+    _blitBarrier(img, wizX, wizY) {
+        if (!img) return;
+        // Slow "breathing" pulse; zooming the blit keeps the glow and is cheap.
+        const pulse = 1 + 0.03 * Math.sin(performance.now() / 600);
+        const dw = img.width * pulse;
+        const dh = img.height * pulse;
+        this.ctx.globalAlpha = 1;
+        this.ctx.drawImage(img, wizX - dw / 2, wizY - dh, dw, dh);
+        this.ctx.globalAlpha = 1;
     }
 
     _spawnSingleWord() {

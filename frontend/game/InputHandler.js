@@ -93,11 +93,11 @@ export class InputHandler {
                 const selectedChar = this.game.stats.selectedCharacter;
 
                 if (selectedChar === 'gojo') {
-                    // Hollow Purple explosion — purple/cyan particles override element colors
-                    this.game.combatSystem.spawnExplosion(word.x, word.y + 15 * word.scale, 
-                        { particles: ['#e040fb', '#d500f9', '#00e5ff', '#aa00ff', '#ffffff'] }, comboBonus + 0.3);
+                    // Hollow Purple — purple/cyan palette splash
+                    this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale,
+                        ['#e040fb', '#d500f9', '#00e5ff', '#aa00ff', '#ffffff']);
                 } else if (selectedChar === 'sukuna') {
-                    // Dismantle slash — slash lines cut through the word, then crimson explosion
+                    // Dismantle slash — slash lines through the word + crimson splash
                     const slashCount = 2 + Math.floor(Math.random() * 2); // 2-3 slashes
                     for (let sl = 0; sl < slashCount; sl++) {
                         const slAngle = -0.8 + Math.random() * 1.6;
@@ -110,11 +110,11 @@ export class InputHandler {
                             width: 2 + Math.random() * 1.5
                         }));
                     }
-                    this.game.combatSystem.spawnExplosion(word.x, word.y + 15 * word.scale,
-                        { particles: ['#ff1744', '#d50000', '#ffea00', '#212121'] }, comboBonus * 0.6);
+                    this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale,
+                        ['#ff1744', '#d50000', '#ffea00', '#212121']);
                 } else {
-                    // Default wizard — element-colored explosion
-                    this.game.combatSystem.spawnExplosion(word.x, word.y + 15 * word.scale, word.elementColors, comboBonus);
+                    // Default wizard — element-colored splash
+                    this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale, word.elementColors.particles);
                 }
 
                 this.game.playerAnimTimer = 200;

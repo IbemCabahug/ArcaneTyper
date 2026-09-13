@@ -25,13 +25,19 @@ export class Sprite {
 
         this.image.onload = () => {
             this.isLoaded = true;
-            // Assuming a horizontal strip where frame width == height
+            // Intended layout: a horizontal strip of SQUARE frames, each
+            // frameHeight tall. The bundled art is single-frame (w != h), in
+            // which case the strip is NOT tiled and must be treated as one
+            // frame spanning its full width — the old code assumed a
+            // width=height tiling and drew a 1024px-wide source rect from a
+            // 590px-wide image (stretched glitch).
+            const isSquareTiling = this.image.width >= this.image.height;
             this.frameHeight = this.image.height;
-            this.frameWidth = this.image.height;
+            this.frameWidth = isSquareTiling ? this.image.height : this.image.width;
 
             if (this.frames === 0) {
-                // Auto-calculate frame count
-                this.frames = Math.floor(this.image.width / this.frameWidth);
+                // Auto-calculate frame count (1 for non-tiled strips)
+                this.frames = Math.max(1, Math.floor(this.image.width / this.frameWidth));
             }
 
             if (this.elementName === 'void') {

@@ -112,6 +112,13 @@ export class Word {
         this.deathDuration = 200; // ms
         this.deathScale = 1.0; // scale multiplier during death
         this.deathStyle = 'default'; // 'default' | 'purple' | 'slash'
+
+        // Cached text metrics (measureText is a layout pass; only re-run when
+        // the string actually changes instead of every frame per word)
+        this._lastTypedStr = null;
+        this._cachedTypedWidth = 0;
+        this._lastUntypedStr = null;
+        this._cachedUntypedWidth = 0;
     }
 
     update(dt) {
@@ -175,6 +182,10 @@ export class Word {
             this._cachedTypedWidth = ctx.measureText(this.typed).width;
             this._lastTypedStr = this.typed;
         }
+        if (this._lastUntypedStr !== this.untyped) {
+            this._cachedUntypedWidth = ctx.measureText(this.untyped).width;
+            this._lastUntypedStr = this.untyped;
+        }
 
         const textYOffset = 70;
         const textXOffset = -35;
@@ -193,7 +204,7 @@ export class Word {
         // Text background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         const paddingX = 10;
-        const totalTextWidth = this._cachedTypedWidth + ctx.measureText(this.untyped).width;
+        const totalTextWidth = this._cachedTypedWidth + this._cachedUntypedWidth;
         const boxWidth = totalTextWidth + paddingX * 2;
         const boxHeight = 40;
         const boxX = startX - paddingX;

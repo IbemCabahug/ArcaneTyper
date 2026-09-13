@@ -157,7 +157,7 @@ export class CombatSystem {
 
             this.game.stats.addScore(word.text.length, false);
             word.dying = true;
-            this.spawnExplosion(word.x, word.y, word.elementColors, 0.5);
+            this.spawnBurst(word.x, word.y, word.elementColors.particles);
 
             if (word === this.game.targetedWord) {
                 this.game.targetedWord = null;
@@ -206,6 +206,21 @@ export class CombatSystem {
             }
 
             this.game.particles.push(particle);
+        }
+    }
+
+    spawnBurst(x, y, palette) {
+        // New kill visual: ONE pre-baked splash image + a small shard spray,
+        // replacing the old 35-55 shadowed circles per kill. Same reading,
+        // ~80% less per-kill work (the splash is a single cached drawImage).
+        const colors = Array.isArray(palette) ? palette : [palette];
+        this.game.particles.push(new Particle(x, y, { type: 'burst', colors }));
+        const shards = window.__atLowQuality ? 4 : 9;
+        for (let i = 0; i < shards; i++) {
+            const p = new Particle(x, y, colors[Math.floor(Math.random() * colors.length)]);
+            p.size = Math.random() * 3 + 1.5;
+            p.decay = Math.random() * 0.02 + 0.01;
+            this.game.particles.push(p);
         }
     }
 

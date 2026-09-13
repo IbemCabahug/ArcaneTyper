@@ -1,3 +1,40 @@
+import { RenderCache } from './RenderCache.js';
+
+// Bakes (once per palette) a shatter-splash used for word kills. Drawing one
+// image + a handful of shard particles replaced the previous 35-55 shadowed
+// circles per kill; the burst reads as a richer explosion for far less work.
+export function bakeBurst(palette) {
+    const colors = Array.isArray(palette) ? palette : [palette, '#ffffff'];
+    const key = 'at_burst_' + colors.join('_');
+    return RenderCache.bake(key, 96, 96, (ctx) => {
+        const cx = 48, cy = 48;
+        // Core glow
+        const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, 30);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.4, colors[0]);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 96, 96);
+
+        // Radial shard spikes
+        for (let s = 0; s < 14; s++) {
+            const a = (s / 14) * Math.PI * 2 + Math.random() * 0.2;
+            const len = 34 + Math.random() * 26;
+            const c = colors[(s + (colors.length > 1 ? 1 : 0)) % colors.length];
+            ctx.strokeStyle = c;
+            ctx.lineWidth = 3 + Math.random() * 3;
+            ctx.lineCap = 'round';
+            ctx.shadowColor = c;
+            ctx.shadowBlur = 6;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(a) * 8, cy + Math.sin(a) * 8);
+            ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+            ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+    });
+}
+
 export class Particle {
     constructor(x, y, color) {
         this.x = x;
@@ -84,6 +121,22 @@ export class Particle {
             this.gravity = 0;
             this.life = 1.0;
             this.decay = 0.025;
+            this.size = 0;
+        }
+
+        // --- Shatter Burst (pre-baked splash on word kills) ---
+        if (typeof color === 'object' && color.type === 'burst') {
+            this.isBurst = true;
+            this.isRune = false;
+            this.isShockwave = false;
+            this.burstKey = color.burstKey;
+            this.burstColors = color.colors || [color.color || '#ffffff'];
+            this.color = this.burstColors[0];
+            this.vx = 0;
+            this.vy = 0;
+            this.gravity = 0;
+            this.life = 1.0;
+            this.decay = 0.05; // ~20 frames, then the shard particles take over
             this.size = 0;
         }
 
@@ -228,6 +281,16 @@ export class Particle {
             ctx.shadowColor = this.color;
             ctx.shadowBlur = lowQ ? 0 : 6;
             ctx.stroke();
+        } else if (this.isBurst) {
+            // Bake-once splash: drawImage only, expanding and fading out
+            const img = bakeBurst(this.burstColors);
+            if (img) {
+                const grow = 1.4 - this.life * 0.4; // shrink as it fades
+                const s = 96 * grow * (window.__atLowQuality ? 0.75 : 1);
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.drawImage(img, this.x - s / 2, this.y - s / 2, s, s);
+                ctx.globalAlpha = 1;
+            }
         } else if (this.isRune) {
             ctx.font = `${Math.max(4, this.size * 3)}px serif`;
             ctx.fillStyle = this.color;
