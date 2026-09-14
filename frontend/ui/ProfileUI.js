@@ -26,18 +26,11 @@ export class ProfileUI {
                     this.game.stats.setSelectedCharacter(charId);
                     this.updateSkinCardsUI();
                     
-                    let name = charId.toUpperCase();
-                    if (charId === 'gojo') name = 'GOJO SATORU';
-                    if (charId === 'sukuna') name = 'RYOMEN SUKUNA';
-                    
+                    const name = charId === 'wizard' ? 'GRAND CHRONO-ARCHMAGE' : charId.toUpperCase();
                     MagicalToast.show(`Bound to avatar: <span style="color:#00e5ff; font-weight:bold;">${name}</span>`);
-                    if (this.game.audio) this.game.audio.playSound('click'); // optional sound cue
+                    if (this.game.audio) this.game.audio.playSound('click');
                 } else {
-                    let req = "";
-                    if (charId === 'gojo') req = "Limitless Focus achievement (100+ WPM & 95%+ accuracy)";
-                    if (charId === 'sukuna') req = "King of Curses achievement (100x Combo or 10,000+ points)";
-                    
-                    MagicalToast.show(`<span style="color:#ff1744; font-weight:bold;">LOCKED:</span> Complete "${req}" to unlock this skin!`);
+                    MagicalToast.show(`<span style="color:#ffd700; font-weight:bold;">IN FORGE:</span> This original class is currently being forged!`);
                     if (this.game.audio) this.game.audio.playErrorSound();
                 }
             });

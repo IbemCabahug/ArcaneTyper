@@ -1,5 +1,5 @@
 import { Word } from './Word.js';
-import { Sprite } from './Sprite.js';
+import { MeteorRenderer } from './MeteorRenderer.js';
 
 export class BossWord extends Word {
     constructor(text, canvasWidth, canvasHeight, speedMultiplier, targetX, targetY, elementType = 'fire') {
@@ -63,17 +63,9 @@ export class BossWord extends Word {
 
         const mappedEle = sprintElementMap[this.elementName] || 'fire';
 
-        const spriteMap = {
-            'fire': '/fire.png',
-            'ice': '/ice.png',
-            'lightning': '/lightning.png',
-            'void': '/void.png'
-        };
-
-        const spriteSrc = spriteMap[mappedEle];
-        if (spriteSrc) {
-            this.sprite = new Sprite(spriteSrc, 0, 5, 2.5, mappedEle);
-        }
+        // AT-F7 & AT-F8: Procedural elemental meteor renderer
+        this.meteor = new MeteorRenderer(mappedEle);
+        this.sprite = this.meteor;
     }
 
     // Override typeLetter to check for segment completion
@@ -120,9 +112,9 @@ export class BossWord extends Word {
         const textXOffset = -35;
         const startX = (-this.totalTextWidth / 2) + textXOffset;
 
-        if (this.sprite) {
+        if (this.meteor) {
             // Boss sprites are slightly wider/larger
-            this.sprite.draw(ctx, 0, -20, this.spriteTargetWidth * 1.2, this.elementName, this.angle);
+            this.meteor.draw(ctx, 0, -20, this.spriteTargetWidth * 1.2, this.angle, this.isTargeted);
         }
 
         // Draw typed part

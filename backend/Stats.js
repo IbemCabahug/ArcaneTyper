@@ -28,8 +28,12 @@ export class Stats {
         this.unlockedSkills = JSON.parse(localStorage.getItem('typerMaster_skills') || '[]');
         this.wandColor = localStorage.getItem('typerMaster_wandColor') || '#ff00ff';
         this.mageName = localStorage.getItem('typerMaster_mageName') || null;
-        this.mageClass = localStorage.getItem('typerMaster_mageClass') || 'Novice';
-        this.selectedCharacter = localStorage.getItem('typerMaster_selectedCharacter') || 'wizard';
+        let savedChar = localStorage.getItem('typerMaster_selectedCharacter');
+        if (savedChar === 'gojo' || savedChar === 'sukuna') {
+            savedChar = 'wizard';
+            localStorage.setItem('typerMaster_selectedCharacter', 'wizard');
+        }
+        this.selectedCharacter = savedChar || 'wizard';
 
         // True only after a successful authenticated (non-guest) login.
         // Gates the admin bypass - see AuthUI. Never inferred from mageName alone.
@@ -255,9 +259,18 @@ export class Stats {
 
     updateLivesDisplay() {
         if (!this.livesContainer) return;
-        const hearts = this.livesContainer.querySelectorAll('.barrier');
-        const char = this.selectedCharacter;
 
+        const expectedBarriers = this.hasSkill('life') ? 4 : 3;
+        while (this.livesContainer.children.length < expectedBarriers) {
+            const dot = document.createElement('span');
+            dot.className = 'barrier';
+            this.livesContainer.appendChild(dot);
+        }
+        while (this.livesContainer.children.length > expectedBarriers) {
+            this.livesContainer.removeChild(this.livesContainer.lastChild);
+        }
+
+        const hearts = this.livesContainer.querySelectorAll('.barrier');
         hearts.forEach((heart, index) => {
             const isActive = index < (this.lives - 1);
 
@@ -269,34 +282,11 @@ export class Stats {
                 heart.style.border = '1px solid rgba(255,255,255,0.15)';
             } else {
                 heart.classList.remove('lost');
-
-                if (char === 'gojo') {
-                    // Gojo palette: Cyan -> Indigo -> Magenta
-                    let color = '#00e5ff'; // 3+ hits
-                    if (this.lives === 3) color = '#5c6bc0'; // 2 hits
-                    else if (this.lives === 2) color = '#d81b60'; // 1 hit
-                    
-                    heart.style.backgroundColor = color;
-                    heart.style.color = color;
-                    heart.style.boxShadow = `0 0 10px ${color}`;
-                    heart.style.border = 'none';
-                } else if (char === 'sukuna') {
-                    // Sukuna palette: Crimson -> Gold -> Dark Red
-                    let color = '#ff1744'; // 3+ hits
-                    if (this.lives === 3) color = '#ffab00'; // 2 hits
-                    else if (this.lives === 2) color = '#b71c1c'; // 1 hit
-                    
-                    heart.style.backgroundColor = color;
-                    heart.style.color = color;
-                    heart.style.boxShadow = `0 0 10px ${color}`;
-                    heart.style.border = 'none';
-                } else {
-                    // Default Wizard: clear inline styles so style.css nth-child classes govern
-                    heart.style.backgroundColor = '';
-                    heart.style.color = '';
-                    heart.style.boxShadow = '';
-                    heart.style.border = '';
-                }
+                // Default Wizard: clear inline styles so style.css nth-child classes govern
+                heart.style.backgroundColor = '';
+                heart.style.color = '';
+                heart.style.boxShadow = '';
+                heart.style.border = '';
             }
         });
     }
@@ -500,14 +490,6 @@ export class Stats {
     isCharacterUnlocked(charId) {
         if (this.isAdmin()) return true;
         if (charId === 'wizard') return true;
-        if (!this.achievements) return false;
-        
-        if (charId === 'gojo') {
-            return this.achievements.unlocked.has('limitless_focus');
-        }
-        if (charId === 'sukuna') {
-            return this.achievements.unlocked.has('king_of_curses');
-        }
         return false;
     }
 }

@@ -114,7 +114,8 @@ body.duel-dimension #app::before {
   pointer-events: auto;
 }
 
-.hidden {
+.hidden,
+[hidden] {
   display: none !important;
 }
 
@@ -252,12 +253,17 @@ body.duel-dimension #app::before {
 }
 
 /* Middle - Purple */
+/* Outer - Gold */
 .barrier:nth-child(3) {
   color: #ffd700;
   background-color: #ffd700;
 }
 
-/* Outer - Gold */
+/* Prismatic Outer - Celestial Cyan (Workshop 'life' talent) */
+.barrier:nth-child(4) {
+  color: #00e5ff;
+  background-color: #00e5ff;
+}
 
 .barrier.lost {
   background-color: transparent;
@@ -284,6 +290,7 @@ body.duel-dimension #app::before {
 }
 
 .overlay-menu.hidden {
+  display: none !important;
   opacity: 0;
   transform: translateY(20px);
   pointer-events: none;
@@ -1485,43 +1492,44 @@ h2 {
   }
 }
 
-/* ── Magical Toasts ── */
+/* ── Magical Toasts (Docked to Lower Right) ── */
 .magical-toast {
-  background: rgba(43, 27, 70, 0.9);
-  border: 1px solid var(--accent-primary);
-  border-left: 4px solid var(--accent-primary);
+  background: rgba(25, 14, 42, 0.94);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  border-right: 4px solid var(--accent-primary);
   color: var(--text-main);
-  padding: 12px 20px;
-  border-radius: 6px;
+  padding: 12px 18px;
+  border-radius: 8px;
   font-family: var(--font-family);
-  font-size: 1rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(255, 215, 0, 0.2);
-  backdrop-filter: blur(10px);
-  max-width: 400px;
-  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 215, 0, 0.2);
+  backdrop-filter: blur(12px);
+  max-width: 360px;
+  text-align: left;
   pointer-events: auto;
 
-  /* Initial state for animation */
+  /* Initial state for smooth slide-in from right */
   opacity: 0;
-  transform: translateY(-20px);
-  animation: toastFadeIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  transform: translateX(40px);
+  animation: toastSlideIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
 .magical-toast.fade-out {
-  animation: toastFadeOut 0.5s ease forwards;
+  animation: toastSlideOut 0.4s ease forwards;
 }
 
-@keyframes toastFadeIn {
+@keyframes toastSlideIn {
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(0);
   }
 }
 
-@keyframes toastFadeOut {
+@keyframes toastSlideOut {
   to {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateX(40px);
   }
 }
 
@@ -1676,27 +1684,10 @@ h2 {
   box-shadow: 0 0 12px rgba(41, 182, 246, 0.3);
 }
 
-#skin-gojo.active {
-  border-color: #00e5ff !important;
-  box-shadow: 0 0 12px rgba(0, 229, 255, 0.45);
-}
-
-#skin-sukuna.active {
-  border-color: #ff1744 !important;
-  box-shadow: 0 0 12px rgba(255, 23, 68, 0.45);
-}
-
 /* Previews keyframe animations for high visual quality */
-.skin-avatar-preview div {
+.skin-avatar-preview div,
+.skin-avatar-preview svg {
   animation: floatPreview 3s ease-in-out infinite;
-}
-
-.gojo-preview div {
-  animation-delay: 0.5s;
-}
-
-.sukuna-preview div {
-  animation-delay: 1s;
 }
 
 @keyframes floatPreview {
@@ -1769,4 +1760,138 @@ h2 {
   #profile-history-chart {
     height: 60px !important;
   }
-}
+}
+
+/* ═══════════════════════════════════════════════════════ */
+/* CHRONOMANCY STASIS & AUDIO CONTROL SYSTEM                */
+/* ═══════════════════════════════════════════════════════ */
+
+.pause-card {
+  background: radial-gradient(circle at center, rgba(35, 20, 55, 0.96) 0%, rgba(15, 9, 25, 0.98) 100%);
+  border: 2px solid rgba(255, 215, 0, 0.45);
+  border-radius: 16px;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 215, 0, 0.2), inset 0 0 25px rgba(255, 215, 0, 0.08);
+  padding: 30px 35px;
+  text-align: center;
+  max-width: 440px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  backdrop-filter: blur(16px);
+}
+
+.pause-crest {
+  font-size: 2.4rem;
+  margin-bottom: 6px;
+  filter: drop-shadow(0 0 12px rgba(255, 215, 0, 0.6));
+  animation: stasisPulse 3s ease-in-out infinite alternate;
+}
+
+@keyframes stasisPulse {
+  0% {
+    transform: scale(0.95) rotate(-5deg);
+    filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.4));
+  }
+  100% {
+    transform: scale(1.08) rotate(5deg);
+    filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.9));
+  }
+}
+
+.pause-audio-panel {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  border-radius: 10px;
+  padding: 12px 18px;
+  margin-bottom: 12px;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
+}
+
+.pause-audio-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  letter-spacing: 1.5px;
+}
+
+.pause-audio-label {
+  color: #ffd700;
+  font-weight: bold;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+.pause-audio-val {
+  color: var(--mana-color);
+  font-family: monospace;
+  font-size: 0.9rem;
+  font-weight: bold;
+  text-shadow: 0 0 8px var(--mana-glow);
+}
+
+.pause-audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.pause-mute-btn,
+#hud-sound-btn,
+#menu-sound-btn {
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  border-radius: 6px;
+  color: #ffd700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s ease;
+}
+
+.pause-mute-btn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.pause-mute-btn:hover,
+#hud-sound-btn:hover,
+#menu-sound-btn:hover {
+  background: rgba(255, 215, 0, 0.25);
+  border-color: #ffd700;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.4);
+  transform: scale(1.05);
+}
+
+.pause-mute-btn.is-muted,
+#hud-sound-btn.is-muted,
+#menu-sound-btn.is-muted {
+  color: #ff4b4b !important;
+  border-color: rgba(255, 75, 75, 0.5) !important;
+  background: rgba(255, 75, 75, 0.15) !important;
+  box-shadow: 0 0 10px rgba(255, 75, 75, 0.3);
+}
+
+.pause-volume-slider,
+.volume-slider {
+  flex: 1;
+  accent-color: #ffd700;
+  cursor: pointer;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  outline: none;
+  transition: opacity 0.2s ease;
+}
+
+.pause-volume-slider:hover,
+.volume-slider:hover {
+  filter: brightness(1.2);
+}
+

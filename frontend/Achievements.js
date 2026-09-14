@@ -28,8 +28,8 @@ export class Achievements {
             'boss_slayer': { id: 'boss_slayer', name: 'Boss Slayer', description: 'Defeat your first Boss.', title: 'Dragonbane' },
             'millionaire': { id: 'millionaire', name: 'Archmage', description: 'Reach Level 10.', title: 'Archmage' },
             'survivor': { id: 'survivor', name: 'Survivor', description: 'Survive for 5 minutes in a single run.', title: 'The Enduring' },
-            'limitless_focus': { id: 'limitless_focus', name: 'Limitless Focus', description: 'Reach 100+ WPM with 95%+ accuracy.', title: 'The Honored One' },
-            'king_of_curses': { id: 'king_of_curses', name: 'King of Curses', description: 'Reach a 100x Combo streak or score 10,000+ points.', title: 'King of Curses' }
+            'celestial_focus': { id: 'celestial_focus', name: 'Celestial Focus', description: 'Reach 100+ WPM with 95%+ accuracy.', title: 'Chrono-Transcendent' },
+            'archmage_supremacy': { id: 'archmage_supremacy', name: 'Archmage Supremacy', description: 'Reach a 100x Combo streak or score 10,000+ points.', title: 'Grand Archon' }
         };
         
         // Callbacks for UI updates
@@ -47,14 +47,14 @@ export class Achievements {
             if (data.wpm >= 100) {
                 this.checkUnlock('speed_demon');
                 if (data.accuracy >= 95) {
-                    this.checkUnlock('limitless_focus');
+                    this.checkUnlock('celestial_focus');
                 }
             }
         } else if (eventName === 'combo_update') {
             if (data.combo >= 50) this.checkUnlock('untouchable');
-            if (data.combo >= 100) this.checkUnlock('king_of_curses');
+            if (data.combo >= 100) this.checkUnlock('archmage_supremacy');
         } else if (eventName === 'score_update') {
-            if (data.score >= 10000) this.checkUnlock('king_of_curses');
+            if (data.score >= 10000) this.checkUnlock('archmage_supremacy');
         } else if (eventName === 'boss_defeated') {
             this.checkUnlock('boss_slayer');
         } else if (eventName === 'level_up') {

@@ -230,16 +230,18 @@ export const codingList = {
     "decodeURIComponent", "localStorage", "sessionStorage", "indexedDB"
   ],
   epic: [
-    "<!DOCTYPE html>", "document.querySelectorAll('.class')",
-    "() => { console.log('es6'); }", "function* generator() {}",
-    "try { await fetch(url); } catch (e) {}", "const [state, setState] = useState(null);",
-    "import { Component } from 'react';", "module.exports = { start: true };",
-    "if (typeof window !== 'undefined')", "Array.prototype.slice.call(arguments)",
-    "Object.prototype.hasOwnProperty.call(obj, prop)", "Regex.test(/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$/i)",
-    "document.body.insertAdjacentHTML('beforeend', str)", "return new Promise((resolve, reject) => {})",
-    "for (let i = 0; i < arr.length; i++) {", "const { param1, param2, ...rest } = obj;",
-    "SELECT * FROM users WHERE id = ?", "INSERT INTO table (col) VALUES (val)",
-    "UPDATE table SET col = val WHERE id = ?", "DELETE FROM table WHERE id = ?"
+    "requestAnimationFrame", "IntersectionObserver", "MutationObserver",
+    "ServiceWorkerContainer", "crypto.getRandomValues", "PerformanceObserver",
+    "WebAssembly.instantiate", "ReadableStreamDefaultReader", "SynchronizationContext",
+    "ParameterizedThreadStart", "AbstractMethodError", "ConcurrentModificationException",
+    "AuthenticationManager", "DependencyInjection", "MicroservicesArchitecture",
+    "HypertextTransferProtocol", "CryptographicException", "document.getElementById",
+    "document.querySelector", "window.localStorage", "JSON.stringify",
+    "ArrayBuffer.isView", "PromiseRejectionEvent", "TextDecoderStream",
+    "WebGLRenderingContext", "AudioBufferSourceNode", "GainNode.gain",
+    "BroadcastChannel", "CustomElementRegistry", "EventSource.close",
+    "HTMLCanvasElement", "OffscreenCanvas", "ShadowRoot.mode",
+    "ResizeObserverEntry", "WebAuthentication", "FileSystemWritableFileStream"
   ],
   paragraphs: [
     "function debounce(func, wait) {\n  let timeout;\n  return function executedFunction(...args) {\n    const later = () => {\n      clearTimeout(timeout);\n      func(...args);\n    };\n    clearTimeout(timeout);\n    timeout = setTimeout(later, wait);\n  };\n}",

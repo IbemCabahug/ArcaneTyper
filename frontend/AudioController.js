@@ -5,16 +5,24 @@ export class AudioController {
         this.bgOscillator2 = null;
         this.bgFilter = null;
         this.bgGain = null;
+        this.bgLfo = null;
+        this.bgLfoGain = null;
 
         // Tension Arpeggiator
         this.tensionOsc = null;
         this.tensionGain = null;
         this.tensionLfo = null;
+        this.tremoloGain = null;
         this.isPlayingBg = false;
 
-        // Master volume
+        // Master volume & Mute (AT-F3 with localStorage persistence)
+        const savedVolume = localStorage.getItem('typerMaster_volume');
+        const savedMuted = localStorage.getItem('typerMaster_muted');
+        this._volume = savedVolume !== null ? parseFloat(savedVolume) : 0.5;
+        this._isMuted = savedMuted === 'true';
+
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.5; // Starts at 50%
+        this.masterGain.gain.value = this._isMuted ? 0 : this._volume;
         this.masterGain.connect(this.ctx.destination);
 
         // Intensity state
@@ -25,6 +33,55 @@ export class AudioController {
         if (this.ctx.state === 'suspended') {
             this.ctx.resume();
         }
+    }
+
+    /**
+     * Attaches an onended cleanup handler to transient Web Audio nodes to prevent
+     * memory leaks in the browser's audio graph.
+     */
+    _attachCleanup(sourceNode, ...connectedNodes) {
+        if (!sourceNode) return;
+        sourceNode.onended = () => {
+            try {
+                sourceNode.disconnect();
+            } catch (_) {}
+            for (const node of connectedNodes) {
+                if (node && typeof node.disconnect === 'function') {
+                    try {
+                        node.disconnect();
+                    } catch (_) {}
+                }
+            }
+        };
+    }
+
+    // --- Master Volume & Mute API (AT-F3) ---
+    setMasterVolume(val) {
+        this._volume = Math.max(0, Math.min(1, val));
+        try {
+            localStorage.setItem('typerMaster_volume', String(this._volume));
+        } catch (_) {}
+        if (!this._isMuted) {
+            this.masterGain.gain.setValueAtTime(this._volume, this.ctx.currentTime);
+        }
+    }
+
+    getMasterVolume() {
+        return this._volume;
+    }
+
+    toggleMute() {
+        this._isMuted = !this._isMuted;
+        try {
+            localStorage.setItem('typerMaster_muted', String(this._isMuted));
+        } catch (_) {}
+        const target = this._isMuted ? 0 : this._volume;
+        this.masterGain.gain.setValueAtTime(target, this.ctx.currentTime);
+        return this._isMuted;
+    }
+
+    isMuted() {
+        return this._isMuted;
     }
 
     playMagicSpark() {
@@ -44,6 +101,7 @@ export class AudioController {
         osc.connect(gain);
         gain.connect(this.masterGain);
 
+        this._attachCleanup(osc, gain);
         osc.start(t);
         osc.stop(t + 0.2);
     }
@@ -54,18 +112,19 @@ export class AudioController {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
 
-        // Short, high-pitched "tick"
+        // Short, crisp high-pitched "tick" with crystalline clarity
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(1200, t);
         osc.frequency.exponentialRampToValueAtTime(800, t + 0.05);
 
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.1, t + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
+        gain.gain.linearRampToValueAtTime(0.12, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.005, t + 0.05);
 
         osc.connect(gain);
         gain.connect(this.masterGain);
 
+        this._attachCleanup(osc, gain);
         osc.start(t);
         osc.stop(t + 0.06);
     }
@@ -88,6 +147,7 @@ export class AudioController {
         osc.connect(gain);
         gain.connect(this.masterGain);
 
+        this._attachCleanup(osc, gain);
         osc.start(t);
         osc.stop(t + 0.2);
     }
@@ -114,6 +174,7 @@ export class AudioController {
             osc.connect(gain);
             gain.connect(this.masterGain);
 
+            this._attachCleanup(osc, gain);
             osc.start(noteTime);
             osc.stop(noteTime + 0.4);
         });
@@ -127,8 +188,7 @@ export class AudioController {
         let rootFreq = 440; // A4
         let notes = [];
 
-        // All tiers will use pure 'sine' waves now to avoid any "static" or "buzzing" sound.
-        // We simulate a magical harp or bell chime glissando.
+        // All tiers use pure 'sine' waves to simulate a magical harp chime glissando
         if (combo >= 50) {
             rootFreq = 880; // A5
             notes = [1, 1.25, 1.5, 1.666, 2.0]; // Ethereal 5-note sweep (Major pentatonic)
@@ -149,11 +209,11 @@ export class AudioController {
         }
 
         notes.forEach((ratio, index) => {
-            const noteTime = t + index * 0.1; // Slightly slower, more deliberate chime
+            const noteTime = t + index * 0.1;
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
 
-            osc.type = 'sine'; // Pure, clean bell sound
+            osc.type = 'sine';
             osc.frequency.setValueAtTime(rootFreq * ratio, noteTime);
 
             // Envelope: fast attack, long smooth decay (bell-like)
@@ -164,8 +224,9 @@ export class AudioController {
             osc.connect(gain);
             gain.connect(this.masterGain);
 
+            this._attachCleanup(osc, gain);
             osc.start(noteTime);
-            osc.stop(noteTime + 1.0); // Let the chime ring out
+            osc.stop(noteTime + 1.0);
         });
     }
 
@@ -194,6 +255,7 @@ export class AudioController {
         filter.connect(gain);
         gain.connect(this.masterGain);
 
+        this._attachCleanup(osc, filter, gain);
         osc.start(t);
         osc.stop(t + 0.6);
     }
@@ -204,7 +266,7 @@ export class AudioController {
         const duration = 0.3;
 
         // White noise burst for glass shattering
-        const bufferSize = this.ctx.sampleRate * duration;
+        const bufferSize = Math.floor(this.ctx.sampleRate * duration);
         const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
 
@@ -227,7 +289,9 @@ export class AudioController {
         filter.connect(gain);
         gain.connect(this.masterGain);
 
+        this._attachCleanup(noise, filter, gain);
         noise.start(t);
+        noise.stop(t + duration);
     }
 
     startBackgroundMusic() {
@@ -254,14 +318,14 @@ export class AudioController {
         this.bgFilter.frequency.value = 400;
 
         // Add slow LFO to the filter frequency to make it "breathe"
-        const lfo = this.ctx.createOscillator();
-        lfo.type = 'sine';
-        lfo.frequency.value = 0.1; // Very slow, 10 seconds per cycle
-        const lfoGain = this.ctx.createGain();
-        lfoGain.gain.value = 150; // Sweeps filter by 150hz
-        lfo.connect(lfoGain);
-        lfoGain.connect(this.bgFilter.frequency);
-        lfo.start();
+        this.bgLfo = this.ctx.createOscillator();
+        this.bgLfo.type = 'sine';
+        this.bgLfo.frequency.value = 0.1; // Very slow, 10 seconds per cycle
+        this.bgLfoGain = this.ctx.createGain();
+        this.bgLfoGain.gain.value = 150; // Sweeps filter by 150hz
+        this.bgLfo.connect(this.bgLfoGain);
+        this.bgLfoGain.connect(this.bgFilter.frequency);
+        this.bgLfo.start();
 
         this.bgGain = this.ctx.createGain();
         this.bgGain.gain.setValueAtTime(0.001, t); // Start silent
@@ -272,8 +336,7 @@ export class AudioController {
         this.bgFilter.connect(this.bgGain);
         this.bgGain.connect(this.masterGain);
 
-        // --- Tension Layer (Smooth Choir/Ethereal instead of Sawtooth/Square) ---
-        // A high, smooth sine wave that fades in at high combo to create tension without buzzing
+        // --- Tension Layer (Smooth Choir/Ethereal) ---
         this.tensionOsc = this.ctx.createOscillator();
         this.tensionOsc.type = 'sine';
         this.tensionOsc.frequency.value = 880; // High A5 note
@@ -286,12 +349,12 @@ export class AudioController {
         this.tensionLfo.type = 'sine';
         this.tensionLfo.frequency.value = 4; // 4Hz gentle wobble
 
-        const tremoloGain = this.ctx.createGain();
-        tremoloGain.gain.value = 0.5; // Base level
-        this.tensionLfo.connect(tremoloGain.gain);
+        this.tremoloGain = this.ctx.createGain();
+        this.tremoloGain.gain.value = 0.5; // Base level
+        this.tensionLfo.connect(this.tremoloGain.gain);
 
-        this.tensionOsc.connect(tremoloGain);
-        tremoloGain.connect(this.tensionGain);
+        this.tensionOsc.connect(this.tremoloGain);
+        this.tremoloGain.connect(this.tensionGain);
         this.tensionGain.connect(this.masterGain);
 
         this.tensionOsc.start(t);
@@ -312,15 +375,24 @@ export class AudioController {
             this.bgGain.gain.setValueAtTime(this.bgGain.gain.value, t);
             this.bgGain.gain.linearRampToValueAtTime(0.01, t + 2);
 
-            this.tensionGain.gain.cancelScheduledValues(t);
-            this.tensionGain.gain.setValueAtTime(this.tensionGain.gain.value, t);
-            this.tensionGain.gain.linearRampToValueAtTime(0, t + 1);
+            if (this.tensionGain) {
+                this.tensionGain.gain.cancelScheduledValues(t);
+                this.tensionGain.gain.setValueAtTime(this.tensionGain.gain.value, t);
+                this.tensionGain.gain.linearRampToValueAtTime(0, t + 1);
+            }
 
             setTimeout(() => {
-                if (this.bgOscillator1) this.bgOscillator1.stop();
-                if (this.bgOscillator2) this.bgOscillator2.stop();
-                if (this.tensionOsc) this.tensionOsc.stop();
-                if (this.tensionLfo) this.tensionLfo.stop();
+                if (this.bgOscillator1) { try { this.bgOscillator1.stop(); this.bgOscillator1.disconnect(); } catch (_) {} this.bgOscillator1 = null; }
+                if (this.bgOscillator2) { try { this.bgOscillator2.stop(); this.bgOscillator2.disconnect(); } catch (_) {} this.bgOscillator2 = null; }
+                if (this.bgLfo) { try { this.bgLfo.stop(); this.bgLfo.disconnect(); } catch (_) {} this.bgLfo = null; }
+                if (this.bgLfoGain) { try { this.bgLfoGain.disconnect(); } catch (_) {} this.bgLfoGain = null; }
+                if (this.bgFilter) { try { this.bgFilter.disconnect(); } catch (_) {} this.bgFilter = null; }
+                if (this.bgGain) { try { this.bgGain.disconnect(); } catch (_) {} this.bgGain = null; }
+
+                if (this.tensionOsc) { try { this.tensionOsc.stop(); this.tensionOsc.disconnect(); } catch (_) {} this.tensionOsc = null; }
+                if (this.tensionLfo) { try { this.tensionLfo.stop(); this.tensionLfo.disconnect(); } catch (_) {} this.tensionLfo = null; }
+                if (this.tremoloGain) { try { this.tremoloGain.disconnect(); } catch (_) {} this.tremoloGain = null; }
+                if (this.tensionGain) { try { this.tensionGain.disconnect(); } catch (_) {} this.tensionGain = null; }
             }, 2100);
         }
     }
@@ -333,7 +405,7 @@ export class AudioController {
 
         const t = this.ctx.currentTime;
         const targetFreq = 55 + (this.currentIntensity * 10); // Slight pitch up (55Hz -> 65Hz)
-        const targetFilterFreq = 400 + (this.currentIntensity * 600); // 400 up to 1000Hz (softer than before to avoid buzz)
+        const targetFilterFreq = 400 + (this.currentIntensity * 600); // 400 up to 1000Hz
 
         if (this.bgOscillator1) {
             this.bgOscillator1.frequency.linearRampToValueAtTime(targetFreq, t + 0.5);

@@ -1,4 +1,5 @@
 import './style.css';
+import './critical.css';
 import { Game } from './Game.js';
 import { Scribe } from './Scribe.js';
 import { MagicalToast } from './ui/MagicalToast.js';
@@ -24,17 +25,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('error', (e) => routeToBanner(e.error || e.message));
   window.addEventListener('unhandledrejection', (e) => routeToBanner(e.reason));
 
-  // Ultra-strict font preloader for Canvas
-  // This physically forces the browser to download and parse the font before
-  // any Javascript rendering logic continues.
+  // Canvas Font Readiness
+  // Ensures Google Fonts Cinzel is ready without failing or stalling page initialization
   try {
-    const cinzelFont = new FontFace('Cinzel', 'url(https://fonts.gstatic.com/s/cinzel/v19/8vIJ7ww63mVu7gtzRzj2-Bs.woff2)');
-    await cinzelFont.load();
-    document.fonts.add(cinzelFont);
+    if (document.fonts) {
+      await Promise.race([
+        document.fonts.load('bold 32px Cinzel'),
+        document.fonts.ready,
+        new Promise(resolve => setTimeout(resolve, 600))
+      ]);
+    }
   } catch (e) {
-    console.warn("Manual font preload failed, relying on CSS fallback. Error:", e);
+    console.warn("[ArcaneTyper] Font preload fallback active:", e);
   }
-  await document.fonts.ready;
 
   const game = new Game('game-canvas');
   window.game = game; // global error router + Stats.js combo-sound hook rely on this
@@ -59,6 +62,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const pauseMenu = document.getElementById('pause-menu');
   const resumeBtn = document.getElementById('resume-btn');
   const pauseReturnBtn = document.getElementById('pause-return-btn');
+  const pauseVolumeSlider = document.getElementById('pause-volume-slider');
+  const pauseVolumeVal = document.getElementById('pause-volume-val');
+  const pauseMuteBtn = document.getElementById('pause-mute-btn');
+  const hudSoundBtn = document.getElementById('hud-sound-btn');
 
   const menuMageTitle = document.getElementById('menu-mage-title');
   const openAchievementsBtn = document.getElementById('open-achievements-icon-btn');
@@ -297,6 +304,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     mobileInput.focus();
   }
 
+  function updateAudioUI() {
+    const vol = game.audio.getMasterVolume();
+    const muted = game.audio.isMuted();
+    const pctStr = `${Math.round(vol * 100)}%`;
+
+    if (pauseVolumeSlider) pauseVolumeSlider.value = vol;
+    if (pauseVolumeVal) pauseVolumeVal.textContent = muted ? 'MUTED' : pctStr;
+
+    const syncBtn = (btn) => {
+      if (!btn) return;
+      btn.classList.toggle('is-muted', muted);
+      const iconOn = btn.querySelector('.sound-icon-on');
+      const iconOff = btn.querySelector('.sound-icon-off');
+      if (iconOn && iconOff) {
+        iconOn.classList.toggle('hidden', muted);
+        iconOff.classList.toggle('hidden', !muted);
+      }
+    };
+
+    syncBtn(pauseMuteBtn);
+    syncBtn(hudSoundBtn);
+  }
+
   function togglePause() {
     if (!game.isRunning) return;
 
@@ -316,6 +346,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       game.pause();
+      updateAudioUI();
       if (pauseMenu) {
         pauseMenu.classList.remove('hidden');
         pauseMenu.classList.add('active');
@@ -606,6 +637,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       game.triggerGameOver();
     });
   }
+
+  // Audio Control Event Listeners
+  if (pauseVolumeSlider) {
+    pauseVolumeSlider.addEventListener('input', (e) => {
+      game.audio.setMasterVolume(parseFloat(e.target.value));
+      updateAudioUI();
+    });
+  }
+  if (pauseMuteBtn) {
+    pauseMuteBtn.addEventListener('click', () => {
+      game.audio.toggleMute();
+      updateAudioUI();
+    });
+  }
+  if (hudSoundBtn) {
+    hudSoundBtn.addEventListener('click', () => {
+      game.audio.toggleMute();
+      updateAudioUI();
+    });
+  }
+  updateAudioUI();
   if (returnDashboardBtn) {
     returnDashboardBtn.addEventListener('click', () => {
       game.stop();
@@ -1130,7 +1182,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('keydown', (e) => {
     // Keyboard quick-start: Enter to begin from start menu
     if (e.key === 'Enter' && startMenu.classList.contains('active') && !startMenu.classList.contains('hidden') && startMenu.style.filter !== 'blur(4px)') {
-      if (document.activeElement.tagName !== 'BUTTON') {
+      const activeTag = document.activeElement ? document.activeElement.tagName : '';
+      if (activeTag !== 'BUTTON' && activeTag !== 'SELECT' && activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
         e.preventDefault();
         startGame();
         return;

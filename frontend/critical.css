@@ -1,0 +1,69 @@
+/* Critical Anti-FOUC & Dark Theme (Instant First Paint Protection)
+ * NOTE: This file MUST be loaded AFTER style.css (see <link> order in
+ * index.html) so its rules win equal-specificity ties — this reproduces the
+ * cascade of the former inline <style> block. It is also imported from
+ * main.js directly after style.css so the production bundle merges the two
+ * files in the same (style.css -> critical.css) order.
+ *
+ * It lives in a real file instead of an inline <style> tag because Vite's
+ * html-inline-proxy virtual modules fail to build when the project is built
+ * from a Windows drive-letter path whose case differs from the one Rollup
+ * resolves ("No matching HTML proxy module found" — vitejs/vite #16324).
+ */
+html, body {
+  background-color: #0f0a14 !important;
+  background: radial-gradient(circle at center top, #1c112e 0%, #0f0a14 100%) !important;
+  color: #f4ebd8 !important;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  font-family: 'Cinzel', 'Times New Roman', serif;
+}
+
+/* Instant Hidden Enforcement - Blocks ALL unstyled leaks before CSS parses */
+.hidden, [hidden],
+.overlay-menu.hidden,
+#hud.hidden,
+#duel-hud.hidden,
+#practice-ui.hidden,
+#practice-results.hidden,
+#game-over-menu.hidden,
+#new-highscore-form.hidden,
+#leaderboard-menu.hidden,
+#workshop-menu.hidden,
+#achievements-menu.hidden,
+#patch-board-menu.hidden,
+#pause-menu.hidden,
+#profile-menu.hidden,
+#character-creation-menu.hidden,
+#duel-lobby-menu.hidden,
+#duel-result-menu.hidden,
+#scribe-highscore-form.hidden,
+#mobile-nova-btn.hidden {
+  display: none !important;
+}
+
+#app {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: transparent;
+}
+
+#game-container {
+  width: 1000px;
+  height: 600px;
+  max-width: 95vw;
+  max-height: 90vh;
+  max-height: 90dvh;
+  background: rgba(28, 17, 46, 0.6);
+  border: 1px solid rgba(255, 215, 0, 0.15);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}

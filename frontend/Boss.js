@@ -17,15 +17,16 @@ export class Boss {
 
         // Base elemental stats
         const elements = {
-            'fire': { hp: 4, speed: 2000, color: '#ff4500', aura: '#ff8c00' },
-            'ice': { hp: 6, speed: 4500, color: '#00ffff', aura: '#e0ffff' },
-            'lightning': { hp: 3, speed: 1500, color: '#ffd700', aura: '#ffffba' },
-            'void': { hp: 5, speed: 3000, color: '#8a2be2', aura: '#4b0082' }
+            'fire': { hp: 4, speed: 2000, color: '#ff4500', aura: '#ff8c00', title: 'IGNIS · PYROLORD' },
+            'ice': { hp: 6, speed: 4500, color: '#00e5ff', aura: '#18ffff', title: 'GLACIES · FROST REAVER' },
+            'lightning': { hp: 3, speed: 1500, color: '#ffd700', aura: '#ffff00', title: 'FULGUR · STORM ARCHON' },
+            'void': { hp: 5, speed: 3000, color: '#aa00ff', aura: '#00e5ff', title: 'NIHIL · VOID SOVEREIGN' }
         };
 
         const config = elements[this.elementType] || elements['fire'];
         this.color = config.color;
         this.auraColor = config.aura;
+        this.title = config.title;
 
         // Scale HP and attack speed based on how many bosses have been defeated
         this.maxHealth = Math.floor(config.hp * difficultyScale);
@@ -52,17 +53,17 @@ export class Boss {
     }
 
     update(dt) {
-        // Intro animation: slide down
+        // Intro animation: slide down smoothly
         if (!this.introFinished) {
             const dy = this.targetY - this.y;
-            this.y += dy * 2 * dt; // Smooth ease-out
+            this.y += dy * Math.min(1, (dt / 1000) * 5); // Smooth ease-out (~1s cinematic slide-in)
             if (this.y >= this.targetY - 1) {
                 this.y = this.targetY;
                 this.introFinished = true;
             }
         } else if (!this.isDead) {
             // Hover effect slightly up and down
-            this.y = this.targetY + Math.sin(performance.now() / 500) * 10;
+            this.y = this.targetY + Math.sin(performance.now() / 450) * 8;
         }
 
         if (this.flashTimer > 0) {
@@ -117,69 +118,215 @@ export class Boss {
     draw(ctx) {
         if (this.isFullyDead()) return;
 
-        const healthPct = this.health / this.maxHealth;
+        const healthPct = Math.max(0, this.health / this.maxHealth);
+        const now = performance.now();
+        const lowQ = window.__atLowQuality;
 
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.scale(this.deathScale, this.deathScale);
         ctx.globalAlpha = this.opacity;
 
-        // Aura glow intensity scales up as HP drops (2x glow at 0 HP)
-        const angerMultiplier = 1 + (1 - healthPct);
-        const pulseGlow = Math.sin(performance.now() / 200) * 10;
-        const baseGlow = this.flashTimer > 0 ? 40 : (20 + pulseGlow) * angerMultiplier;
+        // 1. Casting Spell Windup Aura
+        const timeUntilSpell = Math.max(0, this.spellInterval - this.spellTimer);
+        const isChargingSpell = timeUntilSpell < 2000;
+        const chargeIntensity = isChargingSpell ? (1 - timeUntilSpell / 2000) : 0;
 
-        ctx.shadowColor = this.flashTimer > 0 ? '#ffffff' : this.auraColor;
-        ctx.shadowBlur = baseGlow;
+        // 2. Orbiting Elemental Catalysts (3 spell spheres in an elliptical 3D orbit)
+        const catalystCount = 3;
+        const orbitSpeed = isChargingSpell ? 0.006 : 0.002;
+        for (let i = 0; i < catalystCount; i++) {
+            const angle = (i / catalystCount) * Math.PI * 2 + now * orbitSpeed;
+            const ox = Math.cos(angle) * 48;
+            const oy = Math.sin(angle) * 16 - 10;
+            const isBehind = Math.sin(angle) < 0;
 
-        // Draw Rival Wizard Silhouette
-        ctx.fillStyle = this.flashTimer > 0 ? '#ffffff' : '#1a1a24';
+            // Only draw behind orbs before drawing the body
+            if (isBehind) {
+                this._drawCatalyst(ctx, ox, oy, this.color, chargeIntensity, lowQ);
+            }
+        }
+
+        // 3. Ambient Backglow & Levitation Ring
+        ctx.save();
+        ctx.scale(1, 0.35);
+        ctx.beginPath();
+        ctx.arc(0, 90, 36, 0, Math.PI * 2);
+        ctx.strokeStyle = this.auraColor;
+        ctx.lineWidth = 1.8;
+        if (!lowQ) {
+            ctx.shadowColor = this.auraColor;
+            ctx.shadowBlur = 10;
+        }
+        ctx.globalAlpha = 0.4 + Math.sin(now / 350) * 0.15;
+        ctx.stroke();
+        ctx.restore();
+
+        // 4. Arch-Warlock Body & Layered Robes
+        const isFlashing = this.flashTimer > 0;
+        ctx.save();
+
+        // Aura glow around wizard body
+        const angerMultiplier = 1 + (1 - healthPct) * 0.5;
+        ctx.strokeStyle = isFlashing ? '#ffffff' : this.color;
+        ctx.fillStyle = isFlashing ? '#ffffff' : '#110a1a';
+        ctx.lineWidth = 1.5;
+        if (!lowQ) {
+            ctx.shadowColor = isFlashing ? '#ffffff' : this.auraColor;
+            ctx.shadowBlur = isFlashing ? 30 : 12 * angerMultiplier;
+        }
+
+        // Tiered ceremonial robes
+        ctx.beginPath();
+        ctx.moveTo(0, -28);
+        ctx.lineTo(-24, 26);
+        ctx.quadraticCurveTo(0, 32, 24, 26);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Inner robe gold/elemental trim
+        ctx.beginPath();
+        ctx.moveTo(0, -26);
+        ctx.lineTo(0, 28);
+        ctx.strokeStyle = '#ffd700';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        // Ceremonial Cowl / Shroud
+        ctx.fillStyle = isFlashing ? '#ffffff' : '#1a0d26';
+        ctx.beginPath();
+        ctx.moveTo(-16, -22);
+        ctx.quadraticCurveTo(0, -16, 16, -22);
+        ctx.lineTo(13, -38);
+        ctx.quadraticCurveTo(0, -46, -13, -38);
+        ctx.closePath();
+        ctx.fill();
         ctx.strokeStyle = this.color;
-        ctx.lineWidth = 1;
-
-        // Cloak
-        ctx.beginPath();
-        ctx.moveTo(0, -24);
-        ctx.lineTo(-15, 18);
-        ctx.quadraticCurveTo(0, 21, 15, 18);
-        ctx.closePath();
-        ctx.fill();
+        ctx.lineWidth = 1.2;
         ctx.stroke();
 
-        // Hat
+        // Runic Horns / Spectral Crown
+        ctx.strokeStyle = this.auraColor;
+        ctx.lineWidth = 1.8;
+        // Left horn
         ctx.beginPath();
-        ctx.moveTo(-11, -21);
-        ctx.quadraticCurveTo(0, -18, 11, -21);
-        ctx.lineTo(1, -45);
-        ctx.lineTo(-1, -45);
-        ctx.closePath();
-        ctx.fill();
+        ctx.moveTo(-9, -40);
+        ctx.quadraticCurveTo(-22, -48, -18, -62);
+        ctx.stroke();
+        // Right horn
+        ctx.beginPath();
+        ctx.moveTo(9, -40);
+        ctx.quadraticCurveTo(22, -48, 18, -62);
         ctx.stroke();
 
-        // Health bar (only when intro done and alive)
+        // Floating Runic Crest above head
+        ctx.beginPath();
+        ctx.arc(0, -56, 6, 0, Math.PI * 2);
+        ctx.fillStyle = this.auraColor;
+        ctx.fill();
+
+        // Glowing Spectral Eyes
+        if (!isFlashing) {
+            ctx.fillStyle = '#00e5ff';
+            ctx.beginPath();
+            ctx.arc(-5, -28, 1.8, 0, Math.PI * 2);
+            ctx.arc(5, -28, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+
+        // 5. Orbiting Catalysts in front of body
+        for (let i = 0; i < catalystCount; i++) {
+            const angle = (i / catalystCount) * Math.PI * 2 + now * orbitSpeed;
+            const ox = Math.cos(angle) * 48;
+            const oy = Math.sin(angle) * 16 - 10;
+            const isFront = Math.sin(angle) >= 0;
+
+            if (isFront) {
+                this._drawCatalyst(ctx, ox, oy, this.color, chargeIntensity, lowQ);
+            }
+        }
+
+        // 6. Ornate Gilded Boss Health Bar
         if (this.introFinished && !this.isDead) {
-            ctx.shadowBlur = window.__atLowQuality ? 0 : 0;
-            const barWidth = 60;
-            const barHeight = 6;
-            const yOffset = -60;
+            ctx.save();
+            ctx.shadowBlur = 0;
+            const barWidth = 120;
+            const barHeight = 8;
+            const yOffset = -75;
 
-            // Background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            // Boss Title Banner
+            ctx.font = 'bold 11px Cinzel, serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = this.color;
+            ctx.fillText(this.title, 0, yOffset - 8);
+
+            // Bar background slate
+            ctx.fillStyle = 'rgba(5, 2, 10, 0.85)';
             ctx.fillRect(-barWidth / 2, yOffset, barWidth, barHeight);
 
-            // Smooth health fill using displayHealth
-            const displayPct = this.displayHealth / this.maxHealth;
-            // Color shifts from green → yellow → red as HP drops
-            const r = Math.floor(255 * (1 - displayPct));
-            const g = Math.floor(200 * displayPct);
-            ctx.fillStyle = `rgb(${255}, ${g}, 75)`;
-            ctx.fillRect(-barWidth / 2, yOffset, barWidth * displayPct, barHeight);
+            // Fill gradient (Color shifts from gold/elemental to crimson danger)
+            const displayPct = Math.max(0, Math.min(1, this.displayHealth / this.maxHealth));
+            const fillWidth = barWidth * displayPct;
 
-            // Border
+            const barGrad = ctx.createLinearGradient(-barWidth / 2, 0, barWidth / 2, 0);
+            barGrad.addColorStop(0, this.color);
+            barGrad.addColorStop(1, '#ffd700');
+            ctx.fillStyle = barGrad;
+            ctx.fillRect(-barWidth / 2, yOffset, fillWidth, barHeight);
+
+            // Gilded filigree frame
             ctx.strokeStyle = '#ffd700';
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1.5;
             ctx.strokeRect(-barWidth / 2, yOffset, barWidth, barHeight);
+
+            // Corner ornamental brackets
+            ctx.beginPath();
+            ctx.moveTo(-barWidth / 2 - 4, yOffset + 4);
+            ctx.lineTo(-barWidth / 2, yOffset - 2);
+            ctx.moveTo(barWidth / 2 + 4, yOffset + 4);
+            ctx.lineTo(barWidth / 2, yOffset - 2);
+            ctx.stroke();
+
+            // Hit threshold division notches
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.lineWidth = 1;
+            for (let h = 1; h < this.maxHealth; h++) {
+                const notchX = -barWidth / 2 + (barWidth / this.maxHealth) * h;
+                ctx.beginPath();
+                ctx.moveTo(notchX, yOffset);
+                ctx.lineTo(notchX, yOffset + barHeight);
+                ctx.stroke();
+            }
+
+            ctx.restore();
         }
+
+        ctx.restore();
+    }
+
+    _drawCatalyst(ctx, x, y, color, chargeIntensity, lowQ) {
+        ctx.save();
+        ctx.translate(x, y);
+
+        // Outer glow
+        const r = 5 + chargeIntensity * 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        if (!lowQ) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 8 + chargeIntensity * 6;
+        }
+        ctx.fill();
+
+        // Bright incandescent core
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
 
         ctx.restore();
     }

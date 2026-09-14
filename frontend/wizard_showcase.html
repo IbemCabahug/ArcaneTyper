@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArcaneTyper — Grand Chrono-Archmage Showcase</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background: #080312;
+            color: #ffd700;
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+        h1 {
+            font-family: 'Cinzel', serif;
+            font-size: 28px;
+            letter-spacing: 3px;
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        p.subtitle {
+            color: #a093c4;
+            font-size: 14px;
+            letter-spacing: 1px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+        .canvas-container {
+            position: relative;
+            border: 1.5px solid rgba(255, 215, 0, 0.35);
+            border-radius: 12px;
+            box-shadow: 0 0 35px rgba(0, 229, 255, 0.15), inset 0 0 25px rgba(0, 0, 0, 0.8);
+            background: radial-gradient(circle at 50% 50%, #15092a 0%, #080312 100%);
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            margin-top: 18px;
+            display: flex;
+            gap: 12px;
+        }
+        button {
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(0, 229, 255, 0.15));
+            border: 1px solid #ffd700;
+            color: #ffffff;
+            font-family: 'Cinzel', serif;
+            font-size: 13px;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.4), rgba(0, 229, 255, 0.3));
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <h1>GRAND CHRONO-ARCHMAGE</h1>
+    <p class="subtitle">Rear Perspective & Combo-Scaling Ascendant Aura Evolution</p>
+
+    <div class="canvas-container">
+        <canvas id="showcase-canvas" width="1200" height="420"></canvas>
+    </div>
+
+    <div class="controls">
+        <button id="btn-cast">Trigger Cast Pulse</button>
+        <button id="btn-wand">Cycle Wand Color</button>
+    </div>
+
+    <script type="module">
+        import { CharacterRenderer } from './game/CharacterRenderer.js';
+
+        const canvas = document.getElementById('showcase-canvas');
+        const ctx = canvas.getContext('2d');
+
+        const colors = ['#00e5ff', '#ff00ff', '#ffd700', '#00ff88', '#ff3366'];
+        let colorIdx = 0;
+        let castProgress = 0;
+
+        document.getElementById('btn-cast').addEventListener('click', () => {
+            castProgress = 1.0;
+        });
+
+        document.getElementById('btn-wand').addEventListener('click', () => {
+            colorIdx = (colorIdx + 1) % colors.length;
+        });
+
+        const tiers = [
+            { label: 'BASE / IDLE', combo: 0, sub: 'Astrological Cowl & Grimoire' },
+            { label: 'TIER 1 (10+ COMBO)', combo: 15, sub: 'Dual Runic Ground Pedestal' },
+            { label: 'TIER 2 (25+ COMBO)', combo: 30, sub: 'Staff Starlight Rays & Embers' },
+            { label: 'TIER 3 (50+ COMBO)', combo: 60, sub: 'Celestial Starlight Wings' },
+            { label: 'ASCENDANT (100+ COMBO)', combo: 105, sub: 'Star Crown & Starlight Electricity' }
+        ];
+
+        let lastTime = performance.now();
+
+        function render(now) {
+            const dt = (now - lastTime) / 1000;
+            lastTime = now;
+
+            if (castProgress > 0) {
+                castProgress = Math.max(0, castProgress - dt * 2.5);
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw subtle celestial grid & stars
+            ctx.save();
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+            for (let i = 0; i < 60; i++) {
+                const sx = (i * 73 + 19) % canvas.width;
+                const sy = (i * 47 + 31) % canvas.height;
+                const pulse = 0.5 + Math.sin(now / 300 + i) * 0.4;
+                ctx.globalAlpha = pulse * 0.35;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+
+            const colWidth = canvas.width / tiers.length;
+
+            tiers.forEach((tier, index) => {
+                const cx = colWidth * index + colWidth / 2;
+                const cy = 250;
+
+                // Column divider
+                if (index > 0) {
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(255, 215, 0, 0.12)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(colWidth * index, 20);
+                    ctx.lineTo(colWidth * index, canvas.height - 20);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // Header Labels
+                ctx.save();
+                ctx.font = 'bold 13px Cinzel, serif';
+                ctx.fillStyle = tier.combo >= 100 ? '#ffffff' : (tier.combo >= 50 ? '#00e5ff' : '#ffd700');
+                ctx.textAlign = 'center';
+                ctx.fillText(tier.label, cx, 42);
+
+                ctx.font = '11px Outfit, sans-serif';
+                ctx.fillStyle = '#9d8ec2';
+                ctx.fillText(tier.sub, cx, 60);
+
+                ctx.font = 'bold 11px Cinzel, serif';
+                ctx.fillStyle = 'rgba(255, 215, 0, 0.5)';
+                ctx.fillText(`COMBO: ${tier.combo}`, cx, 80);
+                ctx.restore();
+
+                // Render Archmage
+                const stats = {
+                    wandColor: colors[colorIdx],
+                    combo: tier.combo
+                };
+
+                CharacterRenderer.drawWizard(ctx, cx, cy, castProgress, stats, now);
+            });
+
+            requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>

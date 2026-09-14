@@ -37,6 +37,14 @@ export function bakeBurst(palette) {
 
 export class Particle {
     constructor(x, y, color) {
+        this.active = false;
+        if (typeof x !== 'undefined') {
+            this.init(x, y, color);
+        }
+    }
+
+    init(x, y, color) {
+        this.active = true;
         this.x = x;
         this.y = y;
         this.color = color;
@@ -46,7 +54,11 @@ export class Particle {
         const speed = Math.random() * 0.7 + 0.15;
         this.vx = Math.cos(angle) * speed;
         this.vy = Math.sin(angle) * speed;
-        this.curve = (Math.random() - 0.5) * 0.1; // adding slight swerving trajectory
+
+        // Precompute curve rotation matrix — eliminates 4 transcendental calls per frame
+        this.curve = (Math.random() - 0.5) * 0.1;
+        this.cosCurve = Math.cos(this.curve);
+        this.sinCurve = Math.sin(this.curve);
 
         // Lifespan and size
         this.life = 1.0;
@@ -58,7 +70,7 @@ export class Particle {
         this.gravity = 0.0008 + Math.random() * 0.0006;
 
         // Sometimes draw a rune instead of a circle
-        this.isRune = Math.random() > 0.7 && !this.isShockwave;
+        this.isRune = Math.random() > 0.7;
         this.runeChar = String.fromCharCode(0x16A0 + Math.floor(Math.random() * 80)); // Runic block
 
         // Type flags
@@ -66,6 +78,8 @@ export class Particle {
         this.isSlashLine = false;
         this.isHexShield = false;
         this.isDistortionRing = false;
+        this.isGlassShard = false;
+        this.isBurst = false;
 
         // Setup shockwave properties if indicated
         if (color === 'shockwave' || color === 'shockwave_purple' || color === 'shockwave_red') {
@@ -87,42 +101,7 @@ export class Particle {
             this.expansionRate = 12; // How fast the ring grows
         }
 
-        // --- Slash Line (Sukuna Cleave/Dismantle visual) ---
-        if (typeof color === 'object' && color.type === 'slash_line') {
-            this.isSlashLine = true;
-            this.isRune = false;
-            this.isShockwave = false;
-            this.color = color.color || '#ff1744';
-            this.slashAngle = color.angle || (Math.random() * Math.PI - Math.PI / 2);
-            this.slashLength = color.length || (60 + Math.random() * 80);
-            this.slashWidth = color.width || (2 + Math.random() * 1.5);
-            this.vx = 0;
-            this.vy = 0;
-            this.gravity = 0;
-            this.life = 1.0;
-            this.decay = 0.06; // Fast fade
-            this.size = 0;
-        }
 
-        // --- Hex Shield (Gojo Infinity barrier hexagon) ---
-        if (typeof color === 'object' && color.type === 'hex_shield') {
-            this.isHexShield = true;
-            this.isRune = false;
-            this.isShockwave = false;
-            this.color = color.color || '#00e5ff';
-            this.hexRadius = color.radius || (6 + Math.random() * 4);
-            this.hexAngle = color.orbitAngle || (Math.random() * Math.PI * 2);
-            this.hexOrbitRadius = color.orbitRadius || 35;
-            this.hexRotation = Math.random() * Math.PI;
-            this.originX = color.originX || x;
-            this.originY = color.originY || y;
-            this.vx = 0;
-            this.vy = 0;
-            this.gravity = 0;
-            this.life = 1.0;
-            this.decay = 0.025;
-            this.size = 0;
-        }
 
         // --- Shatter Burst (pre-baked splash on word kills) ---
         if (typeof color === 'object' && color.type === 'burst') {
@@ -140,47 +119,46 @@ export class Particle {
             this.size = 0;
         }
 
-        // --- Distortion Ring (Gojo spatial distortion wave) ---
-        if (typeof color === 'object' && color.type === 'distortion_ring') {
-            this.isDistortionRing = true;
+        // --- Celestial Crystal / Barrier Shard (Barrier shatter fracture) ---
+        if (typeof color === 'object' && color.type === 'glass_shard') {
+            this.isGlassShard = true;
             this.isRune = false;
             this.isShockwave = false;
-            this.color = color.color || 'rgba(0, 229, 255, 0.6)';
-            this.vx = 0;
-            this.vy = 0;
-            this.gravity = 0;
+            this.color = color.color || '#00e5ff';
+            this.shardLength = color.length || (8 + Math.random() * 10);
+            this.shardWidth = color.width || (3.5 + Math.random() * 4);
+            this.rot = Math.random() * Math.PI * 2;
+            this.vRot = (Math.random() - 0.5) * 0.02;
+            this.vx = color.vx !== undefined ? color.vx : (Math.random() - 0.5) * 0.4;
+            this.vy = color.vy !== undefined ? color.vy : (Math.random() - 0.5) * 0.4;
+            this.gravity = color.gravity !== undefined ? color.gravity : 0.0003;
             this.life = 1.0;
-            this.decay = 0.03;
-            this.size = color.startRadius || 8;
-            this.expansionRate = color.expansionRate || 4;
-            this.waveAmplitude = 2 + Math.random() * 2;
-            this.waveFrequency = 4 + Math.random() * 4;
-            this.ringWidth = color.ringWidth || 1.5;
+            this.decay = color.decay || (0.012 + Math.random() * 0.008);
+            this.size = 0;
         }
     }
 
     update(dt) {
+        if (!this.active || this.life <= 0) {
+            this.active = false;
+            return;
+        }
+
         if (this.isShockwave) {
             this.size += this.expansionRate * (dt / 16);
             this.life -= this.decay * (dt / 16);
-        } else if (this.isSlashLine) {
+        } else if (this.isGlassShard) {
             this.x += this.vx * dt;
             this.y += this.vy * dt;
-            this.life -= this.decay * (dt / 16);
-        } else if (this.isHexShield) {
-            this.hexAngle += 0.001 * dt;
-            this.x = this.originX + Math.cos(this.hexAngle) * this.hexOrbitRadius;
-            this.y = this.originY + Math.sin(this.hexAngle) * this.hexOrbitRadius;
-            this.life -= this.decay * (dt / 16);
-        } else if (this.isDistortionRing) {
-            this.size += this.expansionRate * (dt / 16);
+            this.vy += this.gravity * dt;
+            this.rot += this.vRot * dt;
             this.life -= this.decay * (dt / 16);
         } else {
-            // organic swerve
-            const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-            const currentAngle = Math.atan2(this.vy, this.vx);
-            this.vx = Math.cos(currentAngle + this.curve) * currentSpeed;
-            this.vy = Math.sin(currentAngle + this.curve) * currentSpeed;
+            // Zero-trigonometry matrix rotation for organic swerve
+            const nvx = this.vx * this.cosCurve - this.vy * this.sinCurve;
+            const nvy = this.vx * this.sinCurve + this.vy * this.cosCurve;
+            this.vx = nvx;
+            this.vy = nvy;
 
             this.x += this.vx * dt;
             this.y += this.vy * dt;
@@ -191,6 +169,10 @@ export class Particle {
 
             // Shrink as they die
             this.size = this.initialSize * this.life;
+        }
+
+        if (this.life <= 0) {
+            this.active = false;
         }
     }
 
@@ -213,74 +195,25 @@ export class Particle {
             ctx.shadowColor = this.color;
             ctx.shadowBlur = lowQ ? 0 : 10;
             ctx.stroke();
-        } else if (this.isSlashLine) {
-            // Draw a bright slash line from center
-            const halfLen = this.slashLength / 2;
-            const dx = Math.cos(this.slashAngle) * halfLen;
-            const dy = Math.sin(this.slashAngle) * halfLen;
 
-            ctx.beginPath();
-            ctx.moveTo(this.x - dx, this.y - dy);
-            ctx.lineTo(this.x + dx, this.y + dy);
-            ctx.strokeStyle = this.color;
-            ctx.lineWidth = this.slashWidth * this.life;
-            ctx.lineCap = 'round';
-            ctx.shadowColor = this.color;
-            ctx.shadowBlur = lowQ ? 0 : 12;
-            ctx.stroke();
-
-            // Inner bright core line
-            ctx.globalAlpha = Math.max(0, this.life * 0.8);
-            ctx.beginPath();
-            ctx.moveTo(this.x - dx * 0.7, this.y - dy * 0.7);
-            ctx.lineTo(this.x + dx * 0.7, this.y + dy * 0.7);
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = this.slashWidth * this.life * 0.4;
-            ctx.shadowBlur = lowQ ? 0 : 6;
-            ctx.stroke();
-        } else if (this.isHexShield) {
-            // Draw a hexagon
+        } else if (this.isGlassShard) {
+            // Spacetime Glass Shard (Refractive polygonal crystal shard)
+            ctx.save();
             ctx.translate(this.x, this.y);
-            ctx.rotate(this.hexRotation);
+            ctx.rotate(this.rot);
             ctx.beginPath();
-            for (let i = 0; i < 6; i++) {
-                const a = (Math.PI / 3) * i;
-                const hx = Math.cos(a) * this.hexRadius;
-                const hy = Math.sin(a) * this.hexRadius;
-                if (i === 0) ctx.moveTo(hx, hy);
-                else ctx.lineTo(hx, hy);
-            }
+            ctx.moveTo(0, -this.shardLength / 2);
+            ctx.lineTo(this.shardWidth / 2, this.shardLength / 4);
+            ctx.lineTo(-this.shardWidth / 2, this.shardLength / 2);
             ctx.closePath();
-            ctx.strokeStyle = this.color;
-            ctx.lineWidth = 1.2;
+            ctx.fillStyle = this.color;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.lineWidth = 0.8;
             ctx.shadowColor = this.color;
             ctx.shadowBlur = lowQ ? 0 : 8;
-            ctx.stroke();
-
-            // Faint fill
-            ctx.globalAlpha = Math.max(0, this.life * 0.15);
-            ctx.fillStyle = this.color;
             ctx.fill();
-        } else if (this.isDistortionRing) {
-            // Draw a wavy expanding ring
-            const now = performance.now();
-            ctx.beginPath();
-            const segments = 60;
-            for (let i = 0; i <= segments; i++) {
-                const a = (i / segments) * Math.PI * 2;
-                const wave = Math.sin(a * this.waveFrequency + now * 0.005) * this.waveAmplitude * this.life;
-                const r = this.size + wave;
-                const px = this.x + Math.cos(a) * r;
-                const py = this.y + Math.sin(a) * r;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.strokeStyle = this.color;
-            ctx.lineWidth = this.ringWidth * this.life;
-            ctx.shadowColor = this.color;
-            ctx.shadowBlur = lowQ ? 0 : 6;
             ctx.stroke();
+            ctx.restore();
         } else if (this.isBurst) {
             // Bake-once splash: drawImage only, expanding and fading out
             const img = bakeBurst(this.burstColors);

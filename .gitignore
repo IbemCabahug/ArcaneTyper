@@ -17,6 +17,10 @@ dist-ssr
 # This line is the only protection against committing it here - never remove.
 /docs/
 
+# Scratch / QA artifacts
+scratch/
+/scratch/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

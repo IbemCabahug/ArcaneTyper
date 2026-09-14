@@ -1,4 +1,4 @@
-import { Sprite } from './Sprite.js';
+import { MeteorRenderer } from './MeteorRenderer.js';
 
 export class Word {
     constructor(text, canvasWidth, canvasHeight, speedMultiplier, targetX, targetY, options = {}) {
@@ -23,11 +23,8 @@ export class Word {
         this._lastTypedStr = null;
         this._cachedTypedWidth = 0;
 
-        // Setup temporary canvas to pre-calculate static widths
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.font = 'bold 32px Cinzel';
-        this.totalTextWidth = tempCtx.measureText(this.text).width;
+        // Static shared canvas for zero-allocation text measurement
+        this.totalTextWidth = Word.measureText(this.text);
 
         // Pre-calculate sprite target width
         const minSpriteWidth = 100;
@@ -38,18 +35,9 @@ export class Word {
         this.elementName = elementNames[Math.floor(Math.random() * elementNames.length)];
         this.elementColors = Word.ELEMENTS[this.elementName];
 
-        this.sprite = null;
-        const spriteMap = {
-            'fire': '/fire.png',
-            'ice': '/ice.png',
-            'lightning': '/lightning.png',
-            'void': '/void.png'
-        };
-
-        const spriteSrc = spriteMap[this.elementName];
-        if (spriteSrc) {
-            this.sprite = new Sprite(spriteSrc, 0, 5, 2.5, this.elementName);
-        }
+        // AT-F7 & AT-F8: Procedural elemental meteor halo / void rift
+        this.meteor = new MeteorRenderer(this.elementName);
+        this.sprite = this.meteor; // Backward compatibility
 
         // Position
         if (typeof options.x !== 'undefined') {
@@ -111,7 +99,6 @@ export class Word {
         this.deathTimer = 0;
         this.deathDuration = 200; // ms
         this.deathScale = 1.0; // scale multiplier during death
-        this.deathStyle = 'default'; // 'default' | 'purple' | 'slash'
 
         // Cached text metrics (measureText is a layout pass; only re-run when
         // the string actually changes instead of every frame per word)
@@ -119,6 +106,18 @@ export class Word {
         this._cachedTypedWidth = 0;
         this._lastUntypedStr = null;
         this._cachedUntypedWidth = 0;
+    }
+
+    static _measureCtx = null;
+    static measureText(text, font = 'bold 32px Cinzel, serif') {
+        if (!Word._measureCtx) {
+            const c = document.createElement('canvas');
+            c.width = 1;
+            c.height = 1;
+            Word._measureCtx = c.getContext('2d');
+        }
+        Word._measureCtx.font = font;
+        return Word._measureCtx.measureText(text).width;
     }
 
     update(dt) {
@@ -154,9 +153,9 @@ export class Word {
             this.opacity = 1.0; // Force visible when targeted
         }
 
-        // Update sprite animation frame
-        if (this.sprite) {
-            this.sprite.update();
+        // Update procedural meteor animation frame
+        if (this.meteor) {
+            this.meteor.update(dt);
         }
     }
 
@@ -188,12 +187,14 @@ export class Word {
         }
 
         const textYOffset = 70;
-        const textXOffset = -35;
-        const startX = (-this.totalTextWidth / 2) + textXOffset;
+        const totalTextWidth = this._cachedTypedWidth + this._cachedUntypedWidth;
+        // Perfectly centralized at x = 0 beneath the meteor core
+        const startX = -totalTextWidth / 2;
 
-        // Draw Animated Sprite above the text
-        if (this.sprite) {
-            this.sprite.draw(ctx, 0, -15, this.spriteTargetWidth, this.elementName, this.angle);
+        // Draw Procedural Meteor Aura above the text
+        if (this.meteor) {
+            const typingProgress = this.text.length > 0 ? this.typed.length / this.text.length : 0;
+            this.meteor.draw(ctx, 0, -15, this.spriteTargetWidth, this.angle, this.isTargeted, typingProgress);
         }
 
         ctx.save();
@@ -201,93 +202,47 @@ export class Word {
             ctx.scale(1.5, 1.5);
         }
 
-        // Text background
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        const paddingX = 10;
-        const totalTextWidth = this._cachedTypedWidth + this._cachedUntypedWidth;
-        const boxWidth = totalTextWidth + paddingX * 2;
-        const boxHeight = 40;
-        const boxX = startX - paddingX;
-        const boxY = textYOffset - boxHeight / 2;
-
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 5);
-        } else {
-            ctx.rect(boxX, boxY, boxWidth, boxHeight);
-        }
-
-        // Armored word has a metallic/red border
+        // Variant Badges (Clean fantasy icons rendered next to text without a box)
         if (this.variant === 'armored') {
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = '#ff4b4b'; // Red armor core
-            ctx.stroke();
-
-            // Draw a subtle lock icon next to the word to visually hint it's different
-            ctx.fillStyle = '#ff4b4b';
+            ctx.fillStyle = '#ff3d00';
             ctx.font = '16px serif';
-            ctx.fillText('🛡️', boxX - 25, textYOffset);
-
-            ctx.font = 'bold 32px Cinzel, serif'; // Restore font
-        }
-
-        // Swarm word has a smaller, greener box outline
-        if (this.variant === 'swarm') {
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#00e5ff';
-            ctx.stroke();
-        }
-
-        // Cursed word
-        if (this.variant === 'cursed') {
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#8a0303'; // Dark blood red
-            ctx.stroke();
-            ctx.fillStyle = '#8a0303';
-            ctx.font = '16px serif';
-            ctx.fillText('👁️‍🗨️', boxX - 25, textYOffset);
+            ctx.fillText('🛡️', startX - 26, textYOffset);
             ctx.font = 'bold 32px Cinzel, serif';
-        }
-
-        // Combo word
-        if (this.variant === 'combo') {
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#ffd700'; // Gold chain
-            ctx.stroke();
+        } else if (this.variant === 'cursed') {
+            ctx.fillStyle = '#ff1744';
+            ctx.font = '16px serif';
+            ctx.fillText('👁️', startX - 26, textYOffset);
+            ctx.font = 'bold 32px Cinzel, serif';
+        } else if (this.variant === 'combo') {
             ctx.fillStyle = '#ffd700';
             ctx.font = '16px serif';
-            ctx.fillText('🔗', boxX - 30, textYOffset + 2);
+            ctx.fillText('🔗', startX - 30, textYOffset + 2);
             ctx.font = 'bold 32px Cinzel, serif';
         }
 
-        // Elemental word (glow based on element)
-        if (this.variant === 'elemental') {
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = this.elementColors.untypedTargeted;
-            ctx.shadowColor = this.elementColors.untypedTargeted;
-            ctx.shadowBlur = window.__atLowQuality ? 0 : 10;
-            ctx.stroke();
-            ctx.shadowBlur = window.__atLowQuality ? 0 : 0; // reset
+        // --- High-Contrast Magical Typography ---
+        if (this.isTargeted) {
+            ctx.shadowColor = 'rgba(255, 215, 0, 0.9)';
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 14;
+        } else {
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 6;
         }
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.fill();
-
-        // Typed part
-        ctx.fillStyle = this.isTargeted ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.3)';
+        // 1. Typed part: Illuminated starlight with soft cyan mana sheen
+        ctx.fillStyle = this.isTargeted ? '#80deea' : 'rgba(200, 230, 255, 0.45)';
         ctx.fillText(this.typed, startX, textYOffset);
 
-        // Untyped part
-        // Untyped part
+        // 2. Untyped part
         if (this.gameMode === 'blind' && this.isTargeted && this.typed.length > 0) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
             const hiddenText = '?'.repeat(this.untyped.length);
             ctx.fillText(hiddenText, startX + this._cachedTypedWidth, textYOffset);
         } else {
             if (this.variant === 'elemental') {
                 ctx.fillStyle = this.isTargeted ? this.elementColors.untypedTargeted : this.elementColors.untyped;
             } else if (this.variant === 'cursed') {
-                ctx.fillStyle = this.isTargeted ? '#ff4b4b' : '#ff7b54';
+                ctx.fillStyle = this.isTargeted ? '#ff5252' : '#ff8a80';
             } else {
                 ctx.fillStyle = this.isTargeted ? '#ffd700' : '#ffffff';
             }
@@ -295,51 +250,9 @@ export class Word {
             ctx.fillText(this.untyped, startX + this._cachedTypedWidth, textYOffset);
         }
 
-        // Character-specific death visuals
-        if (this.dying) {
-            const deathProgress = Math.min(1, this.deathTimer / this.deathDuration);
 
-            if (this.deathStyle === 'slash') {
-                // Sukuna: Red slash lines cut across the word
-                ctx.save();
-                ctx.globalAlpha = 1.0 - deathProgress * 0.5;
-                ctx.strokeStyle = '#ff1744';
-                ctx.shadowColor = '#ff1744';
-                ctx.shadowBlur = window.__atLowQuality ? 0 : 12;
-                ctx.lineWidth = 3 * (1 - deathProgress);
-                ctx.lineCap = 'round';
 
-                // Diagonal slash across the word box
-                const slashExtend = deathProgress * 30;
-                ctx.beginPath();
-                ctx.moveTo(boxX - 10 - slashExtend, textYOffset - 20 - slashExtend * 0.3);
-                ctx.lineTo(boxX + boxWidth + 10 + slashExtend, textYOffset + 20 + slashExtend * 0.3);
-                ctx.stroke();
-
-                // Second cross slash
-                ctx.globalAlpha = (1.0 - deathProgress) * 0.7;
-                ctx.beginPath();
-                ctx.moveTo(boxX - 5 - slashExtend * 0.5, textYOffset + 15 + slashExtend * 0.2);
-                ctx.lineTo(boxX + boxWidth + 5 + slashExtend * 0.5, textYOffset - 15 - slashExtend * 0.2);
-                ctx.stroke();
-                ctx.restore();
-            } else if (this.deathStyle === 'purple') {
-                // Gojo: Purple energy glow overtakes the word
-                ctx.save();
-                ctx.globalAlpha = (1 - deathProgress) * 0.6;
-                ctx.fillStyle = '#e040fb';
-                ctx.shadowColor = '#e040fb';
-                ctx.shadowBlur = window.__atLowQuality ? 0 : 20 * (1 - deathProgress);
-                ctx.beginPath();
-                if (ctx.roundRect) {
-                    ctx.roundRect(boxX - 3, boxY - 3, boxWidth + 6, boxHeight + 6, 8);
-                } else {
-                    ctx.rect(boxX - 3, boxY - 3, boxWidth + 6, boxHeight + 6);
-                }
-                ctx.fill();
-                ctx.restore();
-            }
-        }
+        ctx.restore();
 
         ctx.restore();
         ctx.restore();

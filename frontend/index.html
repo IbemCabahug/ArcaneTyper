@@ -9,6 +9,8 @@
   <link rel="icon" type="image/png" href="/favicon.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>ArcaneTyper — The Enchanted Library</title>
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./critical.css" />
 </head>
 
 <body>
@@ -27,6 +29,20 @@
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
             <polyline points="16 17 21 12 16 7" />
             <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+        </button>
+        <button id="hud-sound-btn" title="Toggle Sound Mute"
+          style="position: absolute; top: 118px; right: 30px; background: rgba(0, 0, 0, 0.5); color: #ffd700; border: 1px solid rgba(255, 215, 0, 0.4); border-radius: 5px; cursor: pointer; font-size: 1.2rem; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; z-index: 100; transition: all 0.3s ease;">
+          <svg class="sound-icon-on" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          </svg>
+          <svg class="sound-icon-off hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
           </svg>
         </button>
         <div class="stat-box">
@@ -230,12 +246,38 @@
 
       <!-- Pause Menu -->
       <div id="pause-menu" class="overlay-menu hidden">
-        <h2 style="text-shadow: 0 0 20px rgba(184,146,176,0.6); color: #ffd700;">TIME FROZEN</h2>
-        <p style="color: #b892b0; font-size: 1.1rem; margin-bottom: 2rem; font-family: 'Cinzel', serif;">The magic is suspended...</p>
-        <button id="resume-btn" class="primary-btn">RESUME SPELLCASTING</button>
-        <button id="pause-return-btn" class="primary-btn"
-          style="margin-top: 10px; background: transparent; border-color: var(--text-muted); color: var(--text-muted);">FORFEIT RUN</button>
-        <div style="font-size: 0.75rem; color: #b892b0; opacity: 0.8; text-align: center; pointer-events: none; margin-top: 20px; font-family: monospace;">Press <span style="color: #ffd700; font-weight: bold; border: 1px solid rgba(255, 215, 0, 0.4); padding: 1px 5px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);">Escape</span> to resume instantly</div>
+        <div class="pause-card">
+          <div class="pause-crest">⏳</div>
+          <h2 style="text-shadow: 0 0 20px rgba(255, 215, 0, 0.6); color: #ffd700; letter-spacing: 4px; margin-bottom: 5px;">CHRONOMANCY STASIS</h2>
+          <p style="color: #b892b0; font-size: 1rem; margin-bottom: 1.5rem; font-family: 'Cinzel', serif; letter-spacing: 1px;">Temporal magic has suspended the realm...</p>
+
+          <!-- Audio Harmonics Slider / Mute in Pause Menu -->
+          <div class="pause-audio-panel">
+            <div class="pause-audio-header">
+              <span class="pause-audio-label">MYSTIC HARMONICS</span>
+              <span id="pause-volume-val" class="pause-audio-val">70%</span>
+            </div>
+            <div class="pause-audio-controls">
+              <button id="pause-mute-btn" class="pause-mute-btn" title="Toggle Sound">
+                <svg class="sound-icon-on" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+                <svg class="sound-icon-off hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <line x1="23" y1="9" x2="17" y2="15"></line>
+                  <line x1="17" y1="9" x2="23" y2="15"></line>
+                </svg>
+              </button>
+              <input type="range" id="pause-volume-slider" class="pause-volume-slider" min="0" max="1" step="0.05" value="0.7" title="Master Volume" />
+            </div>
+          </div>
+
+          <button id="resume-btn" class="primary-btn" style="margin-top: 15px; width: 100%;">RESUME SPELLCASTING</button>
+          <button id="pause-return-btn" class="primary-btn"
+            style="margin-top: 10px; width: 100%; background: transparent; border-color: var(--text-muted); color: var(--text-muted);">FORFEIT RUN</button>
+          <div style="font-size: 0.75rem; color: #b892b0; opacity: 0.8; text-align: center; pointer-events: none; margin-top: 15px; font-family: monospace;">Press <span style="color: #ffd700; font-weight: bold; border: 1px solid rgba(255, 215, 0, 0.4); padding: 1px 5px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);">Escape</span> to resume instantly</div>
+        </div>
       </div>
 
       <!-- Game Over Menu -->
@@ -876,33 +918,51 @@
                 
                 <!-- Wizard Card -->
                 <div class="skin-card active" id="skin-wizard" data-char="wizard" style="cursor: pointer; flex: 1; padding: 6px; border: 1.5px solid var(--accent-primary); border-radius: 6px; background: rgba(255, 255, 255, 0.02); transition: all 0.3s ease; position: relative;">
-                  <div class="skin-avatar-preview wizard-preview" style="height: 35px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-                    <div style="width: 16px; height: 20px; background: #29b6f6; border-radius: 50% 50% 0 0; position: relative; box-shadow: 0 0 8px #29b6f6;"></div>
+                  <div class="skin-avatar-preview wizard-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
+                    <svg viewBox="0 0 40 40" width="34" height="34" style="filter: drop-shadow(0 0 6px rgba(41, 182, 246, 0.6));">
+                      <circle cx="20" cy="20" r="18" fill="#12091f" stroke="#3a2b52" stroke-width="1.2"/>
+                      <circle cx="9" cy="11" r="0.8" fill="#ffd700" opacity="0.8"/>
+                      <circle cx="31" cy="13" r="0.7" fill="#00e5ff" opacity="0.8"/>
+                      <path d="M 12 34 L 16 22 L 24 22 L 28 34 Z" fill="#1d112e" stroke="#3a2b52" stroke-width="0.8"/>
+                      <path d="M 14 23 C 14 20, 26 20, 26 23 C 26 26, 14 26, 14 23 Z" fill="#2d1a45" stroke="#ffd700" stroke-width="0.7"/>
+                      <path d="M 10 21 Q 20 18 30 21 Q 20 23 10 21 Z" fill="#1a0f2b" stroke="#4a3b63" stroke-width="0.8"/>
+                      <path d="M 13 20 Q 20 7 21 5 Q 23 13 27 20 Z" fill="#150a24" stroke="#ffd700" stroke-width="0.8"/>
+                      <path d="M 14 19 Q 20 18 26 19 L 26.3 17.5 Q 20 16.5 13.7 17.5 Z" fill="#ffd700"/>
+                      <ellipse cx="20" cy="21.5" rx="3.5" ry="1.5" fill="#08030e"/>
+                      <circle cx="18.5" cy="21.5" r="0.7" fill="#00e5ff"/>
+                      <circle cx="21.5" cy="21.5" r="0.7" fill="#00e5ff"/>
+                    </svg>
                   </div>
                   <span style="font-size: 0.7rem; font-weight: bold; color: white; display: block;">WIZARD</span>
                   <span style="font-size: 0.55rem; color: #ffd700; display: block; font-family: monospace; margin-top: 1px;">Unlocked</span>
                 </div>
 
-                <!-- Gojo Card -->
-                <div class="skin-card locked" id="skin-gojo" data-char="gojo" style="cursor: pointer; flex: 1; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background: rgba(0, 0, 0, 0.3); transition: all 0.3s ease; position: relative;" title="Unlock: 'Limitless Focus' achievement (Reach 100+ WPM & 95%+ accuracy)">
-                  <div class="skin-avatar-preview gojo-preview" style="height: 35px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-                    <div style="width: 14px; height: 18px; background: #00e5ff; border-radius: 3px; position: relative; box-shadow: 0 0 8px #00e5ff;">
-                      <div style="position: absolute; top: 3px; left: 3px; width: 8px; height: 2px; background: #000;"></div>
-                    </div>
+                <!-- Voidweaver (Coming Soon) -->
+                <div class="skin-card locked" id="skin-voidweaver" data-char="voidweaver" style="cursor: not-allowed; flex: 1; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: 6px; background: rgba(0, 0, 0, 0.35); transition: all 0.3s ease; position: relative;" title="Coming Soon: Astral Gravitation & Singularity Magic">
+                  <div class="skin-avatar-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
+                    <svg viewBox="0 0 40 40" width="34" height="34" style="filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.4)); opacity: 0.65;">
+                      <circle cx="20" cy="20" r="18" fill="#060914" stroke="#00e5ff" stroke-width="1.2" stroke-dasharray="4 3"/>
+                      <circle cx="20" cy="20" r="6" fill="#010206" stroke="#00e5ff" stroke-width="1.5"/>
+                      <circle cx="20" cy="20" r="1.5" fill="#ffffff"/>
+                      <path d="M 12 14 Q 20 18 28 14" fill="none" stroke="rgba(0, 229, 255, 0.5)" stroke-width="1"/>
+                      <path d="M 14 26 Q 20 22 26 26" fill="none" stroke="rgba(0, 229, 255, 0.5)" stroke-width="1"/>
+                    </svg>
                   </div>
-                  <span style="font-size: 0.7rem; font-weight: bold; color: #00e5ff; display: block;">GOJO</span>
-                  <span class="skin-status" style="font-size: 0.55rem; color: #ff5252; display: block; font-family: monospace; margin-top: 1px;">LOCKED</span>
+                  <span style="font-size: 0.7rem; font-weight: bold; color: #00e5ff; display: block;">VOIDWEAVER</span>
+                  <span class="skin-status" style="font-size: 0.55rem; color: #64748b; display: block; font-family: monospace; margin-top: 1px;">IN FORGE</span>
                 </div>
 
-                <!-- Sukuna Card -->
-                <div class="skin-card locked" id="skin-sukuna" data-char="sukuna" style="cursor: pointer; flex: 1; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background: rgba(0, 0, 0, 0.3); transition: all 0.3s ease; position: relative;" title="Unlock: 'King of Curses' achievement (100x Combo or 10,000+ points)">
-                  <div class="skin-avatar-preview sukuna-preview" style="height: 35px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-                    <div style="width: 14px; height: 18px; background: #ff1744; border-radius: 3px; position: relative; box-shadow: 0 0 8px #ff1744;">
-                      <div style="position: absolute; top: 4px; left: 2px; width: 10px; height: 2px; background: #ff1744; box-shadow: 0 0 4px #ff1744;"></div>
-                    </div>
+                <!-- Runeseeker (Coming Soon) -->
+                <div class="skin-card locked" id="skin-runeseeker" data-char="runeseeker" style="cursor: not-allowed; flex: 1; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: 6px; background: rgba(0, 0, 0, 0.35); transition: all 0.3s ease; position: relative;" title="Coming Soon: Ancient Blood Runes & Netherblade">
+                  <div class="skin-avatar-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
+                    <svg viewBox="0 0 40 40" width="34" height="34" style="filter: drop-shadow(0 0 6px rgba(255, 23, 68, 0.4)); opacity: 0.65;">
+                      <circle cx="20" cy="20" r="18" fill="#140609" stroke="#ff1744" stroke-width="1.2" stroke-dasharray="4 3"/>
+                      <polygon points="20,10 28,26 12,26" fill="none" stroke="#ff1744" stroke-width="1.4"/>
+                      <circle cx="20" cy="21" r="2" fill="#ff1744"/>
+                    </svg>
                   </div>
-                  <span style="font-size: 0.7rem; font-weight: bold; color: #ff1744; display: block;">SUKUNA</span>
-                  <span class="skin-status" style="font-size: 0.55rem; color: #ff5252; display: block; font-family: monospace; margin-top: 1px;">LOCKED</span>
+                  <span style="font-size: 0.7rem; font-weight: bold; color: #ff1744; display: block;">RUNESEEKER</span>
+                  <span class="skin-status" style="font-size: 0.55rem; color: #64748b; display: block; font-family: monospace; margin-top: 1px;">IN FORGE</span>
                 </div>
 
               </div>
@@ -935,9 +995,9 @@
         </div>
       </div>
 
-      <!-- Magical Toast Notifications -->
+      <!-- Magical Toast Notifications (Moved to Lower Right) -->
       <div id="toast-container"
-        style="position: absolute; top: 30px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; z-index: 1000; pointer-events: none;">
+        style="position: absolute; bottom: 25px; right: 25px; display: flex; flex-direction: column-reverse; gap: 10px; z-index: 1000; pointer-events: none; max-width: 360px;">
         <!-- Toasts injected here -->
       </div>
 

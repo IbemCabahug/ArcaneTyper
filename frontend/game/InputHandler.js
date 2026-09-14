@@ -29,10 +29,18 @@ export class InputHandler {
 
         if (e.ctrlKey || e.altKey || e.metaKey || e.key.length > 1) return;
 
-        // Ignore Spacebar so players don't accidentally break combo after finishing a word
+        // Ignore Spacebar so players don't accidentally break combo after finishing a word,
+        // unless the currently targeted word specifically expects a space.
         if (e.key === ' ') {
-            if (e.preventDefault) e.preventDefault();
-            return;
+            const needsSpace = this.game.targetedWord &&
+                !this.game.targetedWord.dying &&
+                !this.game.targetedWord.isDead &&
+                this.game.targetedWord.untyped &&
+                this.game.targetedWord.untyped[0] === ' ';
+            if (!needsSpace) {
+                if (e.preventDefault) e.preventDefault();
+                return;
+            }
         }
 
         // Extremely important: prevent default to stop Desktop browsers from 
@@ -42,10 +50,14 @@ export class InputHandler {
 
         const letter = e.key.toLowerCase();
 
-        if (this.game.targetedWord) {
+        if (this.game.targetedWord && !this.game.targetedWord.dying && !this.game.targetedWord.isDead) {
             this.processKeystroke(this.game.targetedWord, letter);
         } else {
-            let potentialTargets = this.game.words.filter(w => !w.dying && w.untyped[0] === letter);
+            if (this.game.targetedWord) {
+                this.game.targetedWord.isTargeted = false;
+                this.game.targetedWord = null;
+            }
+            let potentialTargets = this.game.words.filter(w => !w.dying && !w.isDead && w.untyped && w.untyped.length > 0 && w.untyped[0].toLowerCase() === letter);
             if (potentialTargets.length > 0) {
                 potentialTargets.sort((a, b) => b.y - a.y);
                 this.game.targetedWord = potentialTargets[0];
@@ -60,18 +72,17 @@ export class InputHandler {
     }
 
     processKeystroke(word, letter) {
-        if (word.untyped[0] === letter) {
-            word.typed += letter;
+        if (word.untyped && word.untyped.length > 0 && word.untyped[0].toLowerCase() === letter) {
+            word.typed += word.untyped[0];
             word.untyped = word.untyped.slice(1);
             this.game.stats.recordStroke(true);
             this.game.audio.playTypeSound();
 
-            // Spark at typed position
+            // Spark at typed position (centralized to match word baseline)
             this.game.ctx.font = 'bold 32px Cinzel, serif';
             const fullWidth = this.game.ctx.measureText(word.text).width;
             const typedWidth = this.game.ctx.measureText(word.typed).width;
-            const textXOffset = -35;
-            const sparkX = word.x + (-fullWidth / 2 + textXOffset + typedWidth) * word.scale;
+            const sparkX = word.x + (-fullWidth / 2 + typedWidth) * word.scale;
             const sparkY = word.y + 70 * word.scale;
             this.game.combatSystem.spawnHitSpark(sparkX, sparkY, word.elementColors);
 
@@ -81,58 +92,21 @@ export class InputHandler {
                 // Word fully typed — trigger death animation
                 this.game.stats.addScore(word.text.length, true, word.mistakesMade === 0);
                 word.dying = true; // Let the animation play instead of instant splice
-                // Set character-specific death visual style
-                const charForDeath = this.game.stats.selectedCharacter;
-                if (charForDeath === 'gojo') word.deathStyle = 'purple';
-                else if (charForDeath === 'sukuna') word.deathStyle = 'slash';
                 this.game.audio.playExplosion();
                 this.game.floatingTexts.push(new FloatingText(`+${word.text.length * 10}`, word.x, word.y - 15 * word.scale, "#00e5ff", 28));
 
-                // Character-specific word death effects
+                // Element-colored shatter burst
                 const comboBonus = Math.min(this.game.stats.combo, 50) / 50;
-                const selectedChar = this.game.stats.selectedCharacter;
-
-                if (selectedChar === 'gojo') {
-                    // Hollow Purple — purple/cyan palette splash
-                    this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale,
-                        ['#e040fb', '#d500f9', '#00e5ff', '#aa00ff', '#ffffff']);
-                } else if (selectedChar === 'sukuna') {
-                    // Dismantle slash — slash lines through the word + crimson splash
-                    const slashCount = 2 + Math.floor(Math.random() * 2); // 2-3 slashes
-                    for (let sl = 0; sl < slashCount; sl++) {
-                        const slAngle = -0.8 + Math.random() * 1.6;
-                        const slColor = Math.random() > 0.3 ? '#ff1744' : '#ffea00';
-                        this.game.particles.push(new Particle(word.x, word.y + 15 * word.scale, {
-                            type: 'slash_line',
-                            color: slColor,
-                            angle: slAngle,
-                            length: 50 + Math.random() * 40,
-                            width: 2 + Math.random() * 1.5
-                        }));
-                    }
-                    this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale,
-                        ['#ff1744', '#d50000', '#ffea00', '#212121']);
-                } else {
-                    // Default wizard — element-colored splash
-                    this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale, word.elementColors.particles);
-                }
+                this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale, word.elementColors.particles);
 
                 this.game.playerAnimTimer = 200;
                 this.game.combatSystem.triggerShake(4 + comboBonus * 4, 150 + comboBonus * 100);
 
-                // Combo Milestones
+                // Combo Milestones — rendered cleanly on canvas with zero DOM thrashing
                 const combo = this.game.stats.combo;
                 if (combo > 0 && combo % 10 === 0) {
-                    const milestoneText = document.createElement('div');
-                    milestoneText.className = 'combo-milestone-text';
-                    milestoneText.textContent = `${combo}x COMBO!`;
-                    document.body.appendChild(milestoneText);
-
-                    // Extra large screen shake
+                    this.game.floatingTexts.push(new FloatingText(`${combo}x COMBO!`, this.game.canvas.width / 2, this.game.canvas.height / 2 - 80, '#ffd700', 44));
                     this.game.combatSystem.triggerShake(10, 400);
-
-                    // Remove after animation completes
-                    setTimeout(() => milestoneText.remove(), 1500);
                 }
 
                 // Combustion Talent (Explosion AoE)
@@ -146,7 +120,10 @@ export class InputHandler {
                                 otherW.dying = true;
                                 this.game.stats.addScore(otherW.text.length, false);
                                 this.game.combatSystem.spawnExplosion(otherW.x, otherW.y, otherW.elementColors, 0.5);
-                                if (otherW === this.game.targetedWord) this.game.targetedWord = null;
+                                if (otherW === this.game.targetedWord) {
+                                    otherW.isTargeted = false;
+                                    this.game.targetedWord = null;
+                                }
                             }
                         }
                     }
@@ -158,39 +135,13 @@ export class InputHandler {
                     const startY = this.game.canvas.height - 40;
                     const targetXOffset = (Math.random() - 0.5) * 100;
                     
-                    let colors = word.elementColors.particles;
-                    let type = 'normal';
-                    
-                    const selectedChar = this.game.stats.selectedCharacter;
-                    if (selectedChar === 'gojo') {
-                        // Alternate blue and red energy orbs
-                        const isBlue = Math.random() < 0.5;
-                        type = isBlue ? 'gojo_blue' : 'gojo_red';
-                        colors = isBlue ? ['#00e5ff', '#ffffff'] : ['#ff1744', '#ffffff'];
-                    } else if (selectedChar === 'sukuna') {
-                        type = 'sukuna_slash';
-                        colors = ['#ff1744', '#ffea00'];
-                    }
-                    
-                    if (selectedChar === 'sukuna') {
-                        // Dismantle barrage — fire 3 rapid slash projectiles with slight offsets
-                        for (let si = 0; si < 3; si++) {
-                            const offsetX = (si - 1) * 8;
-                            const offsetY = si * 4;
-                            const projectile = new Projectile(
-                                startX + offsetX, startY + offsetY,
-                                this.game.boss.x + targetXOffset + offsetX, this.game.boss.y + 20,
-                                colors, type
-                            );
-                            this.game.projectiles.push(projectile);
-                        }
-                    } else {
-                        const projectile = new Projectile(startX, startY, this.game.boss.x + targetXOffset, this.game.boss.y + 20, colors, type);
-                        this.game.projectiles.push(projectile);
-                    }
+                    const colors = word.elementColors.particles;
+                    const projectile = new Projectile(startX, startY, this.game.boss.x + targetXOffset, this.game.boss.y + 20, colors, 'normal');
+                    this.game.projectiles.push(projectile);
                 }
 
                 // Release targeting immediately so player can type next word
+                word.isTargeted = false;
                 this.game.targetedWord = null;
             }
         } else {
