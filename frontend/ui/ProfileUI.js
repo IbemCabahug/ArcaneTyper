@@ -7,6 +7,7 @@ export class ProfileUI {
         // DOM Elements
         this.menuBestScore = document.getElementById('menu-best-score');
         this.menuBestWpm = document.getElementById('menu-best-wpm');
+        this.menuBestStreak = document.getElementById('menu-best-streak');
         this.levelEl = document.getElementById('menu-player-level');
         this.xpBarEl = document.getElementById('menu-xp-bar');
         this.wandGlows = document.querySelectorAll('.mage-wand-glow-img');
@@ -81,6 +82,7 @@ export class ProfileUI {
     updateMenuStats() {
         if (this.menuBestScore) this.menuBestScore.innerText = this.game.stats.bestScore;
         if (this.menuBestWpm) this.menuBestWpm.innerText = this.game.stats.bestWPM;
+        if (this.menuBestStreak) this.menuBestStreak.innerText = this.game.stats.bestStreak || 0;
 
         // Update Avatar Wand Color
         this.wandGlows.forEach(glow => {

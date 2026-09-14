@@ -96,6 +96,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const goWords = document.getElementById('go-words');
   const goWpm = document.getElementById('go-wpm');
   const goAcc = document.getElementById('go-acc');
+  const goStreak = document.getElementById('go-streak');
 
   // Highscore Forms
   const newHighscoreForm = document.getElementById('new-highscore-form');
@@ -413,6 +414,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     goWords.innerText = finalStats.wordsTyped;
     goWpm.innerText = finalStats.getSessionWPM();
     goAcc.innerText = finalStats.getAccuracy() + '%';
+    if (goStreak) goStreak.innerText = finalStats.maxCombo || 0;
 
     gameOverMenu.classList.remove('hidden');
     gameOverMenu.classList.add('active');
@@ -422,7 +424,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       game.difficulty,
       finalStats.score,
       finalStats.getSessionWPM(),
-      finalStats.getAccuracy()
+      finalStats.getAccuracy(),
+      finalStats.maxCombo || 0
     );
 
     // Bypassing prompt: auto submit if they have a profile
@@ -432,7 +435,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         game.stats.mageName,
         finalStats.score,
         finalStats.getSessionWPM(),
-        finalStats.getAccuracy()
+        finalStats.getAccuracy(),
+        finalStats.maxCombo || 0
       );
     }
 
@@ -453,7 +457,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ── Scribe Trial ──────────────────────────────────────────────────────────
 
-  scribe.onTrialComplete = async (wpm, rawWpm, accuracy, consistency, wpmSamples) => {
+  scribe.onTrialComplete = async (wpm, rawWpm, accuracy, consistency, wpmSamples, maxStreak = 0) => {
     game.stats.recordWpm(wpm);
 
     // Update accuracy display (already has % in the span)
@@ -467,11 +471,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const scribeScore = Math.floor(wpm * (accuracy / 100));
 
-    const qualifies = await leaderboard.isTop10('scribe', scribeScore, wpm, accuracy);
+    const qualifies = await leaderboard.isTop10('scribe', scribeScore, wpm, accuracy, maxStreak);
 
     // Auto submit to leaderboard since we have a mage name
     if (qualifies && game.stats.mageName) {
-      await leaderboard.addScore('scribe', game.stats.mageName, scribeScore, wpm, accuracy);
+      await leaderboard.addScore('scribe', game.stats.mageName, scribeScore, wpm, accuracy, maxStreak);
     }
 
     scribeHighscoreForm.classList.add('hidden');
@@ -597,7 +601,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     const tbody = document.getElementById('leaderboard-body');
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding: 1rem;">Loading Hall of Fame...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding: 1rem;">Loading Hall of Fame...</td></tr>';
 
     const difficulty = leaderboardDifficultyFilter.value;
     const scores = await leaderboard.getTopScores(difficulty, category);
@@ -605,19 +609,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     tbody.innerHTML = '';
 
     if (!scores || scores.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">The Hall of Fame is empty. Create your legacy!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">The Hall of Fame is empty. Create your legacy!</td></tr>';
       return;
     }
 
     scores.forEach((entry, index) => {
       const tr = document.createElement('tr');
       const rankClass = index === 0 ? 'top-rank' : '';
+      const streakVal = entry.streak !== undefined ? entry.streak : 0;
       tr.innerHTML = `
         <td class="rank-text ${rankClass}">#${index + 1}</td>
         <td class="${rankClass}">${entry.name}</td>
-        <td>${entry.score}</td>
-        <td>${entry.wpm}</td>
-        <td>${entry.accuracy}%</td>
+        <td class="${category === 'score' ? 'category-highlight' : ''}">${entry.score}</td>
+        <td class="${category === 'wpm' ? 'category-highlight' : ''}">${entry.wpm}</td>
+        <td class="${category === 'accuracy' ? 'category-highlight' : ''}">${entry.accuracy}%</td>
+        <td class="${category === 'streak' ? 'category-highlight' : ''}">${streakVal}</td>
       `;
       tbody.appendChild(tr);
     });

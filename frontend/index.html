@@ -127,6 +127,7 @@
             <div style="display: flex; gap: 15px; justify-content: center; font-size: 0.9rem;">
               <p>Mastery Score: <span id="menu-best-score">0</span></p>
               <p>Max WPM: <span id="menu-best-wpm">0</span></p>
+              <p>Best Streak: <span id="menu-best-streak">0</span></p>
             </div>
           </div>
           <div class="selectors-container"
@@ -292,6 +293,7 @@
           <div class="stat-row"><span>Words Conjured:</span> <span id="go-words">0</span></div>
           <div class="stat-row"><span>Typing Speed:</span> <span id="go-wpm">0</span></div>
           <div class="stat-row"><span>Accuracy:</span> <span id="go-acc">0%</span></div>
+          <div class="stat-row"><span>Longest Streak:</span> <span id="go-streak">0</span></div>
         </div>
 
         <div id="new-highscore-form" class="hidden"
@@ -326,6 +328,7 @@
           <button class="tab-btn active" data-category="score">The High Council</button>
           <button class="tab-btn" data-category="wpm">The Swift Casters</button>
           <button class="tab-btn" data-category="accuracy">The Flawless Oracles</button>
+          <button class="tab-btn" data-category="streak">The Unbroken</button>
         </div>
         <div class="leaderboard-container">
           <div class="leaderboard-scroll-box">
@@ -337,6 +340,7 @@
                   <th>Score</th>
                   <th>WPM</th>
                   <th>Acc</th>
+                  <th>Streak</th>
                 </tr>
               </thead>
               <tbody id="leaderboard-body">

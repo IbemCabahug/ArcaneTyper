@@ -21,6 +21,7 @@ export class Stats {
 
         this.bestScore = parseInt(localStorage.getItem('typerMaster_score') || '0', 10);
         this.bestWPM = parseInt(localStorage.getItem('typerMaster_wpm') || '0', 10);
+        this.bestStreak = parseInt(localStorage.getItem('typerMaster_bestStreak') || '0', 10);
 
         // --- RPG Elements ---
         this._totalXP = parseInt(localStorage.getItem('typerMaster_xp') || '0', 10);
@@ -94,6 +95,7 @@ export class Stats {
 
         // Passive: Starting Combo
         this.combo = this.hasSkill('combo') ? 10 : 0;
+        this.maxCombo = this.combo;
 
         this.mana = 0;
 
@@ -120,8 +122,8 @@ export class Stats {
             // Record timestamp for rolling window calculation
             this._keystrokeTimestamps.push(Date.now());
 
-            // Play milestone jingle when hitting a multiplier cut-off (10, 20, 30, 40, 50)
-            if (this.combo === 10 || this.combo === 20 || this.combo === 30 || this.combo === 40 || this.combo === 50) {
+            // Play milestone jingle when hitting a multiplier cut-off (10, 20, 30, 40, 50, and every 25 thereafter: 75, 100, 125, 150...)
+            if (this.combo === 10 || this.combo === 20 || this.combo === 30 || this.combo === 40 || this.combo === 50 || (this.combo > 50 && this.combo % 25 === 0)) {
                 if (window.game && window.game.audio) {
                     window.game.audio.playComboSound(this.combo);
                 }
@@ -132,6 +134,13 @@ export class Stats {
     }
 
     getComboMultiplier() {
+        if (this.combo >= 200) {
+            const bonus = Math.floor((this.combo - 200) / 50) * 0.5;
+            return Math.min(10.0, 7.0 + bonus);
+        }
+        if (this.combo >= 150) return 6.0;
+        if (this.combo >= 100) return 5.0;
+        if (this.combo >= 75) return 4.5;
         if (this.combo >= 50) return 4.0;
         if (this.combo >= 40) return 3.0;
         if (this.combo >= 30) return 2.5;
@@ -235,11 +244,9 @@ export class Stats {
                 this.multiplierEl.style.opacity = mult > 1.0 ? '0.9' : '0';
             }
 
-            if (this.combo >= 20) {
-                this.comboEl.classList.add('high-combo');
-            } else {
-                this.comboEl.classList.remove('high-combo');
-            }
+            this.comboEl.classList.toggle('high-combo', this.combo >= 20 && this.combo < 50);
+            this.comboEl.classList.toggle('epic-combo', this.combo >= 50 && this.combo < 100);
+            this.comboEl.classList.toggle('ascendant-combo', this.combo >= 100);
         }
 
         if (this.manaFillEl && this.manaTextEl) {
@@ -301,6 +308,10 @@ export class Stats {
         if (finalWPM > this.bestWPM) {
             this.bestWPM = finalWPM;
             localStorage.setItem('typerMaster_wpm', this.bestWPM);
+        }
+        if (this.maxCombo > this.bestStreak) {
+            this.bestStreak = this.maxCombo;
+            localStorage.setItem('typerMaster_bestStreak', this.bestStreak.toString());
         }
 
         // Convert score to XP (10% of score becomes XP)

@@ -37,6 +37,8 @@ export class Scribe {
         // Per-second WPM sampling
         this.wpmSamples = [];
         this._secondsElapsed = 0;
+        this.currentStreak = 0;
+        this.maxStreak = 0;
 
         this.inputReady = false;
     }
@@ -58,6 +60,8 @@ export class Scribe {
 
         this.startTime = null;
         this.keystrokes = 0;
+        this.currentStreak = 0;
+        this.maxStreak = 0;
         this.correctKeystrokes = 0;
         this.rawKeystrokes = 0;
         this.wpmSamples = [];
@@ -195,6 +199,8 @@ export class Scribe {
 
             if (key === expected) {
                 this.correctKeystrokes++;
+                this.currentStreak++;
+                if (this.currentStreak > this.maxStreak) this.maxStreak = this.currentStreak;
                 letterEl.className = 'letter correct';
 
                 // Typing Spark
@@ -216,6 +222,7 @@ export class Scribe {
                 setTimeout(() => spark.remove(), 400);
 
             } else {
+                this.currentStreak = 0;
                 letterEl.className = 'letter incorrect';
             }
             this.currentLetterIdx++;
@@ -238,6 +245,7 @@ export class Scribe {
         // Count skipped (untyped) letters as wrong keystrokes — affects accuracy
         const remaining = entry.letters.length - this.currentLetterIdx;
         if (remaining > 0) {
+            this.currentStreak = 0;
             this.keystrokes += remaining;
             // correctKeystrokes is NOT incremented — these are errors
             for (let i = this.currentLetterIdx; i < entry.letters.length; i++) {
@@ -383,7 +391,7 @@ export class Scribe {
         }
 
         if (this.onTrialComplete) {
-            this.onTrialComplete(wpm, rawWpm, accuracy, consistency, [...this.wpmSamples]);
+            this.onTrialComplete(wpm, rawWpm, accuracy, consistency, [...this.wpmSamples], this.maxStreak);
         }
     }
 }

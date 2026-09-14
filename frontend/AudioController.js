@@ -189,7 +189,24 @@ export class AudioController {
         let notes = [];
 
         // All tiers use pure 'sine' waves to simulate a magical harp chime glissando
-        if (combo >= 50) {
+        let noteInterval = 0.1;
+        if (combo >= 200) {
+            rootFreq = 1046.5; // C6 - Transcendent / Godlike Singularity
+            notes = [1, 1.25, 1.5, 1.875, 2.0, 2.25, 2.5]; // 7-note celestial octave cascade
+            noteInterval = 0.06;
+        } else if (combo >= 150) {
+            rootFreq = 987.77; // B5 - Transcendent
+            notes = [1, 1.25, 1.5, 1.75, 2.0, 2.25]; // 6-note shimmering overtone
+            noteInterval = 0.07;
+        } else if (combo >= 100) {
+            rootFreq = 880; // A5 - Celestial
+            notes = [1, 1.25, 1.5, 1.75, 2.0]; // Celestial double-octave chime
+            noteInterval = 0.08;
+        } else if (combo >= 75) {
+            rootFreq = 783.99; // G5 - Mythic
+            notes = [1, 1.25, 1.5, 1.666, 2.0]; // Radiant pentatonic sweep
+            noteInterval = 0.09;
+        } else if (combo >= 50) {
             rootFreq = 880; // A5
             notes = [1, 1.25, 1.5, 1.666, 2.0]; // Ethereal 5-note sweep (Major pentatonic)
         } else if (combo >= 40) {
@@ -209,7 +226,7 @@ export class AudioController {
         }
 
         notes.forEach((ratio, index) => {
-            const noteTime = t + index * 0.1;
+            const noteTime = t + index * noteInterval;
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
 

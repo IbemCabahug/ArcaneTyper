@@ -78,68 +78,294 @@ export class CharacterRenderer {
         ctx.restore();
 
         // ---------------------------------------------------------------------
-        // Layer 1: Celestial Starlight Wings (Recommendation #7: Combo >= 50)
+        // Layer 1: Grand Arcane Mandala & Celestial Armillary (Option 1 & 4)
         // ---------------------------------------------------------------------
-        if (combo >= 50) {
+        const mandalaX = wizX;
+        const mandalaY = wizY - 14;
+
+        if (combo >= 10) {
             ctx.save();
-            const wingAlpha = Math.min(0.85, 0.35 + (combo - 50) * 0.008);
-            const flap = Math.sin(now / 220) * 0.16;
-            const flapAngle = 0.22 + flap;
+            ctx.translate(mandalaX, mandalaY);
 
-            for (const side of [-1, 1]) {
-                ctx.save();
-                ctx.translate(wizX + side * 5, wizY - 14);
-                ctx.scale(side, 1);
-                ctx.rotate(-flapAngle);
-                ctx.globalAlpha = wingAlpha;
+            const speedMult = 1.0 + Math.min(2.5, combo * 0.012);
+            const rotClockwise = now * 0.0008 * speedMult;
+            const rotCounter = -now * 0.0012 * speedMult;
+            const pulse = Math.sin(now / 320) * 1.5;
 
-                // Feather Plume 1 (Upper Sweeping Arc)
-                const grad1 = ctx.createLinearGradient(0, 0, 42, -32);
-                grad1.addColorStop(0, wandColor);
-                grad1.addColorStop(0.5, 'rgba(0, 229, 255, 0.45)');
-                grad1.addColorStop(1, 'rgba(255, 215, 0, 0)');
+            // --- Tier 1 (10+ Combo): Inner Sacred Rune Ring ---
+            ctx.save();
+            ctx.rotate(rotClockwise);
+            ctx.strokeStyle = combo >= 50 ? '#ffd700' : 'rgba(255, 215, 0, 0.45)';
+            ctx.lineWidth = combo >= 50 ? 1.5 : 1.0;
+            if (!lowQ && combo >= 25) {
+                ctx.shadowColor = wandColor;
+                ctx.shadowBlur = combo >= 50 ? 10 : 6;
+            }
+            ctx.beginPath();
+            ctx.arc(0, 0, 24 + pulse * 0.5, 0, Math.PI * 2);
+            ctx.stroke();
 
-                ctx.fillStyle = grad1;
+            // 4 Cardinal Starlight Needles on Inner Ring
+            for (let i = 0; i < 4; i++) {
+                const a = (i * Math.PI) / 2;
                 ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.bezierCurveTo(16, -18, 30, -34, 44, -30);
-                ctx.bezierCurveTo(36, -14, 24, -4, 0, 8);
-                ctx.closePath();
-                ctx.fill();
-
-                // Feather Plume 2 (Middle Arc)
-                const grad2 = ctx.createLinearGradient(0, 0, 48, -12);
-                grad2.addColorStop(0, wandColor);
-                grad2.addColorStop(0.6, 'rgba(255, 215, 0, 0.35)');
-                grad2.addColorStop(1, 'rgba(0, 229, 255, 0)');
-
-                ctx.fillStyle = grad2;
-                ctx.beginPath();
-                ctx.moveTo(0, 4);
-                ctx.bezierCurveTo(18, -6, 34, -16, 48, -12);
-                ctx.bezierCurveTo(34, 2, 20, 12, 0, 14);
-                ctx.closePath();
-                ctx.fill();
-
-                // Feather Plume 3 (Lower Ventral Arc)
-                ctx.beginPath();
-                ctx.moveTo(0, 10);
-                ctx.bezierCurveTo(14, 4, 26, 0, 36, 4);
-                ctx.bezierCurveTo(26, 14, 14, 18, 0, 18);
-                ctx.closePath();
-                ctx.fill();
-
-                // Starlight Wing Spine / Quill Line
-                ctx.strokeStyle = '#ffffff';
+                ctx.moveTo(Math.cos(a) * 20, Math.sin(a) * 20);
+                ctx.lineTo(Math.cos(a) * 28, Math.sin(a) * 28);
+                ctx.strokeStyle = wandColor;
                 ctx.lineWidth = 1.2;
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            // --- Tier 2 (25+ Combo): Dashed Counter-Rotating Astrolabe Dial ---
+            if (combo >= 25) {
+                ctx.save();
+                ctx.rotate(rotCounter);
+                ctx.strokeStyle = 'rgba(0, 229, 255, 0.55)';
+                ctx.lineWidth = 1.2;
+                ctx.setLineDash([4, 4]);
                 ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.quadraticCurveTo(24, -18, 44, -30);
+                ctx.arc(0, 0, 36 + pulse * 0.8, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // 8 Astrological Tick Marks
+                for (let i = 0; i < 8; i++) {
+                    const a = (i * Math.PI) / 4;
+                    ctx.fillStyle = (i % 2 === 0) ? '#ffd700' : '#00e5ff';
+                    ctx.beginPath();
+                    ctx.arc(Math.cos(a) * 36, Math.sin(a) * 36, 1.4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            // --- Tier 3 (50+ Combo): The Grand Arcane Mandala (Sacred Hexagram) ---
+            if (combo >= 50) {
+                const alpha50 = Math.min(0.95, 0.55 + (combo - 50) * 0.008);
+                ctx.save();
+                ctx.globalAlpha = alpha50;
+
+                // Ethereal Radial Aether Bloom
+                const bloomRadius = 54 + pulse * 2;
+                const bloom = ctx.createRadialGradient(0, 0, 10, 0, 0, bloomRadius);
+                bloom.addColorStop(0, 'rgba(0, 229, 255, 0.22)');
+                bloom.addColorStop(0.5, 'rgba(213, 0, 249, 0.12)');
+                bloom.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = bloom;
+                ctx.beginPath();
+                ctx.arc(0, 0, bloomRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Outer Runic Boundary Wheel (52px)
+                ctx.save();
+                ctx.rotate(rotClockwise * 0.6);
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 1.8;
+                if (!lowQ) {
+                    ctx.shadowColor = '#ffd700';
+                    ctx.shadowBlur = 12;
+                }
+                ctx.beginPath();
+                ctx.arc(0, 0, 52 + pulse, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Concentric inner companion ring
+                ctx.beginPath();
+                ctx.arc(0, 0, 48 + pulse, 0, Math.PI * 2);
+                ctx.lineWidth = 0.9;
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
+                ctx.stroke();
+
+                // 8 Compass Rays extending outward from wheel
+                for (let r = 0; r < 8; r++) {
+                    const ra = (r * Math.PI) / 4;
+                    const isMajor = r % 2 === 0;
+                    const rLen = isMajor ? (62 + pulse) : (56 + pulse);
+                    ctx.beginPath();
+                    ctx.moveTo(Math.cos(ra) * 48, Math.sin(ra) * 48);
+                    ctx.lineTo(Math.cos(ra) * rLen, Math.sin(ra) * rLen);
+                    ctx.strokeStyle = isMajor ? '#ffd700' : 'rgba(0, 229, 255, 0.7)';
+                    ctx.lineWidth = isMajor ? 1.5 : 1.0;
+                    ctx.stroke();
+                }
+                ctx.restore();
+
+                // Sacred Hexagram (Interlocking Equilateral Triangles, R=42px)
+                ctx.save();
+                ctx.rotate(rotCounter * 0.8);
+                ctx.strokeStyle = 'rgba(0, 229, 255, 0.75)';
+                ctx.lineWidth = 1.2;
+                if (!lowQ) {
+                    ctx.shadowColor = '#00e5ff';
+                    ctx.shadowBlur = 8;
+                }
+                for (let t = 0; t < 2; t++) {
+                    const offset = (t * Math.PI) / 3;
+                    ctx.beginPath();
+                    for (let p = 0; p < 3; p++) {
+                        const pa = offset + (p * Math.PI * 2) / 3;
+                        const px = Math.cos(pa) * 42;
+                        const py = Math.sin(pa) * 42;
+                        if (p === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                }
+
+                // Hexagram Vertex Glyphs (6 Golden Star Points)
+                for (let v = 0; v < 6; v++) {
+                    const va = (v * Math.PI) / 3;
+                    ctx.fillStyle = '#ffd700';
+                    ctx.beginPath();
+                    ctx.arc(Math.cos(va) * 42, Math.sin(va) * 42, 1.8, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+                ctx.restore();
+            }
+
+            // --- Tier 4 (75+ Combo): 12-Segment Zodiac Astrolabe Matrix ---
+            if (combo >= 75) {
+                ctx.save();
+                ctx.rotate(rotClockwise * 1.2);
+                ctx.strokeStyle = 'rgba(213, 0, 249, 0.65)';
+                ctx.lineWidth = 1.0;
+                ctx.beginPath();
+                ctx.arc(0, 0, 60 + pulse * 1.2, 0, Math.PI * 2);
+                ctx.stroke();
+
+                for (let z = 0; z < 12; z++) {
+                    const za = (z * Math.PI) / 6;
+                    ctx.beginPath();
+                    ctx.moveTo(Math.cos(za) * 56, Math.sin(za) * 56);
+                    ctx.lineTo(Math.cos(za) * 60, Math.sin(za) * 60);
+                    ctx.strokeStyle = '#d500f9';
+                    ctx.lineWidth = 1.0;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // --- Tier 5 (100+ Combo): Ascendant Dodecagram (12-Pointed Star Matrix) ---
+            if (combo >= 100) {
+                ctx.save();
+                ctx.rotate(rotCounter * 0.5);
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 1.4;
+                if (!lowQ) {
+                    ctx.shadowColor = '#ffd700';
+                    ctx.shadowBlur = 14;
+                }
+
+                // Outer Celestial Dial Ring (68px)
+                ctx.beginPath();
+                ctx.arc(0, 0, 68 + pulse * 1.5, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // 4 Interlocking Equilateral Triangles forming 12-pointed Star
+                for (let s = 0; s < 4; s++) {
+                    const sOffset = (s * Math.PI) / 6;
+                    ctx.beginPath();
+                    for (let sp = 0; sp < 3; sp++) {
+                        const spa = sOffset + (sp * Math.PI * 2) / 3;
+                        const spx = Math.cos(spa) * 66;
+                        const spy = Math.sin(spa) * 66;
+                        if (sp === 0) ctx.moveTo(spx, spy);
+                        else ctx.lineTo(spx, spy);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // --- Tier 6 (150+ Combo): 3D Gyroscopic Armillary Rings ---
+            if (combo >= 150) {
+                ctx.save();
+                const gyroRotX = now * 0.0018;
+                const gyroRotY = now * 0.0022;
+
+                // Equatorial Armillary Ring (horizontal perspective ellipse)
+                ctx.save();
+                ctx.rotate(gyroRotX);
+                ctx.strokeStyle = 'rgba(0, 229, 255, 0.8)';
+                ctx.lineWidth = 1.6;
+                if (!lowQ) {
+                    ctx.shadowColor = '#00e5ff';
+                    ctx.shadowBlur = 10;
+                }
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 76 + pulse * 2, 22 + pulse * 0.5, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+
+                // Polar Armillary Ring (vertical perspective ellipse)
+                ctx.save();
+                ctx.rotate(gyroRotY + Math.PI / 3);
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.85)';
+                ctx.lineWidth = 1.6;
+                if (!lowQ) {
+                    ctx.shadowColor = '#ffd700';
+                    ctx.shadowBlur = 10;
+                }
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 76 + pulse * 2, 22 + pulse * 0.5, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+                ctx.restore();
+            }
+
+            // --- Tier 7 (200+ Combo): Cosmic Singularity Core (Infinite Escalation) ---
+            if (combo >= 200) {
+                ctx.save();
+                const bonusR = Math.min(24, Math.floor((combo - 200) / 50) * 5);
+                const singR = 82 + bonusR + pulse * 2.5;
+
+                // Blinding Singularity Halo
+                const singGrad = ctx.createRadialGradient(0, 0, 5, 0, 0, singR);
+                singGrad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
+                singGrad.addColorStop(0.4, 'rgba(0, 229, 255, 0.25)');
+                singGrad.addColorStop(0.8, 'rgba(213, 0, 249, 0.15)');
+                singGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = singGrad;
+                ctx.beginPath();
+                ctx.arc(0, 0, singR, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Outermost Singularity Ring
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1.8;
+                if (!lowQ) {
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = 16;
+                }
+                ctx.beginPath();
+                ctx.arc(0, 0, singR, 0, Math.PI * 2);
                 ctx.stroke();
 
                 ctx.restore();
             }
-            ctx.restore();
+
+            ctx.restore(); // Restore from translate(mandalaX, mandalaY)
+        }
+
+        // --- Ethereal Orbiting Lexicon: Background Leaves (Math.sin(angle) < 0) ---
+        const numLeaves = combo >= 200 ? 12 : (combo >= 150 ? 10 : (combo >= 100 ? 8 : (combo >= 50 ? 6 : (combo >= 25 ? 4 : (combo >= 10 ? 2 : 0)))));
+        const leafSpeedMult = 1.0 + Math.min(2.5, combo * 0.01);
+        const leafOrbitRx = 46 + (combo >= 100 ? 10 : 0);
+        const leafOrbitRy = 20 + (combo >= 100 ? 6 : 0);
+
+        if (numLeaves > 0) {
+            for (let l = 0; l < numLeaves; l++) {
+                const lAngle = (now * 0.0016 * leafSpeedMult) + (l * Math.PI * 2) / numLeaves;
+                if (Math.sin(lAngle) < 0) {
+                    const lx = wizX + Math.cos(lAngle) * leafOrbitRx;
+                    const ly = (wizY - 14) + Math.sin(lAngle) * leafOrbitRy;
+                    CharacterRenderer._drawLexiconLeaf(ctx, lx, ly, lAngle, now, l, false, wandColor, lowQ);
+                }
+            }
         }
 
         // ---------------------------------------------------------------------
@@ -643,6 +869,106 @@ export class CharacterRenderer {
             ctx.restore();
         }
 
+        // ---------------------------------------------------------------------
+        // Layer 8: Transcendent & Godlike Singularity Auras (Combo >= 150 & 200)
+        // ---------------------------------------------------------------------
+        // Ethereal Orbiting Lexicon: Foreground Leaves (Math.sin(angle) >= 0)
+        if (numLeaves > 0) {
+            for (let l = 0; l < numLeaves; l++) {
+                const lAngle = (now * 0.0016 * leafSpeedMult) + (l * Math.PI * 2) / numLeaves;
+                if (Math.sin(lAngle) >= 0) {
+                    const lx = wizX + Math.cos(lAngle) * leafOrbitRx;
+                    const ly = (wizY - 14) + Math.sin(lAngle) * leafOrbitRy;
+                    CharacterRenderer._drawLexiconLeaf(ctx, lx, ly, lAngle, now, l, true, wandColor, lowQ);
+                }
+            }
+        }
+
+        if (combo >= 150) {
+            ctx.save();
+            const orbitRot = now * 0.002;
+            const orbitCount = combo >= 200 ? 6 : 4;
+            const orbitRadius = 38 + Math.sin(now / 180) * 4;
+
+            // Orbiting Starlight Motes
+            for (let o = 0; o < orbitCount; o++) {
+                const angle = orbitRot + (o * Math.PI * 2) / orbitCount;
+                const ox = wizX + Math.cos(angle) * orbitRadius;
+                const oy = (wizY - 14) + Math.sin(angle) * (orbitRadius * 0.45); // Isometric elliptical orbit
+
+                ctx.fillStyle = (o % 2 === 0) ? '#00e5ff' : '#ffd700';
+                if (!lowQ) {
+                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.shadowBlur = combo >= 200 ? 14 : 8;
+                }
+                ctx.beginPath();
+                ctx.arc(ox, oy, combo >= 200 ? 3.0 : 2.0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Combo >= 200: Godlike Singularity Radial Pulse
+            if (combo >= 200) {
+                const pulseR = 48 + ((now % 600) / 600) * 24;
+                const pulseAlpha = Math.max(0, 1.0 - (now % 600) / 600) * 0.4;
+                ctx.beginPath();
+                ctx.ellipse(wizX, wizY - 14, pulseR, pulseR * 0.5, 0, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Renders an individual illuminated manuscript folio for the Ethereal Lexicon.
+     */
+    static _drawLexiconLeaf(ctx, lx, ly, angle, now, p, isForeground, wandColor, lowQ) {
+        ctx.save();
+        ctx.translate(lx, ly);
+        const flutter = Math.sin(now / 140 + p * 1.5) * 0.2;
+        ctx.rotate(angle + Math.PI / 2 + flutter);
+
+        const scale = isForeground ? 1.0 : 0.78;
+        ctx.scale(scale, scale);
+
+        // Parchment Leaf Body (Ivory / Aged Gold with glowing edge)
+        ctx.fillStyle = isForeground ? 'rgba(255, 252, 240, 0.92)' : 'rgba(235, 225, 200, 0.65)';
+        if (!lowQ && isForeground) {
+            ctx.shadowColor = wandColor;
+            ctx.shadowBlur = 6;
+        }
+        ctx.fillRect(-3.5, -5.5, 7, 11);
+
+        // Golden / Cyan illuminated border
+        ctx.strokeStyle = isForeground ? '#ffd700' : 'rgba(255, 215, 0, 0.5)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(-3.5, -5.5, 7, 11);
+
+        // Inscribed Runic Script Lines
+        ctx.fillStyle = 'rgba(100, 70, 30, 0.75)';
+        ctx.fillRect(-2, -3.5, 4, 1);
+        ctx.fillRect(-2, -1, 3.5, 1);
+        ctx.fillRect(-2, 1.5, 4, 1);
+
+        // Illuminated Capital Letter Spark at top
+        ctx.fillStyle = wandColor;
+        ctx.beginPath();
+        ctx.arc(0, -4.2, 0.9, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Stardust trail spark behind leaf
+        if (isForeground) {
+            ctx.fillStyle = '#ffd700';
+            ctx.globalAlpha = 0.7;
+            ctx.beginPath();
+            ctx.arc(-2, 7, 1.0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         ctx.restore();
     }
 }
+

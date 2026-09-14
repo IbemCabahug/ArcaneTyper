@@ -11,11 +11,11 @@ export class Leaderboard {
 
     _emptyTemplate() {
         return {
-            easy: { score: [], wpm: [], accuracy: [] },
-            normal: { score: [], wpm: [], accuracy: [] },
-            hard: { score: [], wpm: [], accuracy: [] },
-            hell: { score: [], wpm: [], accuracy: [] },
-            scribe: { score: [], wpm: [], accuracy: [] }
+            easy: { score: [], wpm: [], accuracy: [], streak: [] },
+            normal: { score: [], wpm: [], accuracy: [], streak: [] },
+            hard: { score: [], wpm: [], accuracy: [], streak: [] },
+            hell: { score: [], wpm: [], accuracy: [], streak: [] },
+            scribe: { score: [], wpm: [], accuracy: [], streak: [] }
         };
     }
 
@@ -25,7 +25,10 @@ export class Leaderboard {
             if (stored) {
                 const parsed = JSON.parse(stored);
                 if (parsed && parsed.easy) {
-                    if (!parsed.scribe) parsed.scribe = { score: [], wpm: [], accuracy: [] };
+                    ['easy', 'normal', 'hard', 'hell', 'scribe'].forEach(diff => {
+                        if (!parsed[diff]) parsed[diff] = { score: [], wpm: [], accuracy: [], streak: [] };
+                        if (!parsed[diff].streak) parsed[diff].streak = [];
+                    });
                     return parsed;
                 }
             }
@@ -43,12 +46,14 @@ export class Leaderboard {
         const d = this._local[difficulty];
         if (!d) return;
 
+        entry.streak = entry.streak || 0;
+
         // Deduplicate by name: keep only the best entry per player per category
         const dedupe = (list, field) => {
             const existing = list.findIndex(e => e.name === entry.name);
             if (existing !== -1) {
                 if (entry[field] > list[existing][field]) {
-                    list.splice(existing, 1); // Remove old \u2014 will re-insert below
+                    list.splice(existing, 1); // Remove old — will re-insert below
                 } else {
                     return; // Existing entry is better, skip
                 }
@@ -61,6 +66,7 @@ export class Leaderboard {
         dedupe(d.score, 'score');
         dedupe(d.wpm, 'wpm');
         if (entry.score > 500) dedupe(d.accuracy, 'accuracy');
+        if (entry.streak > 0) dedupe(d.streak, 'streak');
 
         this._saveLocal();
     }
@@ -76,12 +82,13 @@ export class Leaderboard {
             try {
                 const { data, error } = await supabase
                     .from('leaderboard')
-                    .select('name, score, wpm, accuracy, created_at')
+                    .select('name, score, wpm, accuracy, streak, created_at')
                     .eq('difficulty', difficulty)
                     .order(category, { ascending: false })
                     .limit(10);
 
                 if (!error && data) return data;
+                if (error) console.warn('[Leaderboard] Supabase getTopScores error, trying fallback:', error.message);
             } catch (e) {
                 console.warn('[Leaderboard] Supabase fetch failed, using local cache.', e);
             }
@@ -92,24 +99,26 @@ export class Leaderboard {
     /**
      * Checks if a score qualifies for the global top 10 in any category.
      */
-    async isTop10(difficulty, score, wpm, accuracy) {
-        if (score === 0) return false;
+    async isTop10(difficulty, score, wpm, accuracy, streak = 0) {
+        if (score === 0 && streak === 0) return false;
 
         if (supabase) {
             try {
                 // Get the current 10th-place entries for each sorting column
-                const [scoreRes, wpmRes, accRes] = await Promise.all([
+                const [scoreRes, wpmRes, accRes, streakRes] = await Promise.all([
                     supabase.from('leaderboard').select('score').eq('difficulty', difficulty).order('score', { ascending: false }).limit(10),
                     supabase.from('leaderboard').select('wpm').eq('difficulty', difficulty).order('wpm', { ascending: false }).limit(10),
                     supabase.from('leaderboard').select('accuracy').eq('difficulty', difficulty).order('accuracy', { ascending: false }).limit(10),
+                    supabase.from('leaderboard').select('streak').eq('difficulty', difficulty).order('streak', { ascending: false }).limit(10).catch(() => ({ data: [] })),
                 ]);
 
                 const beats = (val, list, field) =>
-                    !list || list.length < 10 || val > list[list.length - 1][field];
+                    !list || list.length < 10 || val > (list[list.length - 1]?.[field] ?? 0);
 
                 return beats(score, scoreRes.data, 'score')
                     || beats(wpm, wpmRes.data, 'wpm')
-                    || (score > 500 && beats(accuracy, accRes.data, 'accuracy'));
+                    || (score > 500 && beats(accuracy, accRes.data, 'accuracy'))
+                    || (streak > 0 && beats(streak, streakRes?.data, 'streak'));
 
             } catch (e) {
                 console.warn('[Leaderboard] Supabase isTop10 failed, using local.', e);
@@ -118,21 +127,23 @@ export class Leaderboard {
 
         const d = this._local[difficulty];
         if (!d) return false;
-        const check = (val, list, field) => list.length < 10 || val > (list[list.length - 1]?.[field] ?? 0);
+        const check = (val, list, field) => !list || list.length < 10 || val > (list[list.length - 1]?.[field] ?? 0);
         return check(score, d.score, 'score')
             || check(wpm, d.wpm, 'wpm')
-            || (score > 500 && check(accuracy, d.accuracy, 'accuracy'));
+            || (score > 500 && check(accuracy, d.accuracy, 'accuracy'))
+            || (streak > 0 && check(streak, d.streak, 'streak'));
     }
 
     /**
      * Saves ONE row per score entry to Supabase. No category column — no duplicates.
      */
-    async addScore(difficulty, name, score, wpm, accuracy) {
+    async addScore(difficulty, name, score, wpm, accuracy, streak = 0) {
         const entry = {
             name: name || 'Anonymous Mage',
             score,
             wpm,
             accuracy,
+            streak: streak || 0,
             date: new Date().toLocaleDateString()
         };
 
@@ -141,17 +152,25 @@ export class Leaderboard {
 
         if (supabase) {
             try {
-                const { error } = await supabase.from('leaderboard').insert([{
+                const payload = {
                     difficulty,
                     name: entry.name,
                     score,
                     wpm,
-                    accuracy
-                }]);
-                if (error) console.warn('[Leaderboard] Insert failed:', error.message);
+                    accuracy,
+                    streak: entry.streak
+                };
+                const { error } = await supabase.from('leaderboard').insert([payload]);
+                if (error) {
+                    console.warn('[Leaderboard] Insert with streak failed, retrying without streak column:', error.message);
+                    delete payload.streak;
+                    const { error: retryError } = await supabase.from('leaderboard').insert([payload]);
+                    if (retryError) console.warn('[Leaderboard] Retry insert failed:', retryError.message);
+                }
             } catch (e) {
                 console.warn('[Leaderboard] Supabase addScore failed.', e);
             }
         }
     }
 }
+

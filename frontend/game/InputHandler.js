@@ -105,8 +105,28 @@ export class InputHandler {
                 // Combo Milestones — rendered cleanly on canvas with zero DOM thrashing
                 const combo = this.game.stats.combo;
                 if (combo > 0 && combo % 10 === 0) {
-                    this.game.floatingTexts.push(new FloatingText(`${combo}x COMBO!`, this.game.canvas.width / 2, this.game.canvas.height / 2 - 80, '#ffd700', 44));
-                    this.game.combatSystem.triggerShake(10, 400);
+                    let milestoneText = `${combo}x COMBO!`;
+                    let milestoneColor = '#ffd700';
+                    let shakePower = 10;
+                    if (combo >= 200) {
+                        milestoneText = `👑 GODLIKE ${combo}x STREAK! 👑`;
+                        milestoneColor = '#ffffff';
+                        shakePower = 16;
+                    } else if (combo >= 150) {
+                        milestoneText = `🌌 TRANSCENDENT ${combo}x STREAK! 🌌`;
+                        milestoneColor = '#d500f9';
+                        shakePower = 14;
+                    } else if (combo >= 100) {
+                        milestoneText = `✨ CELESTIAL ${combo}x STREAK! ✨`;
+                        milestoneColor = '#00e5ff';
+                        shakePower = 12;
+                    } else if (combo >= 50) {
+                        milestoneText = `🔥 ASCENDANT ${combo}x COMBO! 🔥`;
+                        milestoneColor = '#ff9100';
+                        shakePower = 11;
+                    }
+                    this.game.floatingTexts.push(new FloatingText(milestoneText, this.game.canvas.width / 2, this.game.canvas.height / 2 - 80, milestoneColor, 44));
+                    this.game.combatSystem.triggerShake(shakePower, 400);
                 }
 
                 // Combustion Talent (Explosion AoE)
