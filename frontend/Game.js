@@ -18,7 +18,7 @@ import { CharacterRenderer } from './game/CharacterRenderer.js';
 export class Game {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
-        this.ctx = this.canvas.getContext('2d');
+        this.ctx = this.canvas.getContext('2d', { desynchronized: true });
 
         this.dictionary = new WordDictionary();
         this.audio = new AudioController();
@@ -266,14 +266,34 @@ export class Game {
         this._fpsAccum = (this._fpsAccum || 0) + dt;
         this._fpsFrames = (this._fpsFrames || 0) + 1;
         if (this._fpsAccum >= 1000) {
-            const fps = this._fpsFrames / (this._fpsAccum / 1000);
+            const fps = Math.round(this._fpsFrames / (this._fpsAccum / 1000));
+            this.currentFps = fps;
             this._fpsFrames = 0;
             this._fpsAccum = 0;
+
+            const fpsBadge = document.getElementById('hud-fps');
+            if (fpsBadge) {
+                fpsBadge.textContent = `${fps} FPS`;
+                if (fps >= 100) {
+                    fpsBadge.style.color = '#00e5ff';
+                    fpsBadge.style.textShadow = '0 0 6px rgba(0, 229, 255, 0.6)';
+                    fpsBadge.title = `High-Refresh Rate Active (${fps} FPS)`;
+                } else if (fps >= 55) {
+                    fpsBadge.style.color = 'rgba(255, 215, 0, 0.6)';
+                    fpsBadge.style.textShadow = 'none';
+                    fpsBadge.title = `Standard Locked (${fps} FPS)`;
+                } else {
+                    fpsBadge.style.color = '#ff5252';
+                    fpsBadge.style.textShadow = 'none';
+                    fpsBadge.title = `Framerate Drop (${fps} FPS)`;
+                }
+            }
+
             if (fps < 40) {
                 this._lowFpsStrikes = (this._lowFpsStrikes || 0) + 1;
                 if (this._lowFpsStrikes >= 2 && !window.__atLowQuality) {
                     window.__atLowQuality = true;
-                    console.warn('[Perf] FPS ' + fps.toFixed(0) + ' — enabling low-quality render mode');
+                    console.warn('[Perf] FPS ' + fps + ' — enabling low-quality render mode');
                 }
             } else {
                 this._lowFpsStrikes = 0;

@@ -154,15 +154,21 @@ export class Particle {
             this.rot += this.vRot * dt;
             this.life -= this.decay * (dt / 16);
         } else {
-            // Zero-trigonometry matrix rotation for organic swerve
-            const nvx = this.vx * this.cosCurve - this.vy * this.sinCurve;
-            const nvy = this.vx * this.sinCurve + this.vy * this.cosCurve;
-            this.vx = nvx;
-            this.vy = nvy;
+            const dtScale = dt / 16.67;
+            // Matrix rotation for organic swerve scaled by delta-time
+            if (this.curve !== 0) {
+                const scaledCurve = this.curve * dtScale;
+                const cosC = Math.cos(scaledCurve);
+                const sinC = Math.sin(scaledCurve);
+                const nvx = this.vx * cosC - this.vy * sinC;
+                const nvy = this.vx * sinC + this.vy * cosC;
+                this.vx = nvx;
+                this.vy = nvy;
+            }
 
             this.x += this.vx * dt;
             this.y += this.vy * dt;
-            this.life -= this.decay;
+            this.life -= this.decay * dtScale;
 
             // Gravity pulls particles down
             this.vy += this.gravity * dt;

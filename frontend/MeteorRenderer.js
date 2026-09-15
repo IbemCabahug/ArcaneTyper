@@ -577,9 +577,10 @@ export class MeteorRenderer {
     // RUNTIME UPDATE & DRAW
     // =========================================================================
     update(dt = 16.67) {
-        this.tickCount += 1;
-        if (this.tickCount >= this.ticksPerFrame) {
-            this.tickCount = 0;
+        this.elapsedMs = (this.elapsedMs || 0) + dt;
+        const msPerFrame = this.ticksPerFrame * 16.67;
+        if (this.elapsedMs >= msPerFrame) {
+            this.elapsedMs %= msPerFrame;
             this.frameIndex = (this.frameIndex + 1) % MeteorRenderer.FRAME_COUNT;
         }
     }
