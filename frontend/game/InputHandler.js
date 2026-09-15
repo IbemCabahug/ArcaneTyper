@@ -109,19 +109,19 @@ export class InputHandler {
                     let milestoneColor = '#ffd700';
                     let shakePower = 10;
                     if (combo >= 200) {
-                        milestoneText = `👑 GODLIKE ${combo}x STREAK! 👑`;
+                        milestoneText = `GODLIKE ${combo}x STREAK!`;
                         milestoneColor = '#ffffff';
                         shakePower = 16;
                     } else if (combo >= 150) {
-                        milestoneText = `🌌 TRANSCENDENT ${combo}x STREAK! 🌌`;
+                        milestoneText = `TRANSCENDENT ${combo}x STREAK!`;
                         milestoneColor = '#d500f9';
                         shakePower = 14;
                     } else if (combo >= 100) {
-                        milestoneText = `✨ CELESTIAL ${combo}x STREAK! ✨`;
+                        milestoneText = `CELESTIAL ${combo}x STREAK!`;
                         milestoneColor = '#00e5ff';
                         shakePower = 12;
                     } else if (combo >= 50) {
-                        milestoneText = `🔥 ASCENDANT ${combo}x COMBO! 🔥`;
+                        milestoneText = `ASCENDANT ${combo}x STREAK!`;
                         milestoneColor = '#ff9100';
                         shakePower = 11;
                     }
