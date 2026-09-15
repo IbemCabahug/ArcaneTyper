@@ -493,16 +493,24 @@ export class Game {
 
         const wizX = this.canvas.width / 2;
         const wizY = this.canvas.height - 35;
+        const shieldY = wizY - 18; // Geometric center of Archmage sprite
 
-        const barrierScale = Math.min(1, Math.max(0.65, this.canvas.height / 750));
+        const barrierScale = Math.min(1, Math.max(0.75, this.canvas.height / 750));
+        const comboBonus = Math.round(((this.stats && this.stats.combo >= 100) ? 12 : ((this.stats && this.stats.combo >= 50) ? 6 : 0)) * barrierScale);
+        const rStep = Math.round(24 * barrierScale);
+        // Minimum inner shield radius is 76px so the wizard (tallest point 37px from shield center) has 39px+ clearance and NEVER overlaps!
+        const r1 = Math.max(76, Math.round(78 * barrierScale)) + comboBonus;
+        const r2 = r1 + rStep;
+        const r3 = r2 + rStep;
+        const r4 = r3 + rStep;
+
         let activeRadius = Math.round(30 * barrierScale);
         let hitColor = '#ff4b4b';
 
-        const comboBonus = Math.round(((this.stats && this.stats.combo >= 100) ? 12 : ((this.stats && this.stats.combo >= 50) ? 6 : 0)) * barrierScale);
-        if (this.stats.lives >= 5) { activeRadius = Math.round(150 * barrierScale) + comboBonus; hitColor = '#00e5ff'; }
-        else if (this.stats.lives === 4) { activeRadius = Math.round(126 * barrierScale) + comboBonus; hitColor = '#ffd700'; }
-        else if (this.stats.lives === 3) { activeRadius = Math.round(102 * barrierScale) + comboBonus; hitColor = '#d500f9'; }
-        else if (this.stats.lives === 2) { activeRadius = Math.round(78 * barrierScale) + comboBonus; hitColor = '#29b6f6'; }
+        if (this.stats.lives >= 5) { activeRadius = r4; hitColor = '#00e5ff'; }
+        else if (this.stats.lives === 4) { activeRadius = r3; hitColor = '#ffd700'; }
+        else if (this.stats.lives === 3) { activeRadius = r2; hitColor = '#d500f9'; }
+        else if (this.stats.lives === 2) { activeRadius = r1; hitColor = '#29b6f6'; }
         else { activeRadius = Math.round(30 * barrierScale); hitColor = '#ff4b4b'; }
 
         for (let i = this.words.length - 1; i >= 0; i--) {
@@ -512,7 +520,7 @@ export class Game {
             // Only do collision check on words that are NOT dying
             if (!word.dying) {
                 const dx = word.x - wizX;
-                const dy = word.y - wizY;
+                const dy = word.y - shieldY;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 const textHitboxSize = 20;
 
@@ -707,18 +715,25 @@ export class Game {
         this.ctx.save();
         const wizX = this.canvas.width / 2;
         const wizY = this.canvas.height - 35;
-        const barrierScale = Math.min(1, Math.max(0.65, this.canvas.height / 750));
+        const shieldY = wizY - 18;
+        const barrierScale = Math.min(1, Math.max(0.75, this.canvas.height / 750));
         const comboBonus = Math.round(((this.stats && this.stats.combo >= 100) ? 12 : ((this.stats && this.stats.combo >= 50) ? 6 : 0)) * barrierScale);
+        const rStep = Math.round(24 * barrierScale);
+        const r1 = Math.max(76, Math.round(78 * barrierScale)) + comboBonus;
+        const r2 = r1 + rStep;
+        const r3 = r2 + rStep;
+        const r4 = r3 + rStep;
+
         const barriers = [
-            { radius: Math.round(78 * barrierScale) + comboBonus, color: '#29b6f6', active: this.stats.lives >= 2 },
-            { radius: Math.round(102 * barrierScale) + comboBonus, color: '#d500f9', active: this.stats.lives >= 3 },
-            { radius: Math.round(126 * barrierScale) + comboBonus, color: '#ffd700', active: this.stats.lives >= 4 },
-            ...(this.stats.hasSkill('life') ? [{ radius: Math.round(150 * barrierScale) + comboBonus, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
+            { radius: r1, color: '#29b6f6', active: this.stats.lives >= 2 },
+            { radius: r2, color: '#d500f9', active: this.stats.lives >= 3 },
+            { radius: r3, color: '#ffd700', active: this.stats.lives >= 4 },
+            ...(this.stats.hasSkill('life') ? [{ radius: r4, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
         ];
 
         barriers.forEach(barrier => {
             if (barrier.active) {
-                this._blitBarrier(this._barrierImg('def', barrier.color, barrier.radius, 0), wizX, wizY);
+                this._blitBarrier(this._barrierImg('def', barrier.color, barrier.radius, 0), wizX, shieldY);
             }
         });
 
@@ -912,7 +927,7 @@ export class Game {
 
     _spawnSingleWord() {
         const targetX = this.canvas.width / 2;
-        const targetY = this.canvas.height - 35;
+        const targetY = this.canvas.height - 53;
 
         let text = "";
         let variant = 'normal';
