@@ -54,6 +54,9 @@ export class Game {
 
         this.resizeCanvas();
         window.addEventListener('resize', () => this.resizeCanvas());
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => this.resizeCanvas());
+        }
 
         this.inputHandler = new InputHandler(this);
         this.combatSystem = new CombatSystem(this);
@@ -63,8 +66,13 @@ export class Game {
 
     resizeCanvas() {
         const parent = this.canvas.parentElement;
-        this.canvas.width = parent.clientWidth;
-        this.canvas.height = parent.clientHeight;
+        if (!parent) return;
+        const newW = Math.floor(parent.clientWidth);
+        const newH = Math.floor(parent.clientHeight);
+        if (this.canvas.width === newW && this.canvas.height === newH) return;
+
+        this.canvas.width = newW;
+        this.canvas.height = newH;
 
         // Re-generate star field when canvas resizes
         this._initStars();
@@ -486,15 +494,16 @@ export class Game {
         const wizX = this.canvas.width / 2;
         const wizY = this.canvas.height - 35;
 
-        let activeRadius = 30;
+        const barrierScale = Math.min(1, Math.max(0.65, this.canvas.height / 750));
+        let activeRadius = Math.round(30 * barrierScale);
         let hitColor = '#ff4b4b';
 
-        const comboBonus = (this.stats && this.stats.combo >= 100) ? 12 : ((this.stats && this.stats.combo >= 50) ? 6 : 0);
-        if (this.stats.lives >= 5) { activeRadius = 150 + comboBonus; hitColor = '#00e5ff'; }
-        else if (this.stats.lives === 4) { activeRadius = 126 + comboBonus; hitColor = '#ffd700'; }
-        else if (this.stats.lives === 3) { activeRadius = 102 + comboBonus; hitColor = '#d500f9'; }
-        else if (this.stats.lives === 2) { activeRadius = 78 + comboBonus; hitColor = '#29b6f6'; }
-        else { activeRadius = 30; hitColor = '#ff4b4b'; }
+        const comboBonus = Math.round(((this.stats && this.stats.combo >= 100) ? 12 : ((this.stats && this.stats.combo >= 50) ? 6 : 0)) * barrierScale);
+        if (this.stats.lives >= 5) { activeRadius = Math.round(150 * barrierScale) + comboBonus; hitColor = '#00e5ff'; }
+        else if (this.stats.lives === 4) { activeRadius = Math.round(126 * barrierScale) + comboBonus; hitColor = '#ffd700'; }
+        else if (this.stats.lives === 3) { activeRadius = Math.round(102 * barrierScale) + comboBonus; hitColor = '#d500f9'; }
+        else if (this.stats.lives === 2) { activeRadius = Math.round(78 * barrierScale) + comboBonus; hitColor = '#29b6f6'; }
+        else { activeRadius = Math.round(30 * barrierScale); hitColor = '#ff4b4b'; }
 
         for (let i = this.words.length - 1; i >= 0; i--) {
             const word = this.words[i];
@@ -698,12 +707,13 @@ export class Game {
         this.ctx.save();
         const wizX = this.canvas.width / 2;
         const wizY = this.canvas.height - 35;
-        const comboBonus = (this.stats && this.stats.combo >= 100) ? 12 : ((this.stats && this.stats.combo >= 50) ? 6 : 0);
+        const barrierScale = Math.min(1, Math.max(0.65, this.canvas.height / 750));
+        const comboBonus = Math.round(((this.stats && this.stats.combo >= 100) ? 12 : ((this.stats && this.stats.combo >= 50) ? 6 : 0)) * barrierScale);
         const barriers = [
-            { radius: 78 + comboBonus, color: '#29b6f6', active: this.stats.lives >= 2 },
-            { radius: 102 + comboBonus, color: '#d500f9', active: this.stats.lives >= 3 },
-            { radius: 126 + comboBonus, color: '#ffd700', active: this.stats.lives >= 4 },
-            ...(this.stats.hasSkill('life') ? [{ radius: 150 + comboBonus, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
+            { radius: Math.round(78 * barrierScale) + comboBonus, color: '#29b6f6', active: this.stats.lives >= 2 },
+            { radius: Math.round(102 * barrierScale) + comboBonus, color: '#d500f9', active: this.stats.lives >= 3 },
+            { radius: Math.round(126 * barrierScale) + comboBonus, color: '#ffd700', active: this.stats.lives >= 4 },
+            ...(this.stats.hasSkill('life') ? [{ radius: Math.round(150 * barrierScale) + comboBonus, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
         ];
 
         barriers.forEach(barrier => {

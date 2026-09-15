@@ -618,12 +618,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       const rankClass = index === 0 ? 'top-rank' : '';
       const streakVal = entry.streak !== undefined ? entry.streak : 0;
       tr.innerHTML = `
-        <td class="rank-text ${rankClass}">#${index + 1}</td>
-        <td class="${rankClass}">${entry.name}</td>
-        <td class="${category === 'score' ? 'category-highlight' : ''}">${entry.score}</td>
-        <td class="${category === 'wpm' ? 'category-highlight' : ''}">${entry.wpm}</td>
-        <td class="${category === 'accuracy' ? 'category-highlight' : ''}">${entry.accuracy}%</td>
-        <td class="${category === 'streak' ? 'category-highlight' : ''}">${streakVal}</td>
+        <td class="col-rank rank-text ${rankClass}">#${index + 1}</td>
+        <td class="col-name ${rankClass}">${entry.name}</td>
+        <td class="col-score ${category === 'score' ? 'category-highlight' : ''}">${entry.score}</td>
+        <td class="col-wpm ${category === 'wpm' ? 'category-highlight' : ''}">${entry.wpm}</td>
+        <td class="col-accuracy ${category === 'accuracy' ? 'category-highlight' : ''}">${entry.accuracy}%</td>
+        <td class="col-streak ${category === 'streak' ? 'category-highlight' : ''}">${streakVal}</td>
       `;
       tbody.appendChild(tr);
     });

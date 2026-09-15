@@ -82,12 +82,9 @@ body.duel-dimension #app::before {
 }
 
 #game-container {
-  width: 1000px;
-  height: 600px;
-  max-width: 95vw;
-  max-height: 90vh;
-  /* use local custom property for viewport height to support mobile browsers */
-  max-height: 90dvh;
+  width: min(96vw, 1360px);
+  height: min(90vh, 90dvh, 850px);
+  aspect-ratio: 16 / 10;
   background: #140d24;
   transform: translateZ(0);
   will-change: transform;
@@ -104,15 +101,57 @@ body.duel-dimension #app::before {
   top: 0;
   left: 0;
   width: 100%;
-  padding: 20px 30px;
+  padding: 14px 22px;
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   z-index: 10;
   pointer-events: none;
 }
 
-#hud button {
+.hud-left,
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+}
+
+.hud-btn {
   pointer-events: auto;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffd700;
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  border-radius: 6px;
+  cursor: pointer;
+  width: 35px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.hud-btn:hover {
+  background: rgba(255, 215, 0, 0.15);
+  border-color: #ffd700;
+  transform: scale(1.05);
+}
+
+.hud-btn.forfeit {
+  color: var(--accent-danger);
+  border-color: rgba(255, 75, 75, 0.4);
+}
+
+.hud-btn.forfeit:hover {
+  background: rgba(255, 75, 75, 0.2);
+  border-color: var(--accent-danger);
 }
 
 .hidden,
@@ -1939,5 +1978,532 @@ h2 {
 .pause-volume-slider:hover,
 .volume-slider:hover {
   filter: brightness(1.2);
+}
+
+/* ═══════════════════════════════════════════════════════ */
+/* RESPONSIVE DESIGN & ADAPTIVE VIEWPORTS                   */
+/* ═══════════════════════════════════════════════════════ */
+
+/* Floating Menu Actions Container */
+#start-menu-floating-actions {
+  position: absolute;
+  bottom: 22px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+  z-index: 60;
+}
+
+.menu-floating-btn {
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffd700;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5), 0 0 10px rgba(255, 215, 0, 0.2);
+}
+
+.menu-floating-btn:hover {
+  transform: scale(1.1);
+  background: rgba(255, 215, 0, 0.2);
+  border-color: #ffd700;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+}
+
+.menu-floating-btn:active {
+  transform: scale(0.95);
+}
+
+/* Modal Sticky Footer */
+.modal-sticky-footer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-top: 15px;
+  padding: 8px 0;
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(to top, rgba(15, 10, 20, 0.95) 75%, transparent);
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.modal-sticky-footer .primary-btn {
+  margin-top: 0;
+}
+
+/* ───────────────────────────────────────────────────────── */
+/* TABLET & SMALL DESKTOP (≤ 900px)                          */
+/* ───────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  #game-container {
+    width: 98vw;
+    height: 94vh;
+    border-radius: 8px;
+  }
+
+  .stat-box .value {
+    font-size: 1.25rem;
+  }
+
+  .stat-box .label {
+    font-size: 0.68rem;
+  }
+
+  .hud-left,
+  .hud-right {
+    gap: 10px;
+  }
+
+  .mana-bar-container {
+    width: 110px;
+  }
+
+  #duel-lobby-menu {
+    width: 75vw;
+    max-width: 440px;
+  }
+}
+
+/* ───────────────────────────────────────────────────────── */
+/* MOBILE PORTRAIT (≤ 600px)                                 */
+/* ───────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  #game-container {
+    width: 100vw;
+    width: 100dvw;
+    height: 100vh;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    aspect-ratio: auto;
+    overflow-x: hidden;
+  }
+
+  /* HUD Compact & Flanked */
+  #hud {
+    padding: 8px 10px;
+  }
+
+  .hud-left,
+  .hud-right {
+    gap: 6px;
+  }
+
+  .stat-box .label {
+    font-size: 0.6rem;
+    letter-spacing: 0.5px;
+    margin-bottom: 1px;
+  }
+
+  .stat-box .value {
+    font-size: 1.05rem;
+  }
+
+  /* Hide non-essential speed/acc on narrow mobile to keep 100% open drop corridor */
+  .stat-box.stat-wpm,
+  .stat-box.stat-acc {
+    display: none;
+  }
+
+  .mana-bar-container {
+    width: 75px;
+    height: 14px;
+  }
+
+  .mana-text {
+    font-size: 0.55rem;
+  }
+
+  #mana-hint {
+    display: none;
+  }
+
+  .barrier {
+    width: 10px;
+    height: 10px;
+  }
+
+  .hud-actions {
+    gap: 4px;
+    margin-left: 2px;
+  }
+
+  .hud-btn {
+    width: 30px;
+    height: 30px;
+  }
+
+  .hud-btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  /* Start Menu Mobile Polish */
+  #start-menu {
+    padding: 10px 12px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  #start-menu::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  #start-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 215, 0, 0.3);
+    border-radius: 4px;
+  }
+
+  #start-menu h1 {
+    font-size: clamp(1.6rem, 7vw, 2.2rem);
+  }
+
+  #start-menu .subtitle {
+    font-size: 0.72rem;
+    letter-spacing: 1px;
+  }
+
+  #menu-mage-name {
+    font-size: 1.15rem !important;
+  }
+
+  #menu-mage-title {
+    font-size: 0.8rem !important;
+  }
+
+  .stats-overview {
+    gap: 4px !important;
+  }
+
+  .stats-overview p {
+    font-size: 0.75rem !important;
+  }
+
+  #top-right-controls {
+    top: 8px !important;
+    right: 8px !important;
+  }
+
+  #top-right-controls .difficulty-selector {
+    padding: 4px 8px !important;
+  }
+
+  #top-right-controls select {
+    min-width: 105px !important;
+    font-size: 0.75rem !important;
+    padding: 3px 6px !important;
+  }
+
+  .selectors-container {
+    flex-direction: column !important;
+    align-items: center;
+    width: 88% !important;
+    max-width: 270px;
+    gap: 8px !important;
+  }
+
+  .selectors-container .difficulty-selector {
+    width: 100%;
+  }
+
+  .selectors-container select {
+    width: 100% !important;
+    min-width: unset !important;
+    font-size: 0.85rem !important;
+    padding: 6px 10px !important;
+  }
+
+  .button-group {
+    width: 88% !important;
+    max-width: 270px;
+    gap: 8px !important;
+  }
+
+  .primary-btn {
+    padding: 10px 14px !important;
+    font-size: 0.82rem !important;
+    letter-spacing: 1px !important;
+  }
+
+  /* Keep ambient silhouettes from occluding touch controls */
+  .mage-silhouette-img,
+  .duel-silhouette-img {
+    opacity: 0.12 !important;
+    pointer-events: none !important;
+  }
+
+  #start-menu-floating-actions {
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+  }
+
+  .menu-floating-btn {
+    width: 42px;
+    height: 42px;
+  }
+
+  /* Leaderboard Responsive */
+  .leaderboard-container {
+    width: 95% !important;
+    max-width: 95% !important;
+    padding: 6px 0 12px 0 !important;
+  }
+
+  .leaderboard-scroll-box {
+    padding: 0 10px !important;
+    max-height: 48vh !important;
+  }
+
+  .leaderboard-tabs {
+    max-width: 95% !important;
+    overflow-x: auto !important;
+    padding: 5px !important;
+    gap: 4px !important;
+    margin-bottom: 1rem !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-btn {
+    font-size: 0.72rem !important;
+    padding: 5px 8px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0;
+  }
+
+  .leaderboard-table th.col-accuracy,
+  .leaderboard-table td.col-accuracy,
+  .leaderboard-table th.col-streak,
+  .leaderboard-table td.col-streak {
+    display: none !important;
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: 8px 6px !important;
+    font-size: 0.82rem !important;
+  }
+
+  /* Side Menus on Mobile Full Bleed */
+  #duel-lobby-menu {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    border-left: none !important;
+  }
+
+  .pause-card {
+    padding: 20px 18px !important;
+    max-width: 92% !important;
+  }
+}
+
+/* ───────────────────────────────────────────────────────── */
+/* MOBILE LANDSCAPE (max-height: 500px, landscape)           */
+/* ───────────────────────────────────────────────────────── */
+@media (max-height: 500px) and (orientation: landscape) {
+  #game-container {
+    width: 100vw;
+    width: 100dvw;
+    height: 100vh;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    aspect-ratio: auto;
+  }
+
+  #hud {
+    padding: 4px 10px;
+  }
+
+  .hud-left,
+  .hud-right {
+    gap: 8px;
+  }
+
+  .stat-box .label {
+    font-size: 0.52rem;
+    margin-bottom: 0;
+    letter-spacing: 0.5px;
+  }
+
+  .stat-box .value {
+    font-size: 0.95rem;
+  }
+
+  .mana-bar-container {
+    width: 70px;
+    height: 12px;
+  }
+
+  .mana-text {
+    font-size: 0.52rem;
+  }
+
+  #mana-hint {
+    display: none;
+  }
+
+  .barrier {
+    width: 9px;
+    height: 9px;
+  }
+
+  .hud-btn {
+    width: 26px;
+    height: 26px;
+  }
+
+  .hud-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Start Menu in Landscape */
+  #start-menu {
+    overflow-y: auto;
+    overflow-x: hidden;
+    justify-content: flex-start;
+    padding: 8px 12px;
+  }
+
+  #start-menu::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  #start-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 215, 0, 0.3);
+    border-radius: 4px;
+  }
+
+  #start-menu h1 {
+    font-size: 1.4rem;
+  }
+
+  #start-menu .subtitle {
+    display: none;
+  }
+
+  #menu-mage-name {
+    font-size: 0.95rem !important;
+  }
+
+  #menu-mage-title {
+    font-size: 0.72rem !important;
+  }
+
+  .stats-overview {
+    display: none !important;
+  }
+
+  .selectors-container {
+    flex-direction: row !important;
+    gap: 8px !important;
+  }
+
+  .selectors-container .difficulty-selector select {
+    font-size: 0.75rem !important;
+    padding: 3px 8px !important;
+    min-width: 120px !important;
+  }
+
+  .button-group {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 92% !important;
+    gap: 6px !important;
+  }
+
+  .button-group .primary-btn {
+    padding: 6px 12px !important;
+    font-size: 0.75rem !important;
+    letter-spacing: 0.5px !important;
+  }
+
+  .mage-silhouette-img,
+  .duel-silhouette-img {
+    height: 48vh !important;
+    opacity: 0.15 !important;
+  }
+
+  #start-menu-floating-actions {
+    bottom: 6px;
+    left: 10px;
+    right: 10px;
+  }
+
+  .menu-floating-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .menu-floating-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .leaderboard-scroll-box {
+    max-height: 42vh !important;
+  }
+
+  .pause-card {
+    padding: 12px 20px !important;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+
+  .pause-crest {
+    font-size: 1.6rem;
+    margin-bottom: 2px;
+  }
+}
+
+/* ───────────────────────────────────────────────────────── */
+/* 4K & ULTRA-WIDE (≥ 2000px)                                */
+/* ───────────────────────────────────────────────────────── */
+@media (min-width: 2000px) {
+  #game-container {
+    max-width: 1750px;
+    max-height: 1050px;
+  }
+
+  #hud {
+    padding: 22px 36px;
+  }
+
+  .stat-box .value {
+    font-size: 1.85rem;
+  }
+
+  .stat-box .label {
+    font-size: 0.9rem;
+  }
+
+  .mana-bar-container {
+    width: 200px;
+    height: 24px;
+  }
+
+  .primary-btn {
+    padding: 14px 34px;
+    font-size: 1.15rem;
+  }
 }
 
