@@ -185,15 +185,22 @@ export class Particle {
         const lowQ = window.__atLowQuality === true;
 
         ctx.save();
-        ctx.globalAlpha = Math.max(0, this.life);
+        const lifeAlpha = Math.max(0, this.life);
+        ctx.globalAlpha = lifeAlpha;
 
         if (this.isShockwave) {
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
             ctx.strokeStyle = this.color;
-            ctx.lineWidth = Math.max(1, 10 * this.life); // Ring gets thinner as it fades
-            ctx.shadowColor = this.color;
-            ctx.shadowBlur = lowQ ? 0 : 10;
+            ctx.lineWidth = Math.max(1, 8 * this.life); // Ring gets thinner as it fades
+            ctx.stroke();
+
+            // Softer luminous outer halo ring (0 blur filter overhead)
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size + 2, 0, Math.PI * 2);
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = Math.max(1, 3 * this.life);
+            ctx.globalAlpha = lifeAlpha * 0.4;
             ctx.stroke();
 
         } else if (this.isGlassShard) {
@@ -208,9 +215,7 @@ export class Particle {
             ctx.closePath();
             ctx.fillStyle = this.color;
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.lineWidth = 0.8;
-            ctx.shadowColor = this.color;
-            ctx.shadowBlur = lowQ ? 0 : 8;
+            ctx.lineWidth = 1.0;
             ctx.fill();
             ctx.stroke();
             ctx.restore();
@@ -220,22 +225,28 @@ export class Particle {
             if (img) {
                 const grow = 1.4 - this.life * 0.4; // shrink as it fades
                 const s = 96 * grow * (window.__atLowQuality ? 0.75 : 1);
-                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.globalAlpha = lifeAlpha;
                 ctx.drawImage(img, this.x - s / 2, this.y - s / 2, s, s);
                 ctx.globalAlpha = 1;
             }
         } else if (this.isRune) {
             ctx.font = `${Math.max(4, this.size * 3)}px serif`;
             ctx.fillStyle = this.color;
-            ctx.shadowColor = this.color;
-            ctx.shadowBlur = lowQ ? 0 : 6;
             ctx.fillText(this.runeChar, this.x, this.y);
         } else {
+            // Blazing-fast incandescent magic spark: Radiant color aura + hot star core (0 blur passes)
+            const r = Math.max(0.5, this.size);
+            // Outer aura
             ctx.beginPath();
-            ctx.arc(this.x, this.y, Math.max(0.5, this.size), 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, r * 2.0, 0, Math.PI * 2);
             ctx.fillStyle = this.color;
-            ctx.shadowColor = this.color;
-            ctx.shadowBlur = lowQ ? 0 : 8;
+            ctx.globalAlpha = lifeAlpha * 0.35;
+            ctx.fill();
+            // Hot core
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = lifeAlpha;
             ctx.fill();
         }
         ctx.restore();

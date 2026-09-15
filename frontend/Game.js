@@ -648,14 +648,13 @@ export class Game {
         const comboIntensity = Math.min(1.0, this.stats.combo / 50);
 
         if (comboIntensity > 0.1) {
-            const bgVignette = this.ctx.createRadialGradient(
-                this.canvas.width / 2, this.canvas.height / 2, this.canvas.width * 0.4,
-                this.canvas.width / 2, this.canvas.height / 2, this.canvas.width
-            );
-            bgVignette.addColorStop(0, 'transparent');
-            bgVignette.addColorStop(1, `rgba(100, 0, 80, ${comboIntensity * 0.6})`);
-            this.ctx.fillStyle = bgVignette;
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            const bgVignette = this._getComboVignette();
+            if (bgVignette) {
+                this.ctx.save();
+                this.ctx.globalAlpha = comboIntensity;
+                this.ctx.drawImage(bgVignette, 0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.restore();
+            }
         }
 
         // --- Star field ---
@@ -663,30 +662,14 @@ export class Game {
 
         // --- Pocket Dimension Background ---
         if (this.bossDimensionAlpha > 0) {
+            const { base, vig } = this._getPocketDimensionBGs();
             this.ctx.save();
             this.ctx.globalAlpha = this.bossDimensionAlpha;
+            if (base) this.ctx.drawImage(base, 0, 0, this.canvas.width, this.canvas.height);
 
-            // Base radial gradient
-            const gradient = this.ctx.createRadialGradient(
-                this.canvas.width / 2, this.canvas.height / 2, 50,
-                this.canvas.width / 2, this.canvas.height / 2, this.canvas.width / 1.5
-            );
-            gradient.addColorStop(0, '#2a0808');
-            gradient.addColorStop(1, '#05020a');
-            this.ctx.fillStyle = gradient;
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-            // Pulsing edge vignette
             const vignetteAlpha = 0.4 + Math.sin(performance.now() / 600) * 0.15;
-            const vignette = this.ctx.createRadialGradient(
-                this.canvas.width / 2, this.canvas.height / 2, this.canvas.width * 0.3,
-                this.canvas.width / 2, this.canvas.height / 2, this.canvas.width * 0.75
-            );
-            vignette.addColorStop(0, 'transparent');
-            vignette.addColorStop(1, `rgba(80, 0, 20, ${vignetteAlpha})`);
-            this.ctx.fillStyle = vignette;
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
+            this.ctx.globalAlpha = this.bossDimensionAlpha * vignetteAlpha;
+            if (vig) this.ctx.drawImage(vig, 0, 0, this.canvas.width, this.canvas.height);
             this.ctx.restore();
         }
 
@@ -734,15 +717,17 @@ export class Game {
             this.targetedWord.draw(this.ctx);
         }
 
-        // --- Ambient Dust ---
+        // --- Ambient Dust (Batched single-path draw) ---
         this.ctx.save();
-        this.ambientParticles.forEach(ap => {
-            this.ctx.globalAlpha = ap.alpha;
-            this.ctx.fillStyle = '#ffffff';
-            this.ctx.beginPath();
+        this.ctx.globalAlpha = 0.22;
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.beginPath();
+        for (let i = 0; i < this.ambientParticles.length; i++) {
+            const ap = this.ambientParticles[i];
+            this.ctx.moveTo(ap.x + ap.size, ap.y);
             this.ctx.arc(ap.x, ap.y, ap.size, 0, Math.PI * 2);
-            this.ctx.fill();
-        });
+        }
+        this.ctx.fill();
         this.ctx.restore();
 
         // --- Projectiles ---
@@ -768,20 +753,54 @@ export class Game {
 
         // --- Blood Vignette ---
         if (this.bloodVignetteIntensity > 0) {
-            this.ctx.save();
-            this.ctx.globalAlpha = this.bloodVignetteIntensity * 0.5; // Max 50% opacity
-            const vignette = this.ctx.createRadialGradient(
-                this.canvas.width / 2, this.canvas.height / 2, this.canvas.width * 0.2,
-                this.canvas.width / 2, this.canvas.height / 2, this.canvas.width * 0.6
-            );
-            vignette.addColorStop(0, 'transparent');
-            vignette.addColorStop(1, 'rgba(255, 0, 0, 1)');
-            this.ctx.fillStyle = vignette;
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-            this.ctx.restore();
+            const vig = this._getBloodVignette();
+            if (vig) {
+                this.ctx.save();
+                this.ctx.globalAlpha = this.bloodVignetteIntensity * 0.5; // Max 50% opacity
+                this.ctx.drawImage(vig, 0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.restore();
+            }
         }
 
         this.ctx.restore(); // Restore from screen shake translate
+    }
+
+    _getComboVignette() {
+        return RenderCache.bake('at_vignette_combo', 256, 256, (ctx) => {
+            const grad = ctx.createRadialGradient(128, 128, 40, 128, 128, 128);
+            grad.addColorStop(0, 'transparent');
+            grad.addColorStop(1, 'rgba(100, 0, 80, 0.6)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 256, 256);
+        });
+    }
+
+    _getPocketDimensionBGs() {
+        const base = RenderCache.bake('at_pocket_dim_base', 256, 256, (ctx) => {
+            const g = ctx.createRadialGradient(128, 128, 15, 128, 128, 128);
+            g.addColorStop(0, '#2a0808');
+            g.addColorStop(1, '#05020a');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, 256, 256);
+        });
+        const vig = RenderCache.bake('at_pocket_dim_vig', 256, 256, (ctx) => {
+            const g = ctx.createRadialGradient(128, 128, 40, 128, 128, 128);
+            g.addColorStop(0, 'transparent');
+            g.addColorStop(1, 'rgba(80, 0, 20, 0.55)');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, 256, 256);
+        });
+        return { base, vig };
+    }
+
+    _getBloodVignette() {
+        return RenderCache.bake('at_blood_vignette', 256, 256, (ctx) => {
+            const g = ctx.createRadialGradient(128, 128, 40, 128, 128, 128);
+            g.addColorStop(0, 'transparent');
+            g.addColorStop(1, 'rgba(255, 0, 0, 1)');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, 256, 256);
+        });
     }
 
     _drawStars(comboIntensity = 0) {

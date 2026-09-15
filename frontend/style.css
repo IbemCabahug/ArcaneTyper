@@ -88,8 +88,9 @@ body.duel-dimension #app::before {
   max-height: 90vh;
   /* use local custom property for viewport height to support mobile browsers */
   max-height: 90dvh;
-  background: rgba(28, 17, 46, 0.6);
-  backdrop-filter: blur(12px);
+  background: #140d24;
+  transform: translateZ(0);
+  will-change: transform;
   border: 1px solid rgba(255, 215, 0, 0.15);
   border-radius: 12px;
   position: relative;

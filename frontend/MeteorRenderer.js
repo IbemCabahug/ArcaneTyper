@@ -56,10 +56,57 @@ export class MeteorRenderer {
     }
 
     /**
+     * Pre-bakes the directional atmospheric comet tail for each element.
+     */
+    static getTail(element) {
+        const norm = MeteorRenderer.normalizeElement(element);
+        const key = `at_tail_${norm}`;
+        return RenderCache.bake(key, 64, 128, (ctx) => {
+            const tailGrad = ctx.createLinearGradient(32, 128, 32, 0);
+            switch (norm) {
+                case 'fire':
+                    tailGrad.addColorStop(0, 'rgba(255, 215, 0, 0.85)');
+                    tailGrad.addColorStop(0.3, 'rgba(255, 123, 84, 0.6)');
+                    tailGrad.addColorStop(0.7, 'rgba(255, 75, 75, 0.25)');
+                    tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    break;
+                case 'ice':
+                    tailGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                    tailGrad.addColorStop(0.3, 'rgba(0, 229, 255, 0.65)');
+                    tailGrad.addColorStop(0.7, 'rgba(41, 182, 246, 0.25)');
+                    tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    break;
+                case 'lightning':
+                    tailGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                    tailGrad.addColorStop(0.3, 'rgba(234, 128, 252, 0.7)');
+                    tailGrad.addColorStop(0.7, 'rgba(213, 0, 249, 0.25)');
+                    tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    break;
+                case 'void':
+                    tailGrad.addColorStop(0, 'rgba(0, 229, 255, 0.85)');
+                    tailGrad.addColorStop(0.4, 'rgba(29, 233, 182, 0.5)');
+                    tailGrad.addColorStop(0.8, 'rgba(0, 191, 165, 0.2)');
+                    tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    break;
+            }
+            ctx.fillStyle = tailGrad;
+            ctx.beginPath();
+            ctx.moveTo(14, 128);
+            ctx.quadraticCurveTo(22, 50, 32, 0);
+            ctx.quadraticCurveTo(42, 50, 50, 128);
+            ctx.closePath();
+            ctx.fill();
+        });
+    }
+
+    /**
      * Preload all elements across the entire game on startup.
      */
     static preloadAll() {
-        ['fire', 'ice', 'lightning', 'void'].forEach(el => MeteorRenderer.preloadElement(el));
+        ['fire', 'ice', 'lightning', 'void'].forEach(el => {
+            MeteorRenderer.preloadElement(el);
+            MeteorRenderer.getTail(el);
+        });
     }
 
     /**
@@ -577,61 +624,32 @@ export class MeteorRenderer {
         ctx.translate(x, y);
         ctx.rotate(angle);
 
-        // 1. Directional Atmospheric Comet Tail (streaming behind along -Y)
+        // 1. Directional Atmospheric Comet Tail (Pre-baked in RenderCache, 0 heap allocations)
         const tailLen = 50 * auraScale;
         const tailWidth = 26 * auraScale;
+        const tailImg = MeteorRenderer.getTail(this.elementName);
 
-        ctx.save();
-        ctx.globalCompositeOperation = 'screen';
-        const tailGrad = ctx.createLinearGradient(0, 0, 0, -tailLen);
-        switch (this.elementName) {
-            case 'fire':
-                tailGrad.addColorStop(0, 'rgba(255, 215, 0, 0.7)');
-                tailGrad.addColorStop(0.3, 'rgba(255, 123, 84, 0.5)');
-                tailGrad.addColorStop(0.7, 'rgba(255, 75, 75, 0.2)');
-                tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                break;
-            case 'ice':
-                tailGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-                tailGrad.addColorStop(0.3, 'rgba(0, 229, 255, 0.55)');
-                tailGrad.addColorStop(0.7, 'rgba(41, 182, 246, 0.2)');
-                tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                break;
-            case 'lightning':
-                tailGrad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
-                tailGrad.addColorStop(0.3, 'rgba(234, 128, 252, 0.6)');
-                tailGrad.addColorStop(0.7, 'rgba(213, 0, 249, 0.2)');
-                tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                break;
-            case 'void':
-                tailGrad.addColorStop(0, 'rgba(0, 229, 255, 0.7)');
-                tailGrad.addColorStop(0.4, 'rgba(29, 233, 182, 0.4)');
-                tailGrad.addColorStop(0.8, 'rgba(0, 191, 165, 0.15)');
-                tailGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                break;
-        }
+        if (tailImg) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            const tailWobble = Math.sin(now * 0.008 + x) * 2.5;
+            ctx.drawImage(tailImg, -tailWidth / 2 + tailWobble, -tailLen, tailWidth, tailLen);
 
-        ctx.beginPath();
-        const tailWobble = Math.sin(now * 0.008 + x) * 3.5;
-        ctx.moveTo(-tailWidth / 2, 0);
-        ctx.quadraticCurveTo(-tailWidth * 0.35, -tailLen * 0.5, tailWobble, -tailLen);
-        ctx.quadraticCurveTo(tailWidth * 0.35, -tailLen * 0.5, tailWidth / 2, 0);
-        ctx.closePath();
-        ctx.fillStyle = tailGrad;
-        ctx.fill();
-
-        // Trailing atmospheric sparks
-        for (let p = 0; p < 3; p++) {
-            const pPhase = (now * 0.0025 + p * 0.33) % 1.0;
-            const py = -pPhase * tailLen;
-            const px = Math.sin(p * 2.3 + now * 0.008) * (tailWidth * 0.4 * (1 - pPhase));
-            const pr = (1 - pPhase) * 2.2;
+            // Fast batched trailing spark motes
+            const sparkColor = this.elementName === 'void' ? '#00e5ff' : '#ffffff';
+            ctx.fillStyle = sparkColor;
             ctx.beginPath();
-            ctx.arc(px, py, Math.max(0.6, pr), 0, Math.PI * 2);
-            ctx.fillStyle = this.elementName === 'void' ? '#00e5ff' : '#ffffff';
+            for (let p = 0; p < 3; p++) {
+                const pPhase = (now * 0.0025 + p * 0.33) % 1.0;
+                const py = -pPhase * tailLen;
+                const px = Math.sin(p * 2.3 + now * 0.008) * (tailWidth * 0.35 * (1 - pPhase));
+                const pr = Math.max(0.6, (1 - pPhase) * 2.0);
+                ctx.moveTo(px + pr, py);
+                ctx.arc(px, py, pr, 0, Math.PI * 2);
+            }
             ctx.fill();
+            ctx.restore();
         }
-        ctx.restore();
 
         // 2. Blending mode for Meteor Head
         ctx.globalCompositeOperation = this.elementName === 'void' ? 'source-over' : 'screen';

@@ -196,8 +196,14 @@ export class Stats {
         const now = Date.now();
         const cutoff = now - this._rollingWindowMs;
 
-        // Drop keystrokes older than the window
-        this._keystrokeTimestamps = this._keystrokeTimestamps.filter(t => t >= cutoff);
+        // Drop keystrokes older than the window without allocating new arrays
+        let firstValid = 0;
+        while (firstValid < this._keystrokeTimestamps.length && this._keystrokeTimestamps[firstValid] < cutoff) {
+            firstValid++;
+        }
+        if (firstValid > 0) {
+            this._keystrokeTimestamps.splice(0, firstValid);
+        }
 
         const countInWindow = this._keystrokeTimestamps.length;
         if (countInWindow === 0) return 0;

@@ -167,11 +167,6 @@ export class Word {
         ctx.scale(this.scale * this.deathScale, this.scale * this.deathScale);
         ctx.globalAlpha = this.opacity;
 
-        if (this.isTargeted) {
-            ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
-            ctx.shadowBlur = window.__atLowQuality ? 0 : 15;
-        }
-
         ctx.font = 'bold 32px Cinzel, serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -223,10 +218,13 @@ export class Word {
         // --- High-Contrast Magical Typography ---
         if (this.isTargeted) {
             ctx.shadowColor = 'rgba(255, 215, 0, 0.9)';
-            ctx.shadowBlur = window.__atLowQuality ? 0 : 14;
+            ctx.shadowBlur = window.__atLowQuality ? 0 : 12;
         } else {
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
-            ctx.shadowBlur = window.__atLowQuality ? 0 : 6;
+            ctx.shadowBlur = 0;
+            // Crisp dark drop offset for passive words (0 Gaussian blur overhead)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            if (this.typed) ctx.fillText(this.typed, startX + 1.5, textYOffset + 1.5);
+            ctx.fillText(this.untyped, startX + this._cachedTypedWidth + 1.5, textYOffset + 1.5);
         }
 
         // 1. Typed part: Illuminated starlight with soft cyan mana sheen

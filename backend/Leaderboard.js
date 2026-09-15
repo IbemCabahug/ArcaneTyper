@@ -109,7 +109,7 @@ export class Leaderboard {
                     supabase.from('leaderboard').select('score').eq('difficulty', difficulty).order('score', { ascending: false }).limit(10),
                     supabase.from('leaderboard').select('wpm').eq('difficulty', difficulty).order('wpm', { ascending: false }).limit(10),
                     supabase.from('leaderboard').select('accuracy').eq('difficulty', difficulty).order('accuracy', { ascending: false }).limit(10),
-                    supabase.from('leaderboard').select('streak').eq('difficulty', difficulty).order('streak', { ascending: false }).limit(10).catch(() => ({ data: [] })),
+                    Promise.resolve(supabase.from('leaderboard').select('streak').eq('difficulty', difficulty).order('streak', { ascending: false }).limit(10)).catch(() => ({ data: [] })),
                 ]);
 
                 const beats = (val, list, field) =>
