@@ -37,6 +37,11 @@ export class AuthUI {
         // Guest DOM
         this.ccGuestBtn = document.getElementById('cc-guest-btn');
         this.ccGuestCancelMode = document.getElementById('cc-guest-cancel-mode');
+
+        // Rate Limiting & Temporal Stasis Lockout
+        this.failedAttempts = parseInt(sessionStorage.getItem('at_auth_failed_attempts') || '0', 10);
+        this.lockoutUntil = parseInt(sessionStorage.getItem('at_auth_lockout_until') || '0', 10);
+        this.lockoutTimer = null;
     }
 
     init(updateProgressionUIParams) {
@@ -44,6 +49,10 @@ export class AuthUI {
 
         this.setupListeners();
         this.checkSession();
+
+        if (this.lockoutUntil && Date.now() < this.lockoutUntil) {
+            this.startLockoutCountdown();
+        }
     }
 
     setupListeners() {
@@ -74,7 +83,9 @@ export class AuthUI {
                     this.ccSubtitle.innerText = "Speak your Owl Delivery and Incantation.";
                     this.ccClassContainer.style.display = 'none';
                     this.ccNicknameContainer.style.display = 'none';
-                    this.ccCreateBtn.innerText = "ENTER LIBRARY";
+                    if (!this.lockoutUntil || Date.now() >= this.lockoutUntil) {
+                        this.ccCreateBtn.innerText = "ENTER LIBRARY";
+                    }
                     this.ccToggleMode.innerText = "I need to register a new Mage Card.";
                     this.ccEmailContainer.style.display = 'none';
                     this.ccUsernameLabel.innerText = "Owl Delivery (Email Address):";
@@ -87,8 +98,14 @@ export class AuthUI {
                     this.ccEmailContainer.style.display = 'flex';
                     this.ccUsernameLabel.innerText = "True Name (Username):";
                     this.ccUsername.placeholder = "e.g. invoker123";
-                    this.ccCreateBtn.innerText = "SEAL MAGE CARD";
+                    if (!this.lockoutUntil || Date.now() >= this.lockoutUntil) {
+                        this.ccCreateBtn.innerText = "SEAL MAGE CARD";
+                    }
                     this.ccToggleMode.innerText = "Already have a Mage Card?";
+                }
+
+                if (this.lockoutUntil && Date.now() < this.lockoutUntil) {
+                    this.startLockoutCountdown();
                 }
             });
         }
@@ -111,6 +128,7 @@ export class AuthUI {
                 this.ccNicknameContainer.style.display = 'flex';
                 this.ccName.placeholder = "e.g. Wandering Scribe";
 
+                this.ccCreateBtn.disabled = false;
                 this.ccCreateBtn.innerText = "ENTER AS GUEST";
                 this.ccGuestBtn.style.display = 'none';
                 this.ccToggleMode.style.display = 'none';
@@ -132,10 +150,16 @@ export class AuthUI {
                 this.ccEmailContainer.style.display = 'none';
                 this.ccClassContainer.style.display = 'none';
 
-                this.ccCreateBtn.innerText = "ENTER LIBRARY";
                 this.ccGuestBtn.style.display = 'block';
                 this.ccToggleMode.style.display = 'block';
                 this.ccGuestCancelMode.style.display = 'none';
+
+                if (this.lockoutUntil && Date.now() < this.lockoutUntil) {
+                    this.startLockoutCountdown();
+                } else {
+                    this.ccCreateBtn.disabled = false;
+                    this.ccCreateBtn.innerText = "ENTER LIBRARY";
+                }
             });
         }
 
@@ -146,6 +170,10 @@ export class AuthUI {
     }
 
     async handleAuthSubmit() {
+        if (!this.isGuestMode && this.lockoutUntil && Date.now() < this.lockoutUntil) {
+            this.startLockoutCountdown();
+            return;
+        }
         const username = this.ccUsername.value.trim().toLowerCase();
         const displayName = this.ccName.value.trim();
         const password = this.ccPassword ? this.ccPassword.value : '';
@@ -212,9 +240,36 @@ export class AuthUI {
                 this.ccCreateBtn.disabled = false;
 
                 if (error) {
-                    if (this.ccErrorMsg) this.ccErrorMsg.innerText = error.message;
+                    this.failedAttempts++;
+                    sessionStorage.setItem('at_auth_failed_attempts', this.failedAttempts.toString());
+
+                    // If Supabase server itself triggered a rate limit (429)
+                    if (error.message && error.message.toLowerCase().includes('rate limit')) {
+                        const durationSec = 60;
+                        this.lockoutUntil = Date.now() + durationSec * 1000;
+                        sessionStorage.setItem('at_auth_lockout_until', this.lockoutUntil.toString());
+                        this.startLockoutCountdown();
+                        return;
+                    }
+
+                    // Client-side rate limit lock after 5 consecutive failed attempts
+                    if (this.failedAttempts >= 5) {
+                        const durationSec = Math.min(120, 30 * Math.pow(2, Math.floor((this.failedAttempts - 5) / 2)));
+                        this.lockoutUntil = Date.now() + durationSec * 1000;
+                        sessionStorage.setItem('at_auth_lockout_until', this.lockoutUntil.toString());
+                        this.startLockoutCountdown();
+                        return;
+                    }
+
+                    const attemptsLeft = 5 - this.failedAttempts;
+                    if (this.ccErrorMsg) {
+                        this.ccErrorMsg.innerText = `${error.message} (${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining before temporal stasis)`;
+                    }
                     return;
                 }
+
+                // Successful login — reset rate limiting counters
+                this.resetRateLimitState();
 
                 this.game.stats.isAuthenticated = true;
 
@@ -245,15 +300,18 @@ export class AuthUI {
 
                 if (error) {
                     if (error.message.toLowerCase().includes('rate limit')) {
-                        console.warn("Supabase rate limit exceeded. Falling back to local profile.");
-                        if (this.ccErrorMsg) this.ccErrorMsg.innerText = "The magical library is overwhelmed (Rate Limit). Granted temporary guest access.";
-                        this.game.stats.mageName = displayName;
+                        console.warn("Supabase rate limit exceeded. Engaging temporal stasis.");
+                        this.lockoutUntil = Date.now() + 60000;
+                        sessionStorage.setItem('at_auth_lockout_until', this.lockoutUntil.toString());
+                        this.startLockoutCountdown();
+                        return;
                     } else {
                         if (this.ccErrorMsg) this.ccErrorMsg.innerText = error.message;
                         return;
                     }
                 } else {
                     // Real account created - authenticated, non-guest.
+                    this.resetRateLimitState();
                     this.game.stats.isAuthenticated = true;
                     this.game.stats.mageName = displayName;
                 }
@@ -326,6 +384,45 @@ export class AuthUI {
             this.startMenu.classList.add('active');
         } else {
             this.showCharacterCreation();
+        }
+    }
+
+    startLockoutCountdown() {
+        if (this.lockoutTimer) clearInterval(this.lockoutTimer);
+
+        const update = () => {
+            const now = Date.now();
+            if (now >= this.lockoutUntil) {
+                clearInterval(this.lockoutTimer);
+                this.lockoutTimer = null;
+                this.lockoutUntil = 0;
+                sessionStorage.removeItem('at_auth_lockout_until');
+                this.ccCreateBtn.disabled = false;
+                this.ccCreateBtn.innerText = this.isGuestMode ? "ENTER AS GUEST" : (this.isLoginMode ? "ENTER LIBRARY" : "SEAL MAGE CARD");
+                if (this.ccErrorMsg) this.ccErrorMsg.innerText = "";
+                return;
+            }
+
+            const sec = Math.ceil((this.lockoutUntil - now) / 1000);
+            this.ccCreateBtn.disabled = true;
+            this.ccCreateBtn.innerText = `TEMPORAL STASIS (${sec}s)`;
+            if (this.ccErrorMsg) {
+                this.ccErrorMsg.innerText = `Too many failed incantations. Chamber locked for ${sec}s.`;
+            }
+        };
+
+        update();
+        this.lockoutTimer = setInterval(update, 1000);
+    }
+
+    resetRateLimitState() {
+        this.failedAttempts = 0;
+        this.lockoutUntil = 0;
+        sessionStorage.removeItem('at_auth_failed_attempts');
+        sessionStorage.removeItem('at_auth_lockout_until');
+        if (this.lockoutTimer) {
+            clearInterval(this.lockoutTimer);
+            this.lockoutTimer = null;
         }
     }
 }
