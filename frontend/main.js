@@ -177,6 +177,52 @@ document.addEventListener('DOMContentLoaded', async () => {
   let duel = null;
   let duelActive = false;
   let race = null; // AT-F9 shared-arena race controller
+  // AT-F9: the 3..2..1 FIGHT countdown's bookkeeping, owned here (not inside
+  // startDuel) so endDuel can kill a countdown that is still running when a
+  // match ends before FIGHT — otherwise the interval reaches its last tick and
+  // dereferences the already-cleared `duel` (owner-reported TypeError).
+  let duelCountdown = null; // { interval, overlay }
+  // AT-F9: the survival death-screen hook that startDuel swaps out for the duel
+  // forfeit path. endDuel hands it back, or every later survival death stalls.
+  let survivalGameOver = null;
+
+  // ── AT-F9 presence hardening ──────────────────────────────────────────────
+  // Supabase presence emits `leave` (+`join`) for the SAME key whenever a client
+  // re-tracks it: Duel.markInMatch() re-sends our presence at FIGHT start, and
+  // sockets re-track after a reconnect. Acting on the raw `leave` ended the duel
+  // mid-countdown on the other browser and then crashed that browser's running
+  // countdown. Presence *state*, not the event, decides who is really gone.
+  const PRESENCE_SETTLE_MS = 1200;
+
+  /**
+   * Resolves true only when the opponent's presence key is genuinely absent,
+   * giving a re-track one settle beat to re-appear. Never touches a newer
+   * duel/match that took over while we waited.
+   */
+  function opponentConfirmedGone() {
+    return new Promise((resolve) => {
+      const watched = duel;
+      if (!watched || !watched.channel) { resolve(true); return; }
+      setTimeout(() => {
+        if (duel !== watched || !duelActive || race) { resolve(false); return; }
+        let others = 0;
+        try {
+          others = Object.keys(watched.channel.presenceState())
+            .filter(k => k !== watched.presenceKey).length;
+        } catch (err) { others = 0; }
+        resolve(others === 0);
+      }, PRESENCE_SETTLE_MS);
+    });
+  }
+
+  /**
+   * Pre-FIGHT `leave` handling, shared by both lobby paths (AT-F9). DuelRace owns
+   * the in-match 5 s grace, so this bows out once a race exists.
+   */
+  function onLobbyOpponentLeft() {
+    if (!duelActive || race) return;
+    opponentConfirmedGone().then((gone) => { if (gone) endDuel(true, 'disconnect'); });
+  }
 
   // Global State
   let isGuest = false;
@@ -942,7 +988,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     startMenu.classList.add('hidden');
     // Score bar is shown by DuelRace.start() when the countdown hits FIGHT.
 
-    // Override game over: in duel mode, forfeit ends the match (AT-F9)
+    // Override game over: in duel mode, forfeit ends the match (AT-F9).
+    // Keep the survival death screen so endDuel can hand it back.
+    if (!survivalGameOver) survivalGameOver = game.onGameOver;
     game.onGameOver = () => endDuel(false, 'forfeit');
 
     // Sabotage (blind/swarm) is OUT of the arena — AT-F9 v1.
@@ -978,6 +1026,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         clearInterval(countInterval);
         countdownOverlay.remove();
+        duelCountdown = null;
+
+        // The duel can already be over before FIGHT — endDuel ran mid-count and
+        // cleared `duel`. Abort instead of building a race against null (the
+        // owner-reported `Cannot read properties of null (reading 'isHost')`).
+        if (!duel || !duelActive) return;
 
         // --- START THE REAL MATCH HERE ---
         // AT-F9: difficulty/mode/dictionary pinned — both clients identical.
@@ -999,11 +1053,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         race.start();
       }
     }, 1000);
+
+    // Registered after setInterval: the first tick cannot fire before this line
+    // runs (single-threaded), and endDuel needs the handle to kill it.
+    duelCountdown = { interval: countInterval, overlay: countdownOverlay };
   }
 
   function endDuel(isWinner, reason = '') {
     if (!duelActive) return;
     duelActive = false;
+
+    // Kill a live countdown: endDuel can fire mid-count (the opponent left while
+    // 3..2..1 ran), and the interval would otherwise reach FIGHT and dereference
+    // the cleared `duel` — the owner-reported TypeError at `duel.isHost`.
+    if (duelCountdown) {
+      clearInterval(duelCountdown.interval);
+      duelCountdown.overlay.remove();
+      duelCountdown = null;
+    }
 
     // Race controller: capture its summary, tell the opponent when WE quit,
     // then tear down timers/hooks (presence grace covers their quit).
@@ -1016,6 +1083,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       race = null;
     }
     game.onAttackCast = null;
+
+    // Hand the survival death screen back to the menu path (AT-F9): startDuel
+    // swapped the hook, and a hook left pointing at endDuel would silently stall
+    // every survival death from here on (endDuel early-returns when idle).
+    if (survivalGameOver) game.onGameOver = survivalGameOver;
 
     // Stop underlying game if still running
     if (game.isRunning) game.stop();
@@ -1091,8 +1163,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     duel.onOpponentJoined = () => {
       // Room lock belt-and-suspenders: a third presence joining mid-match
-      // must never re-fire startDuel (AT-F9).
-      if (duelActive) return;
+      // must never re-fire startDuel (AT-F9). A presence re-track pairs a
+      // `leave` with this `join`, so refuse once `duel` has been torn down too.
+      if (!duel || duelActive) return;
       // Read the opponent's display name from the presence payload
       const state = duel.channel.presenceState();
       const opponentPresenceKey = Object.keys(state).find(k => k !== duel.presenceKey);
@@ -1104,12 +1177,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       startDuel(opponentName);
     };
 
-    // Opponent STATE is owned by DuelRace during the match (AT-F9).
-    duel.onOpponentLeft = () => {
-      // Countdown-phase disconnects end immediately; during the match
-      // DuelRace overrides this with its 5 s presence grace (AT-F9).
-      if (duelActive && !race) endDuel(true, 'disconnect');
-    };
+    // Opponent STATE is owned by DuelRace during the match (AT-F9); pre-FIGHT
+    // departures go through the shared presence check (a re-track's transient
+    // `leave` must not end the duel mid-countdown).
+    duel.onOpponentLeft = () => onLobbyOpponentLeft();
 
     const code = await duel.create();
     duelRoomCodeDisplay.innerText = code;
@@ -1132,12 +1203,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     duel = new Duel(supabase, game.stats.mageName);
     duel.setCharacter(game.stats.selectedCharacter, game.stats.wandColor);
 
-    // Opponent STATE is owned by DuelRace during the match (AT-F9).
-    duel.onOpponentLeft = () => {
-      // Countdown-phase disconnects end immediately; during the match
-      // DuelRace overrides this with its 5 s presence grace (AT-F9).
-      if (duelActive && !race) endDuel(true, 'disconnect');
-    };
+    // Opponent STATE is owned by DuelRace during the match (AT-F9); pre-FIGHT
+    // departures go through the shared presence check (a re-track's transient
+    // `leave` must not end the duel mid-countdown).
+    duel.onOpponentLeft = () => onLobbyOpponentLeft();
 
     const hostKey = await duel.join(code);
     if (hostKey === null) {
