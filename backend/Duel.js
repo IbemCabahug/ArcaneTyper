@@ -23,6 +23,10 @@ export class Duel {
         this.inMatch = false;
         this.character = 'wizard'; // shared-canvas mage identity (AT-F9 P2)
         this.wandColor = '#00e5ff';
+        // AT-F10: this player's Discipline, published with the same presence
+        // that already carries character/wand, so the arena score bar can show
+        // BOTH mages' active (a skill you cannot see coming is not readable).
+        this.mageClass = 'Novice';
 
         // Callbacks
         this.onOpponentUpdate = null;   // (opponentState) => void
@@ -155,7 +159,8 @@ export class Duel {
                     online_at: new Date().toISOString(),
                     in_match: this.inMatch,
                     character: this.character,
-                    wand: this.wandColor
+                    wand: this.wandColor,
+                    mage_class: this.mageClass
                 });
             }
         });
@@ -164,10 +169,12 @@ export class Duel {
     /**
      * Publish this player's mage identity for the shared canvas (AT-F9 P2).
      * Call BEFORE create()/join() so the initial presence carries it.
+     * AT-F10 adds the Discipline (optional, so older callers keep working).
      */
-    setCharacter(character, wandColor) {
+    setCharacter(character, wandColor, mageClass) {
         this.character = character || 'wizard';
         if (wandColor) this.wandColor = wandColor;
+        if (mageClass) this.mageClass = mageClass;
     }
 
     /**
@@ -182,7 +189,8 @@ export class Duel {
                 online_at: new Date().toISOString(),
                 in_match: true,
                 character: this.character,
-                wand: this.wandColor
+                wand: this.wandColor,
+                mage_class: this.mageClass
             });
         }
     }

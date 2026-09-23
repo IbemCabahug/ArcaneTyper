@@ -1099,6 +1099,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       race = null;
     }
     game.onAttackCast = null;
+    // AT-F10: the race owns the arena's cast press and nulls this in stop();
+    // clearing it here too means a duel that ends before stop() can never leave
+    // Tab routed into a dead race (the survival ultimate must keep working).
+    game.onDuelCast = null;
 
     // Hand the survival death screen back to the menu path (AT-F9): startDuel
     // swapped the hook, and a hook left pointing at endDuel would silently stall
@@ -1175,7 +1179,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     duelLobbyError.innerText = '';
     duel = new Duel(supabase, game.stats.mageName);
-    duel.setCharacter(game.stats.selectedCharacter, game.stats.wandColor);
+    duel.setCharacter(game.stats.selectedCharacter, game.stats.wandColor, game.stats.mageClass);
 
     duel.onOpponentJoined = () => {
       // Room lock belt-and-suspenders: a third presence joining mid-match
@@ -1217,7 +1221,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     duelLobbyError.innerText = 'Joining room ' + code + '...';
     duel = new Duel(supabase, game.stats.mageName);
-    duel.setCharacter(game.stats.selectedCharacter, game.stats.wandColor);
+    duel.setCharacter(game.stats.selectedCharacter, game.stats.wandColor, game.stats.mageClass);
 
     // Opponent STATE is owned by DuelRace during the match (AT-F9); pre-FIGHT
     // departures go through the shared presence check (a re-track's transient

@@ -72,10 +72,13 @@ check(
     methodBody(raceSrc, '_onTaken').includes('dissolveRaceWord(teamColorFor(taker))') &&
         methodBody(raceSrc, '_onTaken').includes('myDecided = true')
 );
+// AT-F10 added a third receiver of an opponent frame — the class-active `cast` —
+// and it guards its echo exactly like the two race frames do. The count stays
+// exact on purpose: the next receiver has to declare itself here.
 check(
     'stale indices and our own echoes are ignored',
     raceSrc.includes('p.idx !== this.idx || this.myDecided') &&
-        count(raceSrc, '// never self-echo') === 2
+        count(raceSrc, '// never self-echo') === 3
 );
 
 // ── 2. a decided word can never park the lane ──────────────────────────────

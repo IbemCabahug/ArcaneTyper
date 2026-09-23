@@ -20,9 +20,18 @@
  * (latency cancels out); the host arbitrates after both claims, or the first
  * claim + CLAIM_WINDOW_MS, or local expiry + grace; |Δ| < 75 ms = dead heat
  * → nobody scores.
+ * AT-F10 — class actives in the arena. `Tab`/`Enter` (and the mobile button,
+ * which routes through the same CombatSystem call) cast the caster's Discipline
+ * active, priced in the mana the HUD already shows every match. Every effect is
+ * SELF-SIDE and applied by the HOST: the caster arms one buff locally and
+ * announces it with a `cast` frame, and only `_resolve()` spends it, on the frame
+ * both clients mirror. That is why no active may clear/spawn a word or reach
+ * across the lane — the shared race word and the single damage path stay exactly
+ * as AT-F9 left them.
  */
 import { FloatingText } from '../FloatingText.js';
 import { otherSlot, teamColorFor } from './ArenaTeams.js';
+import { activeForClass, mageActiveById } from '../../backend/MageClasses.js';
 
 const START_HP = 100;
 const MATCH_SECONDS = 120;
@@ -33,6 +42,11 @@ const RESULT_PAUSE_MS = 700;         // banner beat between words
 const DEAD_HEAT_MS = 75;             // nobody scores inside this window
 const DISCONNECT_GRACE_MS = 5000;    // presence-leave grace (owner decision)
 const ISSUE_WATCHDOG_MS = 15000;     // host safety: word must resolve by then
+// AT-F10: size/height of the cast + armed-skill callouts. The skill line rides
+// ABOVE the damage line it explains (see _floatAtSlot's `lift`) so a boosted
+// strike never stacks two labels on the same pixel.
+const BUFF_FLOAT_SIZE = 22;
+const BUFF_FLOAT_LIFT = 34;
 
 export class DuelRace {
     constructor({ game, duel, isHost, opponentName, onMatchEnd }) {
@@ -68,6 +82,18 @@ export class DuelRace {
         this.oppResolved = false;
         this.oppClaim = null;
 
+        // AT-F10: one armed class active per slot. The map is the single source
+        // of truth on BOTH clients — the host decides what is spent (`_resolve`)
+        // and `result` / `state` carry the surviving map, so an indicator can
+        // never stay lit after the host spent it.
+        this.buffs = { A: null, B: null };
+        // Slot → Discipline id (ours from stats, theirs from presence). Labels
+        // only: arbitration reads `buffs`, never this.
+        this.classes = { A: null, B: null };
+        // The cast surfaces' pre-duel wording, saved so stop() can put it back.
+        this._novaLabel = null;
+        this._hintHTML = null;
+
         this._graceTimer = null;
         this._windowTimer = null;
         this._pauseTimer = null;
@@ -95,11 +121,19 @@ export class DuelRace {
             character: oppPresence?.character || 'wizard',
             wand: oppPresence?.wand || null
         };
+        // AT-F10: both Disciplines — ours from stats, theirs from the presence the
+        // duel already tracks — then label the cast surfaces and repaint the
+        // chips (the first _render above predates both).
+        this.classes[this.mine] = this.game.stats?.mageClass || null;
+        this.classes[this.theirs] = oppPresence?.mage_class || null;
+        this._labelCastSurfaces();
+        this._render();
 
         // Game hooks (Phase 0 'duel' gates invoke these only in duel mode)
         this.game.onRaceWordExpired = () => this._onLocalExpiry();
         this.game.onRaceTyped = () => this._onTyped();
         this.game.onRaceMistake = () => this._onMistake();
+        this.game.onDuelCast = () => this.cast(); // AT-F10: Tab/Enter in the arena
 
         // Transport + presence — overrides the pre-match handlers
         this.duel.onRace = (p) => this._onRace(p);
@@ -126,6 +160,15 @@ export class DuelRace {
         this.game.onRaceWordExpired = null;
         this.game.onRaceTyped = null;
         this.game.onRaceMistake = null;
+        this.game.onDuelCast = null;   // AT-F10: Tab is the ultimate again
+        // AT-F10: disarm both slots, blank both chips and hand the input
+        // surfaces back to their own wording — a duel must leave no trace in the
+        // Survival HUD (the same contract the score bar follows).
+        this.buffs = { A: null, B: null };
+        this.classes = { A: null, B: null };
+        this._restoreCastSurfaces();
+        this._renderBuff('a', 'A');
+        this._renderBuff('b', 'B');
         this.duel.onRace = null;
         this.$('duel-scorebar')?.classList.add('hidden');
         this.$('sb-flag')?.classList.add('hidden');
@@ -145,6 +188,10 @@ export class DuelRace {
     _snapshot(extra) {
         return {
             ...extra,
+            // AT-F10: the armed actives ride every heartbeat as well as every
+            // result, so a chip that missed/lost a `cast` frame converges within
+            // a second instead of staying wrong for the whole match.
+            armed: { A: this.buffs.A, B: this.buffs.B },
             hpA: this.hp.A, hpB: this.hp.B,
             winsA: this.wins.A, winsB: this.wins.B,
             timeLeft: this.timeLeft, overtime: this.overtime
@@ -257,8 +304,41 @@ export class DuelRace {
         } else if (mineDur != null) winner = this.mine;
         else if (oppDur != null) winner = this.theirs;
 
-        const dmg = winner ? this.currentText.length * DMG_PER_CHAR : 0;
         const loser = winner ? (winner === 'A' ? 'B' : 'A') : null;
+
+        // AT-F10: the winner is decided FIRST, and only then may an active edit
+        // the outcome. Nothing here reads or writes a measured duration — the
+        // arbiter's own input stays untouched (this is why Chronomancer's
+        // original 0.85x version was replaced by Mana Echo).
+        const dmgRaw = winner ? this.currentText.length * DMG_PER_CHAR : 0;
+        let dmg = dmgRaw;
+        let amp = null;    // the winning skill that shaped this strike
+        let ward = null;   // the losing skill that absorbed it
+        const winnerBuff = winner ? mageActiveById(this.buffs[winner]) : null;
+        const loserBuff = winner ? mageActiveById(this.buffs[loser]) : null;
+        if (winnerBuff && winnerBuff.kind === 'damage') {
+            dmg = Math.round(dmg * winnerBuff.value);
+            amp = winnerBuff.id;
+        }
+        if (loserBuff && loserBuff.kind === 'mitigation') {
+            dmg = Math.round(dmg * loserBuff.value);
+            ward = loserBuff.id;
+        }
+        // Mana Echo moves the WINNER's own pool instead of the damage, so it is
+        // flagged here (the frame is what makes both sides agree it fired) and
+        // paid out on the winner's client in _applyResult.
+        if (winnerBuff && winnerBuff.kind === 'mana_refund') amp = winnerBuff.id;
+
+        // Spent = the buff actually did something. A dead heat or a double
+        // forfeit has no winner, so nothing is spent and both mages stay armed:
+        // a rule both clients derive from THIS frame, never from local timing.
+        // A ward is only spent when it had damage to absorb; a Cryomancer who
+        // WINS the word keeps it for the next loss.
+        if (winner) {
+            if (winnerBuff && winnerBuff.kind !== 'mitigation') this.buffs[winner] = null;
+            if (loserBuff && loserBuff.kind === 'mitigation') this.buffs[loser] = null;
+        }
+
         if (winner) {
             this.hp[loser] = Math.max(0, this.hp[loser] - dmg);
             this.wins[winner]++;
@@ -274,7 +354,8 @@ export class DuelRace {
         }
 
         const r = {
-            idx: this.idx, winner, dmg,
+            idx: this.idx, winner, dmg, dmgRaw, amp, ward,
+            armed: { A: this.buffs.A, B: this.buffs.B },
             hpA: this.hp.A, hpB: this.hp.B,
             winsA: this.wins.A, winsB: this.wins.B,
             timeLeft: this.timeLeft, overtime: this.overtime,
@@ -298,15 +379,31 @@ export class DuelRace {
         this.wins.A = r.winsA; this.wins.B = r.winsB;
         this.timeLeft = r.timeLeft;
         this.overtime = !!r.overtime;
+        this._adoptBuffs(r);
         this._render();
 
         if (r.winner === this.mine) {
             // We struck — the damage landed on THEIR mage, so the number
             // belongs over their side of the lane, not over the centre.
             this._floatAtSlot(this.theirs, `OPPONENT −${r.dmg} HP`, '#ffd700', 30);
+            if (r.amp) {
+                // The skill line rides above the damage line it explains.
+                const skill = mageActiveById(r.amp);
+                if (skill) this._floatAtSlot(this.theirs, `${skill.title.toUpperCase()}!`, '#ff9800', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
+                // The refund belongs to the mage who won the claim, so only the
+                // winner's own client pays it — into the pool they cast from.
+                if (skill && skill.kind === 'mana_refund') {
+                    const got = this.game.stats?.refundMana?.(skill.value) || 0;
+                    this._floatAtSlot(this.mine, `+${got} MANA`, '#29b6f6', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
+                }
+            }
         } else if (r.winner === this.theirs) {
             // Their strike landed on OUR mage.
             this._floatAtSlot(this.mine, 'OPPONENT STRIKES!', '#ff4b4b', 30);
+            if (r.ward) {
+                // A ward that isn't announced is invisible damage maths.
+                this._floatAtSlot(this.mine, `WARDED −${Math.max(0, r.dmgRaw - r.dmg)}`, '#4dd0e1', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
+            }
         } else {
             this._float('WORD LOST', '#b892b0', 30);
         }
@@ -365,11 +462,131 @@ export class DuelRace {
         }
     }
 
+    // ── AT-F10: class actives ────────────────────────────────────────────
+    /**
+     * Cast this player's Discipline active. `Tab`/`Enter` — and the mobile
+     * button, which routes through the same CombatSystem call — arrive here via
+     * `game.onDuelCast`.
+     *
+     * Returns TRUE for every press the arena owned, INCLUDING the ones it has to
+     * refuse, because a false return falls through to "THE ARENA SEALS YOUR
+     * ULTIMATE!" — which stopped being the whole truth the moment classes had
+     * actives. FALSE stays reserved for "this press has nothing to do here".
+     */
+    cast() {
+        if (this.over || !this.game.stats) return false;
+        const skill = activeForClass(this.game.stats.mageClass);
+        if (!skill) return false;                     // roster says: no active
+        if (this.buffs[this.mine]) {
+            this._floatAtSlot(this.mine, 'SKILL ALREADY ARMED', '#ff9800', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
+            this.game.audio?.playErrorSound?.();
+            return true;
+        }
+        // The cost comes out of OUR OWN pool: mana is local-only state, and the
+        // same is true of the refund Mana Echo pays back in _applyResult.
+        if (!this.game.stats.useMana(skill.cost)) {
+            this._floatAtSlot(this.mine, 'NOT ENOUGH MANA', '#ff9800', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
+            this.game.audio?.playErrorSound?.();
+            return true;
+        }
+        this.buffs[this.mine] = skill.id;
+        this.game.audio?.playMagicSpark?.();
+        this._floatAtSlot(this.mine, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.mine), BUFF_FLOAT_SIZE);
+        // One frame, host-authoritative. A buff has to survive a word we never
+        // claimed (Glacial Ward absorbs a LOSS), which a `claim` payload cannot
+        // carry — and announcing it is also what makes it readable to the other
+        // mage before it lands.
+        this.duel.broadcastRace('cast', { idx: this.idx, skill: skill.id });
+        this._render();
+        return true;
+    }
+
+    /**
+     * Host side: the challenger armed a skill. The id is resolved against the
+     * roster, so a client cannot invent an effect, and re-arming while armed is
+     * refused here exactly as `cast()` refuses it locally — one buff per player,
+     * and only the host's map is authoritative.
+     */
+    _onCast(p) {
+        if (!this.isHost || this.over) return;
+        if (p.player_key && p.player_key === this.duel.presenceKey) return; // never self-echo
+        const skill = mageActiveById(p.skill);
+        if (!skill || this.buffs[this.theirs]) return;
+        this.buffs[this.theirs] = skill.id;
+        this._floatAtSlot(this.theirs, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.theirs), BUFF_FLOAT_SIZE);
+        this._render();
+    }
+
+    /**
+     * The arena casts through Survival's own surfaces, so they are re-labelled
+     * for the match: `Tab`/`Enter` (the `#mana-hint` line) and the mobile button.
+     * No second input surface, and no letter-key conflict with typing.
+     */
+    _labelCastSurfaces() {
+        const skill = activeForClass(this.game.stats?.mageClass);
+        if (!skill) return;
+        const btn = this.$('mobile-nova-btn');
+        if (btn) {
+            this._novaLabel = btn.textContent;
+            btn.textContent = skill.title.toUpperCase();
+        }
+        const hint = this.$('mana-hint');
+        if (hint) {
+            this._hintHTML = hint.innerHTML;
+            hint.innerHTML = `Press <kbd>Tab</kbd> or <kbd>Enter</kbd> to cast ${skill.title}!`;
+        }
+    }
+
+    _restoreCastSurfaces() {
+        const btn = this.$('mobile-nova-btn');
+        if (btn && this._novaLabel != null) btn.textContent = this._novaLabel;
+        const hint = this.$('mana-hint');
+        if (hint && this._hintHTML != null) hint.innerHTML = this._hintHTML;
+        this._novaLabel = null;
+        this._hintHTML = null;
+    }
+
+    /**
+     * The armed-skill chip, painted for BOTH slots (host left / challenger
+     * right). Unarmed it names the skill and its cost — the arena's only warning
+     * about what the other mage can do — and armed it lights up, so the same
+     * fact is readable on both screens instead of only on the caster's.
+     */
+    _renderBuff(suffix, slot) {
+        const el = this.$('sb-buff-' + suffix);
+        if (!el) return;
+        const armedId = this.buffs[slot];
+        const skill = armedId
+            ? mageActiveById(armedId)
+            : (this.classes[slot] ? activeForClass(this.classes[slot]) : null);
+        if (!skill) {
+            el.textContent = '';
+            el.classList.add('hidden');
+            return;
+        }
+        el.classList.remove('hidden');
+        el.textContent = armedId ? `${skill.title.toUpperCase()} ★` : `${skill.title} · ${skill.cost}`;
+        el.classList.toggle('sb-buff-armed', !!armedId);
+    }
+
+    /**
+     * Take the host's armed map. The host spends buffs inside `_resolve()`; if a
+     * caster only ever learned about their own arm, their chip would stay lit
+     * after the host spent it (or dark after the host armed theirs) — a
+     * one-client-only state, which is exactly what these invariants forbid.
+     * Absent field = older frame, leave what we have.
+     */
+    _adoptBuffs(p) {
+        if (!p || !p.armed) return;
+        this.buffs = { A: p.armed.A || null, B: p.armed.B || null };
+    }
+
     // ── transport ────────────────────────────────────────────────────────
     _onRace(p) {
         if (this.over) return;
         switch (p.raceType) {
             case 'issue': if (!this.isHost) this._onIssue(p); break;
+            case 'cast': this._onCast(p); break;
             case 'claim': if (this.isHost) this._onClaim(p); break;
             case 'taken': this._onTaken(p); break;
             case 'state': if (!this.isHost) this._onState(p); break;
@@ -423,6 +640,7 @@ export class DuelRace {
         this.wins.A = p.winsA; this.wins.B = p.winsB;
         if (typeof p.timeLeft === 'number') this.timeLeft = p.timeLeft;
         this.overtime = !!p.overtime;
+        this._adoptBuffs(p);
         this._render();
     }
 
@@ -512,6 +730,10 @@ export class DuelRace {
             t.classList.toggle('sb-low', this.timeLeft <= 15 && !this.overtime);
         }
         this.$('sb-flag')?.classList.toggle('hidden', !this.overtime);
+        // AT-F10: both mages' actives, repainted on every frame that can change
+        // them (start / heartbeat / result).
+        this._renderBuff('a', 'A');
+        this._renderBuff('b', 'B');
     }
 
     _float(text, color, size) {
@@ -526,10 +748,10 @@ export class DuelRace {
      * Owner decision: no centring, no mirroring; each player's effect always
      * reads from their own side of the lane.
      */
-    _floatAtSlot(slot, text, color, size) {
+    _floatAtSlot(slot, text, color, size, lift = 0) {
         const c = this.game.canvas;
         this.game.floatingTexts.push(
-            new FloatingText(text, this.game.duelSlotX(slot), c.height - 130, color, size)
+            new FloatingText(text, this.game.duelSlotX(slot), c.height - 130 - lift, color, size)
         );
     }
 

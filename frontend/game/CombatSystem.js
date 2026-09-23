@@ -27,6 +27,12 @@ export class CombatSystem {
         // in their team colour — not dead-centre where it reads as ambiguous,
         // and never mirrored.
         if (this.game.gameMode === 'duel') {
+            // AT-F10: inside the arena this press is the player's Discipline
+            // active, not the ultimate. The race answers true for every press it
+            // owned (cast, already armed, not enough mana) and false only when
+            // there is nothing to hand the press to — so the seal message below
+            // still explains the ultimate pre-FIGHT and after a match.
+            if (this.game.onDuelCast && this.game.onDuelCast()) return;
             this.game.audio.playErrorSound();
             const side = this.game.duelSide || 'A';
             const text = 'THE ARENA SEALS YOUR ULTIMATE!';

@@ -278,6 +278,21 @@ export class Stats {
         return false;
     }
 
+    /**
+     * AT-F10: ADD mana outside of `addScore` — the Chronomancer active (Mana
+     * Echo) refunds the caster on a won claim. Clamped to the pool like every
+     * other write, repainted even when the pool is already full (so the bar can
+     * never disagree with `this.mana`), and it returns how much actually landed
+     * so the caller can show an honest number.
+     */
+    refundMana(amount) {
+        if (!(amount > 0)) return 0;
+        const before = this.mana;
+        this.mana = Math.min(this.maxMana, this.mana + amount);
+        this.updateHUD();
+        return this.mana - before;
+    }
+
     loseLife() {
         this.lives--;
         this.updateLivesDisplay();

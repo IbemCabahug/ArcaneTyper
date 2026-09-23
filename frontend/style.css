@@ -1088,6 +1088,26 @@ h1 .highlight {
     letter-spacing: 1px;
 }
 
+/* AT-F10: the class active, one chip per mage (see #sb-buff-a in index.html).
+   Deliberately no blur / no transition / no animation: this bar lives over the
+   arena canvas, which redraws every frame, so AT-F13's rule for it applies —
+   a colour + glow swap is enough to read "armed" against "available". */
+.sb-buff {
+    margin-top: 4px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #7d7089;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sb-buff.sb-buff-armed {
+    color: #ffd700;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.55);
+}
+
 .sb-center {
     text-align: center;
     min-width: 72px;
