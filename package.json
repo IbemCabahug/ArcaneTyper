@@ -8,6 +8,8 @@
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
     "doctor": "node scripts/supabase-doctor.mjs",
-    "verify:duel": "node scripts/verify-duel-presence-guards.mjs"
+    "verify:duel": "node scripts/verify-duel-presence-guards.mjs",
+    "verify:vanish": "node scripts/verify-duel-take-vanish.mjs",
+    "verify": "npm run verify:duel && npm run verify:vanish"
   }
 }

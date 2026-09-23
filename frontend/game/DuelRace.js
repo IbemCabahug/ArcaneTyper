@@ -7,16 +7,28 @@
  * | disconnect grace (5 s) | forfeit. Words never damage. A mistake forfeits
  * the word to your opponent (both mistake → word expires, no damage).
  *
+ * AT-F9 P3 — "the word is gone the moment it is decided":
+ *   A successful claim broadcasts `taken` immediately, so the SAME word
+ *   dissolves on the opponent's screen the instant it is stolen instead of
+ *   falling on until the floor (owner-reported: a word already typed by the
+ *   other player kept falling and could even shatter on the loser's mage).
+ *   The host then arbitrates within CLAIM_WINDOW_MS of the first claim so a
+ *   decided word can never park the lane while it waits for a claim that the
+ *   dissolve already made impossible.
+ *
  * Fairness: durations are measured from each client's OWN word-appearance
- * (latency cancels out); the host arbitrates after both claims or local
- * expiry + grace; |Δ| < 75 ms = dead heat → nobody scores.
+ * (latency cancels out); the host arbitrates after both claims, or the first
+ * claim + CLAIM_WINDOW_MS, or local expiry + grace; |Δ| < 75 ms = dead heat
+ * → nobody scores.
  */
 import { FloatingText } from '../FloatingText.js';
+import { otherSlot, teamColorFor } from './ArenaTeams.js';
 
 const START_HP = 100;
 const MATCH_SECONDS = 120;
 const DMG_PER_CHAR = 1;              // damage = word length × scalar (AT-F9)
 const CLAIM_GRACE_MS = 900;          // in-flight claim wait after local expiry
+const CLAIM_WINDOW_MS = 600;         // P3: arbitration window after the 1st claim
 const RESULT_PAUSE_MS = 700;         // banner beat between words
 const DEAD_HEAT_MS = 75;             // nobody scores inside this window
 const DISCONNECT_GRACE_MS = 5000;    // presence-leave grace (owner decision)
@@ -30,7 +42,7 @@ export class DuelRace {
         this.onMatchEnd = onMatchEnd;
         // Fixed team slots: A = host (blue, left), B = guest (red, right).
         this.mine = isHost ? 'A' : 'B';
-        this.theirs = isHost ? 'B' : 'A';
+        this.theirs = otherSlot(this.mine);
         this.names = {
             A: isHost ? duel.playerName : opponentName,
             B: isHost ? opponentName : duel.playerName
@@ -49,10 +61,15 @@ export class DuelRace {
         this.myResolved = false;
         this.myForfeited = false;
         this.myClaim = null;
+        // P3: the word was decided against us (opponent's `taken` arrived) —
+        // our own claims/forfeits on it are then pointless, and its sprite is
+        // already dissolving, so input hooks must ignore it.
+        this.myDecided = false;
         this.oppResolved = false;
         this.oppClaim = null;
 
         this._graceTimer = null;
+        this._windowTimer = null;
         this._pauseTimer = null;
         this._watchdog = null;
         this._leaveTimer = null;
@@ -99,6 +116,7 @@ export class DuelRace {
     stop() {
         this.over = true;
         clearTimeout(this._graceTimer);
+        this._clearWindow();
         clearTimeout(this._pauseTimer);
         clearTimeout(this._watchdog);
         clearTimeout(this._leaveTimer);
@@ -177,8 +195,31 @@ export class DuelRace {
         this.myResolved = false;
         this.myForfeited = false;
         this.myClaim = null;
+        this.myDecided = false;
+        this._clearWindow();
         this.oppResolved = false;
         this.oppClaim = null;
+    }
+
+    // ── P3: bounded arbitration after the first claim ────────────────────
+    // A decided word must not park the lane: once ANY claim is in, the host
+    // gives an in-flight reply CLAIM_WINDOW_MS to land (that is the fairness
+    // window that keeps latency from deciding near-ties), then resolves with
+    // whatever claims it has.
+    _armWindow() {
+        if (this.over || this.phase !== 'word' || !this.isHost || this._windowTimer) return;
+        this._windowTimer = setTimeout(() => {
+            this._windowTimer = null;
+            if (this.over || this.phase !== 'word') return;
+            this.myResolved = true;
+            this.oppResolved = true;
+            this._resolve();
+        }, CLAIM_WINDOW_MS);
+    }
+
+    _clearWindow() {
+        clearTimeout(this._windowTimer);
+        this._windowTimer = null;
     }
 
     _maybeResolve() {
@@ -203,6 +244,7 @@ export class DuelRace {
     _resolve() {
         clearTimeout(this._graceTimer);
         clearTimeout(this._watchdog);
+        this._clearWindow();
         this.phase = 'result';
 
         const mineDur = (!this.myForfeited && this.myClaim != null) ? this.myClaim : null;
@@ -259,9 +301,12 @@ export class DuelRace {
         this._render();
 
         if (r.winner === this.mine) {
-            this._float(`OPPONENT −${r.dmg} HP`, '#ffd700', 34);
+            // We struck — the damage landed on THEIR mage, so the number
+            // belongs over their side of the lane, not over the centre.
+            this._floatAtSlot(this.theirs, `OPPONENT −${r.dmg} HP`, '#ffd700', 30);
         } else if (r.winner === this.theirs) {
-            this._float('OPPONENT STRIKES!', '#ff4b4b', 36);
+            // Their strike landed on OUR mage.
+            this._floatAtSlot(this.mine, 'OPPONENT STRIKES!', '#ff4b4b', 30);
         } else {
             this._float('WORD LOST', '#b892b0', 30);
         }
@@ -271,6 +316,7 @@ export class DuelRace {
     _endMatch(winner, reason) {
         if (this.over) return;
         this.over = true;
+        this._clearWindow();
         clearTimeout(this._graceTimer);
         clearTimeout(this._pauseTimer);
         clearTimeout(this._watchdog);
@@ -287,12 +333,17 @@ export class DuelRace {
 
     // ── input hooks ──────────────────────────────────────────────────────
     _onTyped() {
-        if (this.over || this.phase !== 'word' || this.myResolved) return;
+        if (this.over || this.phase !== 'word' || this.myResolved || this.myDecided) return;
         this.myResolved = true;
         if (this.myForfeited) return;
         const dur = Math.max(1, Math.round(performance.now() - this.appearAt));
+        // AT-F9 P3: the word is claimed → tell the opponent to dissolve it NOW.
+        // Sent before the claim itself so the loser stops typing at once; a
+        // claim already in flight still counts inside the host's window.
+        this.duel.broadcastRace('taken', { idx: this.idx });
         if (this.isHost) {
             this.myClaim = dur;
+            this._armWindow();
             this._maybeResolve();
         } else {
             this.duel.broadcastRace('claim', { idx: this.idx, dur });
@@ -300,11 +351,13 @@ export class DuelRace {
     }
 
     _onMistake() {
-        if (this.over || this.phase !== 'word' || this.myResolved) return;
+        if (this.over || this.phase !== 'word' || this.myResolved || this.myDecided) return;
         // AT-F9: one mistake forfeits the current word to your opponent.
+        // NOTE: no `taken` broadcast here — the word is still live for them to
+        // win, so it must keep falling on their screen.
         this.myResolved = true;
         this.myForfeited = true;
-        this._float('WORD FORFEITED!', '#ff4b4b', 30);
+        this._floatAtSlot(this.mine, 'WORD FORFEITED!', '#ff4b4b', 26);
         if (this.isHost) {
             this._maybeResolve();
         } else {
@@ -318,6 +371,7 @@ export class DuelRace {
         switch (p.raceType) {
             case 'issue': if (!this.isHost) this._onIssue(p); break;
             case 'claim': if (this.isHost) this._onClaim(p); break;
+            case 'taken': this._onTaken(p); break;
             case 'state': if (!this.isHost) this._onState(p); break;
             case 'result': if (!this.isHost) this._onResult(p); break;
             case 'match_over': if (!this.isHost) this._onMatchOver(p); break;
@@ -332,10 +386,36 @@ export class DuelRace {
     }
 
     _onClaim(p) {
+        if (p.player_key && p.player_key === this.duel.presenceKey) return; // never self-echo
         if (this.phase !== 'word' || p.idx !== this.idx || this.oppResolved) return;
         this.oppResolved = true;
         if (!p.forfeited && typeof p.dur === 'number') this.oppClaim = p.dur;
+        // P3: a claim is in — give OUR in-flight claim CLAIM_WINDOW_MS to land,
+        // then arbitrate. Without this a dissolved word could park the lane
+        // (the other side can no longer claim at all, so "wait for both
+        // claims" would never be satisfied).
+        this._armWindow();
         this._maybeResolve();
+    }
+
+    /**
+     * AT-F9 P3: the opponent typed the word first. The race is decided, so the
+     * word must be GONE from this screen immediately — owner report: "when the
+     * word is already been typed by the other player, it should also vanish in
+     * the 2nd player screen". Previously it kept falling, could shatter on the
+     * loser's own mage and only cleared when the next word was issued.
+     * Pure visual: no damage, no expiry hook, arbitration untouched.
+     */
+    _onTaken(p) {
+        if (p.player_key && p.player_key === this.duel.presenceKey) return; // never self-echo
+        if (this.phase !== 'word' || p.idx !== this.idx || this.myDecided) return;
+        this.myDecided = true;   // our keystrokes can no longer claim this word
+        const taker = this.theirs;
+        this.game.dissolveRaceWord(teamColorFor(taker));
+        this._floatAtSlot(taker, 'TAKEN!', teamColorFor(taker), 26);
+        // Defensive: the paired `claim` may be lost in flight; the host must
+        // still resolve this word inside the window instead of wedging.
+        this._armWindow();
     }
 
     _onState(p) {
@@ -437,6 +517,20 @@ export class DuelRace {
     _float(text, color, size) {
         const c = this.game.canvas;
         this.game.floatingTexts.push(new FloatingText(text, c.width / 2, c.height / 3, color, size));
+    }
+
+    /**
+     * AT-F9 P3: player-anchored feedback. Anything that belongs to ONE mage
+     * (a steal, a forfeit, damage) is drawn over THAT mage's fixed team slot —
+     * left for the host, right for the challenger — in that team's colour.
+     * Owner decision: no centring, no mirroring; each player's effect always
+     * reads from their own side of the lane.
+     */
+    _floatAtSlot(slot, text, color, size) {
+        const c = this.game.canvas;
+        this.game.floatingTexts.push(
+            new FloatingText(text, this.game.duelSlotX(slot), c.height - 130, color, size)
+        );
     }
 
     _shake(side) {

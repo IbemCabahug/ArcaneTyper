@@ -14,6 +14,7 @@ import { InputHandler } from './game/InputHandler.js';
 import { CombatSystem } from './game/CombatSystem.js';
 import { MeteorRenderer } from './MeteorRenderer.js';
 import { CharacterRenderer } from './game/CharacterRenderer.js';
+import { otherSlot, slotX, teamColorFor } from './game/ArenaTeams.js';
 
 export class Game {
     constructor(canvasId) {
@@ -774,14 +775,22 @@ export class Game {
         // --- Character Sprite Drawing via CharacterRenderer ---
         const animProgress = this.playerAnimTimer > 0 ? this.playerAnimTimer / 200 : 0;
         if (this.gameMode === 'duel' && this.duelSide) {
-            // AT-F9 Phase 2: BOTH mages share the arena — fixed team slots
-            // (host left/blue, guest right/red), opponent mirrored and
-            // combo-neutralised; the race word falls the center lane.
-            const leftX = Math.round(this.canvas.width * 0.30);
-            const rightX = Math.round(this.canvas.width * 0.70);
-            const selfIsLeft = this.duelSide === 'A';
+            // AT-F9 Phase 3: BOTH mages share the arena in FIXED team slots —
+            // slot A (host) is the left mage in blue, slot B (challenger) the
+            // right mage in red, IDENTICAL on both clients, because colour and
+            // position are keyed to the team slot and never to "self". Keying
+            // them to the viewer swapped the two mages between clients and
+            // contradicted the score bar (owner-reported confusion).
+            // Sprites are NOT mirrored: the Archmage is procedural/radially
+            // symmetric, so flipping it only mirrored asymmetric details
+            // (wand arm, cowl) and implied a facing both clients disagreed on.
+            const selfSlot = this.duelSide;            // 'A' host | 'B' challenger
+            const oppSlot = otherSlot(selfSlot);
             const opp = this.duelOpponent || {};
-            this._drawTeamMage(selfIsLeft ? leftX : rightX, animProgress, this.stats, '#29b6f6', 'YOU', false);
+            this._drawTeamMage(
+                slotX(this.canvas, selfSlot), animProgress, this.stats,
+                teamColorFor(selfSlot), 'YOU'
+            );
             const oppStats = {
                 ...this.stats,
                 // CharacterRenderer ignores characterId today (always the
@@ -792,7 +801,10 @@ export class Game {
                 wandColor: opp.wand || this.stats.wandColor,
                 hasSkill: () => false
             };
-            this._drawTeamMage(selfIsLeft ? rightX : leftX, 0, oppStats, '#ff4b4b', opp.name || 'Opponent', true);
+            this._drawTeamMage(
+                slotX(this.canvas, oppSlot), 0, oppStats,
+                teamColorFor(oppSlot), opp.name || 'Opponent'
+            );
         } else {
             CharacterRenderer.draw(this.ctx, wizX, wizY, this.stats.selectedCharacter, animProgress, this.stats);
         }
@@ -979,6 +991,16 @@ export class Game {
     }
 
     /**
+     * AT-F9 P3: anchor point for anything that belongs to a team slot — the
+     * caster's mage x, so per-player arena feedback appears on that player's
+     * own side of the lane instead of dead-centre where it is ambiguous.
+     * @param {'A'|'B'} [slot] defaults to this player's own slot.
+     */
+    duelSlotX(slot) {
+        return slotX(this.canvas, slot || this.duelSide || 'A');
+    }
+
+    /**
      * AT-F9: spawn the shared race word issued by the host (duel mode only).
      * Variant always 'normal'; x/baseSpeed come from the issue payload so
      * both clients render the identical word. No class perks apply — one
@@ -1008,6 +1030,27 @@ export class Game {
             });
         this.words.push(newWord);
         return newWord;
+    }
+
+    /**
+     * AT-F9 P3: the race word has been DECIDED against this client (the
+     * opponent typed it first) — dissolve it instantly instead of letting a
+     * dead word keep falling to this player's mage. No damage, no expiry
+     * callback: DuelRace owns the arbitration, this is only the visual.
+     * The dying animation is reused so the word fades out like a normal kill.
+     * @param {string} color team colour of the player who took the word
+     * @returns {boolean} true when a live race word was dissolved
+     */
+    dissolveRaceWord(color = '#b892b0') {
+        const word = this.words.find(w => !w.dying && !w.isDead);
+        if (!word) return false;
+        if (word === this.targetedWord) {
+            word.isTargeted = false;
+            this.targetedWord = null;
+        }
+        word.dying = true;
+        this.combatSystem.spawnBurst(word.x, word.y, [color, '#ffffff']);
+        return true;
     }
 
     _spawnSingleWord() {
@@ -1228,14 +1271,20 @@ export class Game {
     }
 
     /**
-     * AT-F9 Phase 2: draw one arena mage — team aura disc, mirrored stance
-     * for the opponent, and a name plate under the feet.
+     * AT-F9 Phase 3: draw one arena mage in its fixed team slot — team aura
+     * disc + name plate, both in the slot's team colour (A host blue / B
+     * challenger red, identical on both clients). NOT mirrored (owner
+     * decision): the sprite is procedural and symmetric, so flipping it only
+     * flipped asymmetric details and implied a facing the two clients
+     * disagreed on.
      */
-    _drawTeamMage(x, animProgress, stats, teamColor, label, mirror) {
+    _drawTeamMage(x, animProgress, stats, teamColor, label) {
         const ctx = this.ctx;
         const y = this.canvas.height - 35;
 
-        // Team aura under the feet (host blue / guest red)
+        // Team aura under the feet — colour comes from the team SLOT
+        // (A host blue / B challenger red), never from the local viewer, so
+        // both clients paint the same mage the same colour (ArenaTeams.js).
         ctx.save();
         ctx.globalAlpha = 0.5;
         const aura = ctx.createRadialGradient(x, y + 6, 4, x, y + 6, 86);
@@ -1247,13 +1296,10 @@ export class Game {
         ctx.fill();
         ctx.restore();
 
-        // Sprite (opponent mirrored so both mages face the center lane)
+        // Sprite — deliberately NOT mirrored (owner decision, AT-F9 P3):
+        // mirroring flipped asymmetric details (wand arm, cowl) and implied a
+        // facing that differed between the two clients' screens.
         ctx.save();
-        if (mirror) {
-            ctx.translate(x, 0);
-            ctx.scale(-1, 1);
-            ctx.translate(-x, 0);
-        }
         CharacterRenderer.draw(ctx, x, y, stats.selectedCharacter, animProgress, stats);
         ctx.restore();
 

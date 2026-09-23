@@ -1,6 +1,7 @@
 import { Particle } from '../Particle.js';
 import { FloatingText } from '../FloatingText.js';
 import { Projectile } from '../Projectile.js';
+import { teamColorFor } from './ArenaTeams.js';
 
 export class CombatSystem {
     constructor(game) {
@@ -21,11 +22,29 @@ export class CombatSystem {
     _castUltimateSpellInner() {
         // AT-F9: ultimates are sealed out of the arena — the shared race
         // word must never be cleared (or healed around) on one client only.
+        // AT-F9 P3: the seal is a message to THIS player about THEIR mage, so
+        // it is drawn over their own team slot (host left / challenger right)
+        // in their team colour — not dead-centre where it reads as ambiguous,
+        // and never mirrored.
         if (this.game.gameMode === 'duel') {
             this.game.audio.playErrorSound();
-            const cx = this.game.canvas.width / 2;
-            const cy = this.game.canvas.height / 2;
-            this.game.floatingTexts.push(new FloatingText('THE ARENA SEALS YOUR ULTIMATE!', cx, cy - 30, '#ff9800', 26));
+            const side = this.game.duelSide || 'A';
+            const text = 'THE ARENA SEALS YOUR ULTIMATE!';
+            const size = 20;
+            const ctx = this.game.ctx;
+            // Clamp inside the canvas: the message is wider than one slot on
+            // narrow/mobile viewports, and must never bleed off the edge.
+            ctx.save();
+            ctx.font = `bold ${size}px Cinzel, serif`;
+            const half = ctx.measureText(text).width / 2;
+            ctx.restore();
+            const x = Math.min(
+                Math.max(this.game.duelSlotX(side), half + 8),
+                this.game.canvas.width - half - 8
+            );
+            this.game.floatingTexts.push(
+                new FloatingText(text, x, this.game.canvas.height - 130, teamColorFor(side), size)
+            );
             return;
         }
         const hasDestructibleWords = this.game.words.some(w => !w.dying && !w.isBossAttack);
