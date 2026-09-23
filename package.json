@@ -15,6 +15,7 @@
     "verify:wpm": "node scripts/verify-live-wpm-trim.mjs",
     "verify:actives": "node scripts/verify-class-actives.mjs",
     "verify:polish": "node scripts/verify-duel-polish.mjs",
-    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:actives && npm run verify:polish"
+    "verify:skins": "node scripts/verify-skin-ids.mjs",
+    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:actives && npm run verify:polish && npm run verify:skins"
   }
 }
