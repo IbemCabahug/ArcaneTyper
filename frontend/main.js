@@ -1051,6 +1051,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // --- START THE REAL MATCH HERE ---
         // AT-F9: difficulty/mode/dictionary pinned — both clients identical.
+        // AT-L7 (decided 2026-09-23: PINNED, intentional fairness). The host's
+        // selectors would silently govern BOTH players' word pool — the host
+        // could pick easy words/difficulty and the challenger has no say — so
+        // the arena draws from neutral 'normal'/'classic' for everyone. mode
+        // MUST stay 'duel': it gates the race hooks and the spawn path. A frame
+        // already carries the word text, so nothing else needs to match. Do not
+        // "fix" this by passing difficultySelect/selectedMode/selectedDictionary
+        // here — `npm run verify:polish` locks it.
         game.start('normal', 'duel', 'classic');
         hud.classList.remove('hidden');
         // Survival boxes with no arena meaning (HP lives in the score bar) —

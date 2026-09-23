@@ -116,6 +116,13 @@ export class DuelRace {
         const st = this.duel.channel?.presenceState() || {};
         const oppKey = Object.keys(st).find(k => k !== this.duel.presenceKey);
         const oppPresence = oppKey ? st[oppKey]?.[0] : null;
+        // AT-L6: the name handed to the constructor may be join()'s placeholder
+        // (presence sync can outrun the 1.5 s timeout). Presence is the
+        // authority when it is already here; otherwise the FIRST opponent frame
+        // heals it in _onRace. The placeholder is never special-cased — the wire
+        // and presence decide the name, not the fallback.
+        if (oppPresence?.player_name) this.names[this.theirs] = oppPresence.player_name;
+        this._renderNames();       // repaint — may have just learned the real name
         this.game.duelOpponent = {
             name: this.names[this.theirs],
             character: oppPresence?.character || 'wizard',
@@ -584,6 +591,18 @@ export class DuelRace {
     // ── transport ────────────────────────────────────────────────────────
     _onRace(p) {
         if (this.over) return;
+        // AT-L6: every race frame carries its sender's display name, so the
+        // opponent's name heals from the WIRE the moment they first speak —
+        // that closes the join() placeholder (presence can still be syncing
+        // when the race starts, and on the host side no frame has arrived yet
+        // at word #1). A frame from ourselves (Duel filters these) must never
+        // overwrite the opponent's side with our own name.
+        if (p.player_name && p.player_key !== this.duel.presenceKey &&
+            p.player_name !== this.names[this.theirs]) {
+            this.names[this.theirs] = p.player_name;
+            if (this.game.duelOpponent) this.game.duelOpponent.name = p.player_name;
+            this._renderNames();
+        }
         switch (p.raceType) {
             case 'issue': if (!this.isHost) this._onIssue(p); break;
             case 'cast': this._onCast(p); break;

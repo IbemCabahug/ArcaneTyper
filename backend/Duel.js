@@ -63,6 +63,12 @@ export class Duel {
      * @param {string} roomCode
      * @returns {Promise<string|null>} The Host's display name, or null when
      *   the room is locked because a match is already in progress (AT-F9).
+     *
+     * AT-L6 contract: a name returned after the timeout below is a PLACEHOLDER,
+     * not the host's real name — `DuelRace` re-derives the opponent's name from
+     * presence at FIGHT and from `player_name` on every opponent frame, so the
+     * placeholder can never survive into a visible surface. null stays reserved
+     * for the room lock and must never mean "name unknown".
      */
     async join(roomCode) {
         this.isHost = false;
@@ -97,7 +103,10 @@ export class Duel {
             };
             this.channel.on('presence', { event: 'sync' }, onSync);
 
-            // Timeout after 1.5 seconds if sync doesn't return host
+            // Timeout after 1.5 seconds if sync doesn't return host. The value
+            // it settles with is the AT-L6 placeholder (see the jsdoc) — the
+            // name is healed downstream, and a slower sync must not stall the
+            // match start.
             setTimeout(() => finish('Unknown Mage'), 1500);
         });
     }
