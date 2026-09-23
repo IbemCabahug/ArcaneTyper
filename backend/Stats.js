@@ -582,9 +582,13 @@ export class Stats {
 
         dbHealth.reportFailure(error, 'run_history insert');
         console.warn("[Stats] Error saving run to run_history:", describeError(error));
-        // RLS (42501) / constraint errors carry a SQLSTATE code: replaying them
-        // is pointless. Anything without one is transport-level → queue it.
-        return { ok: false, retryable: isNetworkError(error) || !error.code };
+        // Transport-level failures (no SQLSTATE) queue, and so does 42501
+        // (RLS denial): replaying after the policy is repaired recovers the
+        // run, and the outbox's attempt cap drains it cleanly if the denial
+        // is permanent. Any other SQLSTATE (constraint, missing column) is
+        // genuinely irreparable — replaying it would change nothing.
+        const code = error.code ? String(error.code) : '';
+        return { ok: false, retryable: isNetworkError(error) || !error.code || code === '42501' };
     }
 
     /** Appends to the local ring buffer (last 20 runs) used by the profile UI. */

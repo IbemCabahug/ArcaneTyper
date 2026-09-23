@@ -11,6 +11,16 @@ export class MenuUI {
 
         this.patchNotes = [
             {
+                version: "v2.3.2",
+                date: "September 23, 2026",
+                desc: "Cloud Score History Repaired",
+                changes: [
+                    "Fixed: your Recent Runs score history now genuinely saves to the cloud — a database permission gap had been silently rejecting every run write since launch; this completes the cloud-saves fix promised in v2.3.1.",
+                    "Fixed: writes the database refuses (instead of a lost connection) are now queued and retried automatically instead of being dropped — a repair made on our side recovers them.",
+                    "Security: score history can only be written under your own account — forged entries under another mage's name are rejected by the database."
+                ]
+            },
+            {
                 version: "v2.3.1",
                 date: "September 23, 2026",
                 desc: "Reliable Cloud Saves & Refresh-Proof Runs",
