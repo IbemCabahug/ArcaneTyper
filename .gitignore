@@ -31,3 +31,7 @@ scratch/
 *.njsproj
 *.sln
 *.sw?
+
+# Agent skills/rules suite (nested repo with its own .git) - never commit into the game repo.
+/.samananiagents/
+.samananiagents/
