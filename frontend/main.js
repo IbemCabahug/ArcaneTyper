@@ -983,9 +983,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         // AT-F9: difficulty/mode/dictionary pinned — both clients identical.
         game.start('normal', 'duel', 'classic');
         hud.classList.remove('hidden');
-        // Survival boxes with no arena meaning (HP lives in the score bar)
+        // Survival boxes with no arena meaning (HP lives in the score bar;
+        // live WPM leaves PvP per AT-F12 — also clears overlap room)
         document.querySelector('.stat-barriers')?.classList.add('hidden');
         document.getElementById('wave-stat')?.classList.add('hidden');
+        document.querySelector('.stat-wpm')?.classList.add('hidden');
 
         race = new DuelRace({
           game,
@@ -1006,9 +1008,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Race controller: capture its summary, tell the opponent when WE quit,
     // then tear down timers/hooks (presence grace covers their quit).
     let raceWins = { mine: 0, theirs: 0 };
+    let forfeitFlush = null;
     if (race) {
       raceWins = race.summary();
-      if (!race.over) race.announceForfeit();
+      if (!race.over) forfeitFlush = race.announceForfeit(); // Promise → flush below
       race.stop();
       race = null;
     }
@@ -1021,15 +1024,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     // writes triggerGameOver and the unload bank route through.
     game.finalizeRun();
 
-    if (duel) {
-      duel.disconnect();
-      duel = null;
+    // Flush the forfeit/match_over frame before tearing the channel down —
+    // removeChannel can kill an unsent broadcast, leaving the opponent
+    // narrating 'vanished' for a clean UI quit (owner-reported AT-F9 bug).
+    const parting = duel;
+    duel = null;
+    if (parting) {
+      if (forfeitFlush) {
+        Promise.race([forfeitFlush, new Promise(res => setTimeout(res, 250))])
+          .then(() => parting.disconnect(), () => parting.disconnect());
+      } else {
+        parting.disconnect();
+      }
     }
 
     // Hide game UI & revert dimensions; restore survival-only boxes
     document.body.classList.remove('duel-dimension');
     hud.classList.add('hidden');
     document.querySelector('.stat-barriers')?.classList.remove('hidden');
+    document.querySelector('.stat-wpm')?.classList.remove('hidden');
     document.getElementById('wave-stat')?.classList.remove('hidden');
     document.getElementById('duel-scorebar')?.classList.add('hidden');
 
@@ -1074,6 +1087,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     duelLobbyError.innerText = '';
     duel = new Duel(supabase, game.stats.mageName);
+    duel.setCharacter(game.stats.selectedCharacter, game.stats.wandColor);
 
     duel.onOpponentJoined = () => {
       // Room lock belt-and-suspenders: a third presence joining mid-match
@@ -1116,6 +1130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     duelLobbyError.innerText = 'Joining room ' + code + '...';
     duel = new Duel(supabase, game.stats.mageName);
+    duel.setCharacter(game.stats.selectedCharacter, game.stats.wandColor);
 
     // Opponent STATE is owned by DuelRace during the match (AT-F9).
     duel.onOpponentLeft = () => {

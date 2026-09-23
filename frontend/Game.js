@@ -773,7 +773,20 @@ export class Game {
 
         // --- Character Sprite Drawing via CharacterRenderer ---
         const animProgress = this.playerAnimTimer > 0 ? this.playerAnimTimer / 200 : 0;
-        CharacterRenderer.draw(this.ctx, wizX, wizY, this.stats.selectedCharacter, animProgress, this.stats);
+        if (this.gameMode === 'duel' && this.duelSide) {
+            // AT-F9 Phase 2: BOTH mages share the arena — fixed team slots
+            // (host left/blue, guest right/red), opponent mirrored and
+            // combo-neutralised; the race word falls the center lane.
+            const leftX = Math.round(this.canvas.width * 0.30);
+            const rightX = Math.round(this.canvas.width * 0.70);
+            const selfIsLeft = this.duelSide === 'A';
+            const opp = this.duelOpponent || {};
+            this._drawTeamMage(selfIsLeft ? leftX : rightX, animProgress, this.stats, '#29b6f6', 'YOU', false);
+            const oppStats = { ...this.stats, combo: 0, wandColor: opp.wand || this.stats.wandColor, hasSkill: () => false };
+            this._drawTeamMage(selfIsLeft ? rightX : leftX, 0, oppStats, '#ff4b4b', opp.name || 'Opponent', true);
+        } else {
+            CharacterRenderer.draw(this.ctx, wizX, wizY, this.stats.selectedCharacter, animProgress, this.stats);
+        }
         this.ctx.restore();
 
         // --- Boss ---
@@ -966,9 +979,16 @@ export class Game {
         const targetX = this.canvas.width / 2;
         const targetY = this.canvas.height - 53;
         const margin = 100;
-        const wordX = (typeof x === 'number')
+        let wordX = (typeof x === 'number')
             ? x
             : margin + Math.random() * Math.max(this.canvas.width - 2 * margin, 1);
+        // Keep spawns out of the top-center band the score bar overlays —
+        // deterministic nudge (no RNG) so both clients land on the same x.
+        const avoidHalf = 170;
+        const mid = this.canvas.width / 2;
+        if (Math.abs(wordX - mid) < avoidHalf) {
+            wordX = wordX < mid ? mid - avoidHalf : mid + avoidHalf;
+        }
         const newWord = new Word(text, this.canvas.width, this.canvas.height,
             this.currentSpeedMultiplier, targetX, targetY, {
                 variant: 'normal',
@@ -1196,5 +1216,47 @@ export class Game {
             );
             this.particles.push(shard);
         }
+    }
+
+    /**
+     * AT-F9 Phase 2: draw one arena mage — team aura disc, mirrored stance
+     * for the opponent, and a name plate under the feet.
+     */
+    _drawTeamMage(x, animProgress, stats, teamColor, label, mirror) {
+        const ctx = this.ctx;
+        const y = this.canvas.height - 35;
+
+        // Team aura under the feet (host blue / guest red)
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        const aura = ctx.createRadialGradient(x, y + 6, 4, x, y + 6, 86);
+        aura.addColorStop(0, teamColor);
+        aura.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.ellipse(x, y + 6, 86, 26, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Sprite (opponent mirrored so both mages face the center lane)
+        ctx.save();
+        if (mirror) {
+            ctx.translate(x, 0);
+            ctx.scale(-1, 1);
+            ctx.translate(-x, 0);
+        }
+        CharacterRenderer.draw(ctx, x, y, stats.selectedCharacter, animProgress, stats);
+        ctx.restore();
+
+        // Name plate
+        ctx.save();
+        ctx.font = 'bold 13px Cinzel, serif';
+        ctx.fillStyle = teamColor;
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+        ctx.shadowBlur = 4;
+        const plate = label.length > 14 ? label.slice(0, 13) + '…' : label;
+        ctx.fillText(plate, x, this.canvas.height - 6);
+        ctx.restore();
     }
 }

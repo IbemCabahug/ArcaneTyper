@@ -954,12 +954,12 @@ h1 .highlight {
     pointer-events: none;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 10px;
 }
 
 .sb-side {
-    min-width: 220px;
-    padding: 8px 12px;
+    min-width: 172px;
+    padding: 6px 10px;
     background: linear-gradient(135deg, rgba(10, 5, 20, 0.88), rgba(20, 10, 40, 0.88));
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 10px;
@@ -1022,7 +1022,7 @@ h1 .highlight {
 
 .sb-center {
     text-align: center;
-    min-width: 84px;
+    min-width: 72px;
 }
 
 #sb-timer {
@@ -1056,6 +1056,11 @@ h1 .highlight {
     50% { transform: translateX(6px); }
     75% { transform: translateX(-4px); }
     100% { transform: translateX(0); }
+}
+
+/* Shrink before the bar can ever reach the corner stat boxes */
+@media (max-width: 1180px) {
+    #duel-scorebar { transform: translateX(-50%) scale(0.86); transform-origin: top center; }
 }
 
 @media (max-width: 768px) {

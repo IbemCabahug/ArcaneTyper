@@ -21,6 +21,8 @@ export class Duel {
         // Room lock (AT-F9): flipped by markInMatch() when a match starts;
         // join() refuses codes whose presences carry this flag.
         this.inMatch = false;
+        this.character = 'wizard'; // shared-canvas mage identity (AT-F9 P2)
+        this.wandColor = '#00e5ff';
 
         // Callbacks
         this.onOpponentUpdate = null;   // (opponentState) => void
@@ -151,10 +153,21 @@ export class Duel {
                 await this.channel.track({
                     player_name: this.playerName,
                     online_at: new Date().toISOString(),
-                    in_match: this.inMatch
+                    in_match: this.inMatch,
+                    character: this.character,
+                    wand: this.wandColor
                 });
             }
         });
+    }
+
+    /**
+     * Publish this player's mage identity for the shared canvas (AT-F9 P2).
+     * Call BEFORE create()/join() so the initial presence carries it.
+     */
+    setCharacter(character, wandColor) {
+        this.character = character || 'wizard';
+        if (wandColor) this.wandColor = wandColor;
     }
 
     /**
@@ -167,7 +180,9 @@ export class Duel {
             await this.channel.track({
                 player_name: this.playerName,
                 online_at: new Date().toISOString(),
-                in_match: true
+                in_match: true,
+                character: this.character,
+                wand: this.wandColor
             });
         }
     }
@@ -204,8 +219,8 @@ export class Duel {
      * @param {object} data
      */
     broadcastRace(raceType, data = {}) {
-        if (!this.channel) return;
-        this.channel.send({
+        if (!this.channel) return null;
+        return this.channel.send({
             type: 'broadcast',
             event: 'race',
             payload: { player_key: this.presenceKey, player_name: this.playerName, raceType, ...data }

@@ -56,6 +56,7 @@ export class DuelRace {
         this._pauseTimer = null;
         this._watchdog = null;
         this._leaveTimer = null;
+        this._leaveFloatTimer = null;
         this._clockTimer = null;
         this._stateTimer = null;
     }
@@ -66,6 +67,17 @@ export class DuelRace {
         this.$('duel-scorebar')?.classList.remove('hidden');
         this._renderNames();
         this._render();
+
+        // AT-F9 Phase 2: side + opponent identity for the shared canvas
+        this.game.duelSide = this.mine; // 'A' host | 'B' guest
+        const st = this.duel.channel?.presenceState() || {};
+        const oppKey = Object.keys(st).find(k => k !== this.duel.presenceKey);
+        const oppPresence = oppKey ? st[oppKey]?.[0] : null;
+        this.game.duelOpponent = {
+            name: this.names[this.theirs],
+            character: oppPresence?.character || 'wizard',
+            wand: oppPresence?.wand || null
+        };
 
         // Game hooks (Phase 0 'duel' gates invoke these only in duel mode)
         this.game.onRaceWordExpired = () => this._onLocalExpiry();
@@ -90,6 +102,7 @@ export class DuelRace {
         clearTimeout(this._pauseTimer);
         clearTimeout(this._watchdog);
         clearTimeout(this._leaveTimer);
+        clearTimeout(this._leaveFloatTimer);
         clearInterval(this._clockTimer);
         clearInterval(this._stateTimer);
         this.game.onRaceWordExpired = null;
@@ -102,9 +115,9 @@ export class DuelRace {
 
     /** endDuel calls this BEFORE stop() when the LOCAL player quits. */
     announceForfeit() {
-        if (this.over) return;
+        if (this.over) return null;
         this.over = true;
-        this.duel.broadcastRace('match_over', this._snapshot({ winner: this.theirs, reason: 'forfeit' }));
+        return this.duel.broadcastRace('match_over', this._snapshot({ winner: this.theirs, reason: 'forfeit' }));
     }
 
     summary() {
@@ -352,6 +365,7 @@ export class DuelRace {
         this.overtime = !!p.overtime;
         this.over = true;
         clearTimeout(this._leaveTimer);
+        clearTimeout(this._leaveFloatTimer);
         clearInterval(this._clockTimer);
         clearInterval(this._stateTimer);
         this._render();
@@ -361,17 +375,23 @@ export class DuelRace {
     // ── presence grace (5 s, owner decision) ─────────────────────────────
     _onOpponentLeft() {
         if (this.over || this._leaveTimer) return;
-        this._float('OPPONENT DISCONNECTING…', '#ff9800', 28);
         this._leaveTimer = setTimeout(() => {
             this._leaveTimer = null;
             this._endMatch(this.mine, 'disconnect');
         }, DISCONNECT_GRACE_MS);
+        // Delay the on-canvas warning: a clean forfeit's match_over normally
+        // lands in <500 ms and must be allowed to clarify the story first —
+        // seeing DISCONNECTING-then-YIELDED was the owner-reported mixup.
+        this._leaveFloatTimer = setTimeout(() => {
+            if (!this.over) this._float('OPPONENT DISCONNECTING…', '#ff9800', 28);
+        }, 1500);
     }
 
     _onOpponentRejoined() {
         if (this.over) return;
         if (this._leaveTimer) {
             clearTimeout(this._leaveTimer);
+            clearTimeout(this._leaveFloatTimer);
             this._leaveTimer = null;
             this._float('OPPONENT RECONNECTED', '#4caf50', 26);
         }
