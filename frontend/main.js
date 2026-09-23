@@ -66,6 +66,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   dbHealth.startWatch();
   syncQueue.start();
 
+  // AT-M8: confirm the previous pageload's unload-banked run survived. The
+  // one-shot flag is consumed here (removed BEFORE parsing, so a corrupt value
+  // can never toast twice) and is also purged by logout via PROGRESSION_KEYS.
+  try {
+    const bankedFlag = localStorage.getItem('typerMaster_lastRunBanked');
+    if (bankedFlag) {
+      localStorage.removeItem('typerMaster_lastRunBanked');
+      const banked = JSON.parse(bankedFlag);
+      MagicalToast.show(
+        `⌛ Run banked — your ${banked.score}-point run survived the refresh and is syncing.`,
+        5000
+      );
+    }
+  } catch (e) { /* ignore — the flag is an extra, never a source of truth */ }
+
   // UI Elements
   const hud = document.getElementById('hud');
   const startMenu = document.getElementById('start-menu');
@@ -469,6 +484,84 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     restartBtn.classList.remove('hidden');
   };
+
+  // ── Unload banking (AT-M8) ───────────────────────────────────────────────
+  // A refresh or closed tab used to silently discard an in-flight arena run:
+  // no death, no save, nothing in the database. `pagehide` is the modern
+  // substitute for `beforeunload` (fires on refresh/close/navigate on desktop
+  // AND mobile; beforeunload fires on neither mobile nor bfcache restores).
+  //
+  // Every write below is a SYNCHRONOUS localStorage enqueue — an unload
+  // handler cannot await a network round trip — and the refresh itself
+  // reloads the page, which flushes the outbox on load (syncQueue.start()), so
+  // the run_history row reaches Supabase ~1s after the reload. Closing the
+  // browser instead lands it on the next visit.
+  //
+  // Scope decisions (documented in PROJECT_STATUS AT-M8):
+  //   - Arena (classic/daily/chaos): banked as a death — high score, XP, WPM
+  //     ring, local run row, cloud run row, deferred Hall of Fame check.
+  //   - Duel: mirrors endDuel's REAL writes exactly (high score + WPM only,
+  //     no run_history) — the AT-L5 rule: don't invent writes one path lacks.
+  //   - Scribe/practice: NOT banked — game.isRunning is false there anyway.
+  //     Its WPM is a rate: banking a 10-second hot streak would let refreshes
+  //     farm the boards, while an arena score can never exceed what finishing
+  //     the run would have paid.
+  //   - bfcache restores (persisted=true): skipped — the page resumes with the
+  //     run alive, so there is nothing to bank.
+  //   - The daily +500 bonus is not granted here; it still waits for the next
+  //     natural death in a daily run (replays are allowed, nothing is lost).
+  let unloadBanked = false;
+
+  function bankRunOnUnload() {
+    if (unloadBanked) return;
+
+    // Duel ends have their own persistence contract (endDuel): high score +
+    // WPM ring only — replicate it, don't extend it.
+    if (duelActive) {
+      unloadBanked = true;
+      if (game.isRunning) game.stop();
+      game.stats.saveHighScore();
+      game.stats.recordWpm(game.stats.getSessionWPM());
+      if (game.stats.isAuthenticated) game.stats.queueProfileInsurance();
+      return;
+    }
+
+    // Menu, results screen, or Scribe's Trial — nothing in flight to bank.
+    if (!game.isRunning) return;
+    unloadBanked = true;
+
+    const stats = game.stats;
+    const wpm = stats.getSessionWPM();
+    const accuracy = stats.getAccuracy();
+    const score = stats.score;
+
+    game.stop();
+    stats.saveHighScore(); // local bests + XP conversion (localStorage first)
+    stats.recordWpm(wpm);  // WPM-history ring (AT-M2)
+    stats.recordRun({ mode: 'arena', wpm, accuracy, score }); // Recent Runs buffer
+
+    // Cloud half rides the outbox — synchronous enqueue only, no fetch.
+    if (stats.isAuthenticated) {
+      stats.queueAbandonedRun('arena', wpm, accuracy, score); // run + profile insurance
+    }
+    // Hall of Fame is name-keyed (guests submit too — same gate as onGameOver).
+    if (stats.mageName) {
+      leaderboard.queuePendingScore(
+        game.difficulty, stats.mageName, score, wpm, accuracy, stats.maxCombo || 0
+      );
+    }
+
+    // One-shot flag consumed on the next page load: the confirmation toast is
+    // the player-visible proof that the refresh did not eat their run.
+    try {
+      localStorage.setItem('typerMaster_lastRunBanked', JSON.stringify({ score, wpm }));
+    } catch (e) { /* ignore */ }
+  }
+
+  window.addEventListener('pagehide', (e) => {
+    if (e.persisted) return; // bfcache: page resumes with the run intact
+    bankRunOnUnload();
+  });
 
   // ── Scribe Trial ──────────────────────────────────────────────────────────
 

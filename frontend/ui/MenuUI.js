@@ -11,6 +11,18 @@ export class MenuUI {
 
         this.patchNotes = [
             {
+                version: "v2.3.1",
+                date: "September 23, 2026",
+                desc: "Reliable Cloud Saves & Refresh-Proof Runs",
+                changes: [
+                    "Fixed: account progress (XP, level, skills, wand, Hall of Fame) now genuinely saves to the cloud — a database mismatch had been quietly discarding every save.",
+                    "Fixed: your score history (Recent Runs) now writes to the cloud on every finished run.",
+                    "New: refreshing or closing the tab mid-run no longer eats your run — the score you were holding is banked like a finish (best score, XP, score history, and the Hall of Fame if it qualifies). A toast confirms it on your next load.",
+                    "New: an on-screen chip now warns you when the cloud is unreachable or when progress is waiting to sync, instead of failing silently.",
+                    "Fixed: runs and progress made during a connection drop are queued locally and sync automatically when the cloud is back."
+                ]
+            },
+            {
                 version: "v2.3.0",
                 date: "September 13, 2026",
                 desc: "Code Health & Security Release",

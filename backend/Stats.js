@@ -19,7 +19,8 @@ const PROGRESSION_KEYS = [
     'typerMaster_runHistory',
     'typerMaster_dailyCompleted',
     'typerMaster_level',
-    'typerMaster_leaderboardSchema_v1'
+    'typerMaster_leaderboardSchema_v1',
+    'typerMaster_lastRunBanked' // AT-M8 one-shot unload-bank flag (consumed at load)
 ];
 
 /**
@@ -117,7 +118,17 @@ export class Stats {
         // The profile handler rebuilds its payload from LIVE state, so replaying
         // a queued snapshot can never roll back newer XP.
         syncQueue.register('profile', () => this._syncProfileNow());
-        syncQueue.register('run', (payload) => this._insertRun(payload));
+        // 'run' items queued by the pagehide banker (AT-M8) carry no user_id —
+        // an unload handler cannot await a session. Resolve it here, while the
+        // page is alive; a sessionless replay is retryable so the outbox tries
+        // again once the mage has signed in (and logout clears the queue
+        // before another account could inherit the row).
+        syncQueue.register('run', async (payload) => {
+            if (payload && payload.user_id) return this._insertRun(payload);
+            const session = await this._getSession();
+            if (!session || !session.user) return { ok: false, retryable: true };
+            return this._insertRun({ ...payload, user_id: session.user.id });
+        });
     }
 
     isAdmin() {
@@ -512,13 +523,49 @@ export class Stats {
         const session = await this._getSession();
         if (!session || !session.user) return { ok: false, skipped: true };
 
-        return this._insertRun({
+        const payload = {
             user_id: session.user.id,
             mode: mode,
             wpm: wpm,
             accuracy: accuracy,
             score: score
-        });
+        };
+
+        const res = await this._insertRun(payload);
+        if (!res.ok && res.retryable) {
+            // AT-M8: the 'run' replay handler existed but NOTHING ever
+            // enqueued for it — a transport failure at the instant of death
+            // lost the row. Queue it; replay delivers once the project is
+            // reachable again.
+            syncQueue.enqueue('run', payload);
+            return { ok: false, queued: true };
+        }
+        return res;
+    }
+
+    /**
+     * Queues a run for `run_history` WITHOUT touching the network — called
+     * from the pagehide banker (AT-M8), where awaiting a session would never
+     * resolve. Carries no `user_id`: the 'run' replay handler fills it in at
+     * replay time. The local ring buffer is written separately by the caller,
+     * so guests get their local history exactly as on a normal game over.
+     */
+    queueAbandonedRun(mode, wpm, accuracy, score) {
+        if (!supabase) return;
+        syncQueue.enqueue('run', { mode, wpm, accuracy, score });
+        this.queueProfileInsurance();
+    }
+
+    /**
+     * Outbox insurance for saveHighScore()'s cloud half: during pagehide the
+     * async profile upsert may never settle, so queue the deduped snapshot
+     * SYNCHRONOUSLY. Replay rebuilds it from live state, so it can never roll
+     * back newer XP (see the 'profile' handler above). Also called by the duel
+     * branch of the unload banker, which writes no run row (AT-L5 parity).
+     */
+    queueProfileInsurance() {
+        if (!supabase) return;
+        syncQueue.enqueue('profile', { at: Date.now() }, 'self');
     }
 
     /** Single run_history insert. Also the outbox replay handler for `run`. */

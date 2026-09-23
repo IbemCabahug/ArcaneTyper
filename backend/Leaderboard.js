@@ -23,6 +23,27 @@ export class Leaderboard {
 
         // Replay owner for queued rows (see backend/syncQueue.js).
         syncQueue.register('leaderboard', (payload) => this._insertRow(payload));
+
+        // Deferred Hall-of-Fame submission for runs banked during unload
+        // (AT-M8). isTop10 needs the network, which a pagehide handler does
+        // not have, so the ENTIRE decision is queued and replayed on the next
+        // live page. A replay that resolves to "did not qualify" returns ok so
+        // the item is consumed without ever writing.
+        syncQueue.register('pending-score', async (payload) => {
+            const qualifies = await this.isTop10(
+                payload.difficulty, payload.score, payload.wpm,
+                payload.accuracy, payload.streak || 0
+            );
+            if (!qualifies) return { ok: true };
+            const res = await this.addScore(
+                payload.difficulty, payload.name, payload.score,
+                payload.wpm, payload.accuracy, payload.streak || 0
+            );
+            // addScore queued its own 'leaderboard' item on a retryable
+            // failure — consume this one too, or the row would submit twice.
+            if (res && res.queued) return { ok: true };
+            return res;
+        });
     }
 
     // ─── Local Storage Helpers ──────────────────────────────────────────────
@@ -272,6 +293,14 @@ export class Leaderboard {
         }
 
         return res;
+    }
+
+    /**
+     * Queues the isTop10 → addScore decision for the next live page (AT-M8:
+     * pagehide banking). Pure synchronous outbox write — safe during unload.
+     */
+    queuePendingScore(difficulty, name, score, wpm, accuracy, streak = 0) {
+        syncQueue.enqueue('pending-score', { difficulty, name, score, wpm, accuracy, streak });
     }
 
     /**
