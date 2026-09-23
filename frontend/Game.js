@@ -314,17 +314,30 @@ export class Game {
             }
         }
 
+        // --- AT-F13: a paused frame is frozen, not redrawn ---
+        // Pausing used to skip update() but keep painting draw() 60 times a
+        // second, so the canvas kept repainting underneath whichever overlay was
+        // open on top of it (the pause card, an Arena panel, a result screen) and
+        // every such overlay re-composited for the whole time it was open.
+        // draw() only ever paints the live scene — the last frame stays on screen
+        // unchanged — and every HUD field is DOM (the 200 ms HUD tick below is
+        // already pause-gated), so nothing goes stale while frozen.
+        if (this.isPaused) {
+            if (this.isRunning) {
+                this.animationFrameId = requestAnimationFrame((t) => this.gameLoop(t));
+            }
+            return;
+        }
+
         // --- Crash-proof update/draw ---
         // A throw inside update() or draw() previously killed the
         // requestAnimationFrame chain and permanently froze the page.
         // Errors are now contained: the failing subsystem is skipped for
         // that frame, the error is surfaced on-screen, and play continues.
-        if (!this.isPaused) {
-            try {
-                this.update(dt);
-            } catch (err) {
-                this._reportError(err, 'update');
-            }
+        try {
+            this.update(dt);
+        } catch (err) {
+            this._reportError(err, 'update');
         }
         try {
             this.draw();

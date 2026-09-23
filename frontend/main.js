@@ -12,6 +12,7 @@ import { supabase } from '../backend/supabaseClient.js';
 import { dbHealth } from '../backend/dbHealth.js';
 import { syncQueue } from '../backend/syncQueue.js';
 import { DuelRace } from './game/DuelRace.js';
+import { mageClassInfo } from '../backend/MageClasses.js';
 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -838,6 +839,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   const mageAvatarBg = document.getElementById('background-mage');
+
+  /**
+   * AT-F13: dim #start-menu when a submenu is open over it, without an ancestor
+   * `filter`. The old code wrote `startMenu.style.filter = 'blur(4px)'`, and a
+   * CSS filter on the ancestor of a composited panel forces the browser to
+   * re-rasterise the WHOLE start menu — plus the arena panel sliding in over it —
+   * on every frame of the transition. That is the owner's "still too laggy in
+   * production" report; `.menu-behind` is an opacity + scrim treatment the
+   * compositor handles for free.
+   *
+   * The inline `filter` is also explicitly cleared: a cached build could have
+   * left one set, and `filter: none` alone did not always win over it.
+   *
+   * NOTE: main.js's keyboard quick-start guard used to detect "a submenu is open"
+   * by string-comparing `startMenu.style.filter`; it now checks this class (the
+   * string check is kept as a belt-and-braces fallback — see the keydown handler).
+   */
+  function setMenuBehind(behind) {
+    startMenu.classList.toggle('menu-behind', behind);
+    startMenu.style.pointerEvents = behind ? 'none' : 'auto';
+    startMenu.style.opacity = behind ? '0.5' : '';
+    startMenu.style.filter = '';
+  }
+
   if (mageAvatarBg) {
     mageAvatarBg.addEventListener('click', () => {
       // Populate profile display using local variables already in scope
@@ -850,9 +875,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       profileUI.updateMenuStats();
 
-      startMenu.style.pointerEvents = 'none';
-      startMenu.style.opacity = '0.5';
-      startMenu.style.filter = 'blur(4px)';
+      setMenuBehind(true);
 
       authUI.profileMenu.classList.remove('hidden');
       setTimeout(() => authUI.profileMenu.classList.add('active'), 10);
@@ -865,9 +888,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       authUI.profileMenu.classList.remove('active');
       authUI.profileMenu.classList.add('hidden');
 
-      startMenu.style.pointerEvents = 'auto';
-      startMenu.style.opacity = '';
-      startMenu.style.filter = '';
+      setMenuBehind(false);
     });
   }
 
@@ -922,17 +943,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     startMenu.classList.remove('hidden');
     startMenu.classList.add('active');
 
-    startMenu.style.pointerEvents = 'auto';
-    startMenu.style.opacity = '';
-    startMenu.style.filter = '';
+    // AT-F13: hand the menu back (there is no ancestor filter to unwind now)
+    setMenuBehind(false);
   });
 
   // ── Mage Duels ─────────────────────────────────────────────────────────────
 
   function openDuelLobby() {
-    startMenu.style.pointerEvents = 'none';
-    startMenu.style.opacity = '0.5';
-    startMenu.style.filter = 'blur(4px)';
+    setMenuBehind(true);
 
     // Using a setTimeout allows display: flex to apply before we trigger the CSS transition
     setTimeout(() => {
@@ -962,9 +980,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   function closeDuelLobby() {
     if (duel) { duel.disconnect(); duel = null; }
-    startMenu.style.pointerEvents = 'auto';
-    startMenu.style.opacity = '';
-    startMenu.style.filter = '';
+    setMenuBehind(false);
 
     duelLobbyMenu.classList.remove('active');
     duelLobbyMenu.classList.add('hidden');
@@ -1248,15 +1264,52 @@ document.addEventListener('DOMContentLoaded', async () => {
     startMenu.classList.remove('hidden');
     startMenu.classList.add('active');
 
-    // Remove the lobby blur effects from the main menu
-    startMenu.style.pointerEvents = 'auto';
-    startMenu.style.opacity = '1';
-    startMenu.style.filter = 'none';
+    // AT-F13: hand the menu back (there is no ancestor filter to unwind now)
+    setMenuBehind(false);
 
     profileUI.updateMenuStats();
   });
 
+  // ── Mystic Arts talent tree (AT-L8 / AT-F10) ──────────────────────────────
+  const talentBranches = document.querySelectorAll('.talent-branch');
+
+  /**
+   * Paint the four Discipline branch headers from the ONE roster
+   * (backend/MageClasses.js) and mark which one the mage has actually bound.
+   * The tree's three headers used to be hand-written HTML naming Scholar /
+   * Pyromancer / Oracle, and only Pyromancer existed anywhere else in the
+   * project — so the Workshop disagreed with the profile picker (AT-L8).
+   *
+   * Node ids and XP costs stay in index.html: this only writes the header text,
+   * the accent colour and the `bound` class, and it re-writes the text only when
+   * the bound class changed, so a purchase click stays cheap.
+   */
+  function buildTalentTree() {
+    const boundInfo = mageClassInfo(game.stats ? game.stats.mageClass : null);
+
+    talentBranches.forEach(branch => {
+      const head = branch.querySelector('.talent-branch-head');
+      if (!head) return;
+      const info = mageClassInfo(branch.dataset.class);
+
+      const stale = head.dataset.class !== info.id;
+      if (stale) {
+        head.innerHTML =
+          `<span class="talent-branch-title">The ${info.title}</span>` +
+          `<span class="talent-branch-tagline">${info.tagline}</span>`;
+        head.style.setProperty('--branch-accent', info.color);
+        head.style.setProperty('--branch-glow', `${info.color}80`);
+        head.dataset.class = info.id;
+      }
+
+      branch.classList.toggle('bound', info.id === boundInfo.id);
+      branch.title = info.blurb;
+    });
+  }
+
   function updateWorkshopUI() {
+    buildTalentTree();
+
     workshopXp.innerText = game.stats.totalXP;
     workshopLevel.innerText = game.stats.playerLevel;
 
@@ -1286,6 +1339,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
   }
+
+  // Headers are static per class, so paint them once at startup (the menu is
+  // hidden until then); updateWorkshopUI() only re-marks the bound branch.
+  buildTalentTree();
 
   skillNodes.forEach(node => {
     node.addEventListener('click', () => {
@@ -1322,7 +1379,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   window.addEventListener('keydown', (e) => {
     // Keyboard quick-start: Enter to begin from start menu
-    if (e.key === 'Enter' && startMenu.classList.contains('active') && !startMenu.classList.contains('hidden') && startMenu.style.filter !== 'blur(4px)') {
+    if (e.key === 'Enter' && startMenu.classList.contains('active') && !startMenu.classList.contains('hidden') && !startMenu.classList.contains('menu-behind') && startMenu.style.filter !== 'blur(4px)') {
       const activeTag = document.activeElement ? document.activeElement.tagName : '';
       if (activeTag !== 'BUTTON' && activeTag !== 'SELECT' && activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
         e.preventDefault();

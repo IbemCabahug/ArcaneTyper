@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { dbHealth, isMissingColumnError, isNetworkError, describeError } from './dbHealth.js';
 import { syncQueue } from './syncQueue.js';
+import { DEFAULT_MAGE_CLASS, normalizeMageClass } from './MageClasses.js';
 
 /** localStorage keys that belong to ONE mage account (purged on logout). */
 const PROGRESSION_KEYS = [
@@ -91,9 +92,14 @@ export class Stats {
         // the literal string "undefined" and every class bonus (Pyromancer
         // score, Cryomancer speed, Chronomancer mana refund) vanished on reload.
         const storedClass = localStorage.getItem('typerMaster_mageClass');
-        this.mageClass = (storedClass && storedClass !== 'undefined' && storedClass !== 'null')
-            ? storedClass
-            : 'Novice';
+        // AT-L8: normalised through MageClasses so a hand-edited/legacy value
+        // ("Scholar", "undefined", a blank string) can never leave the class
+        // undefined and silently disable every class effect.
+        this.mageClass = normalizeMageClass(
+            (storedClass && storedClass !== 'undefined' && storedClass !== 'null')
+                ? storedClass
+                : DEFAULT_MAGE_CLASS
+        );
         this.mageName = localStorage.getItem('typerMaster_mageName') || null;
         let savedChar = localStorage.getItem('typerMaster_selectedCharacter');
         if (savedChar === 'gojo' || savedChar === 'sukuna') {
@@ -477,9 +483,18 @@ export class Stats {
         this.saveProgression();
     }
 
+    /**
+     * Set the mage Discipline (AT-L8). Validated against `MageClasses.js` so the
+     * stored/cloud value is always canonical; an unknown id is refused (the
+     * current class survives) instead of poisoning the profile column.
+     * @returns {boolean} true when the class actually changed
+     */
     setMageClass(className) {
-        this.mageClass = className;
+        const next = normalizeMageClass(className);
+        if (next === this.mageClass) return false;
+        this.mageClass = next;
         this.saveProgression();
+        return true;
     }
 
     /**
@@ -727,7 +742,7 @@ export class Stats {
             player_level: this.playerLevel,
             unlocked_skills: this.unlockedSkills,
             wand_color: this.wandColor,
-            mage_class: this.mageClass || 'Novice',
+            mage_class: this.mageClass || DEFAULT_MAGE_CLASS,
             best_score: this.bestScore,
             best_wpm: this.bestWPM
         };
@@ -786,7 +801,7 @@ export class Stats {
         if (profile.username) this.mageName = profile.username;
         if (profile.unlocked_skills) this.unlockedSkills = profile.unlocked_skills;
         if (profile.wand_color) this.wandColor = profile.wand_color;
-        if (profile.mage_class) this.mageClass = profile.mage_class;
+        if (profile.mage_class) this.mageClass = normalizeMageClass(profile.mage_class);
         if (profile.best_score && profile.best_score > this.bestScore) this.bestScore = profile.best_score;
         if (profile.best_wpm && profile.best_wpm > this.bestWPM) this.bestWPM = profile.best_wpm;
 

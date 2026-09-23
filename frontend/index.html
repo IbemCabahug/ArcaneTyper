@@ -371,8 +371,10 @@
           style="color: #b892b0; font-size: clamp(0.7rem, 2vh, 1rem); letter-spacing: 4px; margin-bottom: 2rem; text-shadow: 0 0 10px rgba(184,146,176,0.4);">
           CHALLENGE ANOTHER MAGE IN REAL-TIME</p>
 
+        <!-- AT-F13: no nested blur on this card — the panel itself is the one
+             opaque background layer now (see .overlay-menu in style.css). -->
         <div id="duel-lobby-idle"
-          style="display: flex; flex-direction: column; align-items: center; gap: 1.5rem; width: 100%; max-width: 400px; background: rgba(10, 5, 20, 0.7); padding: clamp(20px, 4vh, 40px); border-radius: 15px; border: 1px solid rgba(41, 182, 246, 0.3); box-shadow: 0 0 30px rgba(41, 182, 246, 0.2); backdrop-filter: blur(15px);">
+          style="display: flex; flex-direction: column; align-items: center; gap: 1.5rem; width: 100%; max-width: 400px; background: rgba(10, 5, 20, 0.82); padding: clamp(20px, 4vh, 40px); border-radius: 15px; border: 1px solid rgba(41, 182, 246, 0.3); box-shadow: 0 0 30px rgba(41, 182, 246, 0.2);">
 
           <div style="width: 100%; text-align: center;">
             <p style="color: #29b6f6; font-size: 0.8rem; letter-spacing: 2px; margin-bottom: 10px; font-weight: bold;">
@@ -403,14 +405,11 @@
 
         <!-- Waiting state (shown after creating) -->
         <div id="duel-lobby-waiting"
-          style="display: none; flex-direction: column; align-items: center; gap: 1.5rem; background: rgba(10, 5, 20, 0.6); padding: clamp(30px, 5vh, 50px); border-radius: 15px; border: 1px solid rgba(41, 182, 246, 0.5); box-shadow: 0 0 40px rgba(41, 182, 246, 0.2); backdrop-filter: blur(10px); position: relative; overflow: hidden;">
-          <!-- Spinning magic circle behind code -->
-          <div
-            style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 250px; height: 250px; border: 2px dashed rgba(41,182,246,0.3); border-radius: 50%; animation: spin 10s linear infinite; pointer-events: none;">
-          </div>
-          <div
-            style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 200px; height: 200px; border: 1px solid rgba(213,0,249,0.2); border-radius: 50%; animation: spinReverse 15s linear infinite; pointer-events: none;">
-          </div>
+          style="display: none; flex-direction: column; align-items: center; gap: 1.5rem; background: rgba(10, 5, 20, 0.82); padding: clamp(30px, 5vh, 50px); border-radius: 15px; border: 1px solid rgba(41, 182, 246, 0.5); box-shadow: 0 0 40px rgba(41, 182, 246, 0.2); position: relative; overflow: hidden;">
+          <!-- Spinning magic circle behind code (AT-F13: promoted layers, see
+               .arena-ring in style.css — they used to spin inside a blurred card) -->
+          <div class="arena-ring fast"></div>
+          <div class="arena-ring slow"></div>
 
           <p style="color: #b892b0; font-size: 1rem; letter-spacing: 4px; z-index: 2;">YOUR ROOM CODE</p>
           <p id="duel-room-code-display"
@@ -462,8 +461,10 @@
       <!-- DUEL RESULT SCREEN                                      -->
       <!-- ═══════════════════════════════════════════════════════ -->
       <div id="duel-result-menu" class="overlay-menu hidden">
+        <!-- AT-F13: card blur removed — the canvas behind is stopped at KO, so the
+             blur bought nothing but a re-rasterise of the whole card on fade-in. -->
         <div
-          style="background: radial-gradient(circle at center, rgba(30,15,50,0.9) 0%, rgba(10,5,20,0.95) 100%); padding: clamp(30px, 5vh, 50px) clamp(40px, 6vw, 80px); border-radius: 20px; border: 2px solid rgba(41,182,246,0.4); box-shadow: 0 0 50px rgba(41,182,246,0.2), inset 0 0 30px rgba(41,182,246,0.1); text-align: center; backdrop-filter: blur(15px); display: flex; flex-direction: column; align-items: center;">
+          style="background: radial-gradient(circle at center, rgba(30,15,50,0.94) 0%, rgba(10,5,20,0.97) 100%); padding: clamp(30px, 5vh, 50px) clamp(40px, 6vw, 80px); border-radius: 20px; border: 2px solid rgba(41,182,246,0.4); box-shadow: 0 0 50px rgba(41,182,246,0.2), inset 0 0 30px rgba(41,182,246,0.1); text-align: center; display: flex; flex-direction: column; align-items: center;">
           <h2 id="duel-result-title"
             style="font-size: clamp(2.5rem, 6vh, 4rem); margin-bottom: 0.5rem; text-shadow: 0 0 30px currentColor; letter-spacing: 8px;">
             VICTORY!</h2>
@@ -526,17 +527,21 @@
                 style="color: #00e5ff; margin-bottom: 1.5rem; text-align: center; border-bottom: 1px solid rgba(0,229,255,0.3); padding-bottom: 10px;">
                 Mystic Arts (Talent Tree)</h3>
 
-              <div style="display: flex; gap: 20px; justify-content: space-between;">
+              <!-- AT-L8 / AT-F10: the tree mirrors the four Disciplines.
+                   Branch HEADERS are rendered from backend/MageClasses.js by
+                   main.js buildTalentTree() (data-class below picks the record).
+                   INVARIANT: the tree holds the SAME 12 nodes as before, 3 per
+                   branch, with their original ids and XP costs — only the
+                   branch a node sits under changed, so no purchase is lost and
+                   no `hasSkill()` lookup can break. (Echo Cast's button was
+                   briefly dropped while re-grouping; it is restored because
+                   CombatSystem.js:74 still spends it — Nova's 20% mana refund.)
+                   Never add a node to one branch without one of its siblings. -->
+              <div class="talent-tree">
 
-                <!-- Scholar Branch -->
-                <div class="talent-branch"
-                  style="display: flex; flex-direction: column; gap: 15px; flex: 1; align-items: center;">
-                  <h4 style="color: #4CAF50; margin-bottom: 5px; text-shadow: 0 0 5px rgba(76, 175, 80, 0.5);">The
-                    Scholar
-                  </h4>
-                  <div style="font-size: 0.8rem; color: #aaa; margin-bottom: 15px; text-align: center;">Utility &
-                    Economy
-                  </div>
+                <!-- Novice — Balanced & Economy -->
+                <div class="talent-branch" data-class="Novice">
+                  <div class="talent-branch-head"></div>
 
                   <button id="skill-mana-btn" class="skill-node locked" data-cost="1000">
                     <span class="skill-name">Deep Reserves<br><span style="font-size: 0.75rem; color: #ccc;">Max Mana
@@ -554,14 +559,6 @@
 
                   <div class="branch-connector">↓</div>
 
-                  <button id="skill-siphon-btn" class="skill-node locked" data-cost="12000">
-                    <span class="skill-name">Arcane Siphon<br><span style="font-size: 0.75rem; color: #ccc;">Boss Kills
-                        restore 50% Mana</span></span>
-                    <span class="skill-cost">12000 XP</span>
-                  </button>
-
-                  <div class="branch-connector">↓</div>
-
                   <button id="skill-philosopher-btn" class="skill-node locked" data-cost="18000">
                     <span class="skill-name">Philosopher's Focus<br><span style="font-size: 0.75rem; color: #ccc;">100%
                         Acc words give Bonus XP</span></span>
@@ -569,13 +566,9 @@
                   </button>
                 </div>
 
-                <!-- Pyromancer Branch -->
-                <div class="talent-branch"
-                  style="display: flex; flex-direction: column; gap: 15px; flex: 1; align-items: center; border-left: 1px dashed rgba(255,255,255,0.1); border-right: 1px dashed rgba(255,255,255,0.1); padding: 0 10px;">
-                  <h4 style="color: #FF5722; margin-bottom: 5px; text-shadow: 0 0 5px rgba(255, 87, 34, 0.5);">The
-                    Pyromancer</h4>
-                  <div style="font-size: 0.8rem; color: #aaa; margin-bottom: 15px; text-align: center;">Destruction &
-                    Combo</div>
+                <!-- Pyromancer — Destruction & Combo -->
+                <div class="talent-branch" data-class="Pyromancer">
+                  <div class="talent-branch-head"></div>
 
                   <button id="skill-combo-btn" class="skill-node locked" data-cost="5000">
                     <span class="skill-name">Quickened Mind<br><span style="font-size: 0.75rem; color: #ccc;">Start with
@@ -599,25 +592,11 @@
                         explosions clear nearby words</span></span>
                     <span class="skill-cost">15000 XP</span>
                   </button>
-
-                  <div class="branch-connector">↓</div>
-
-                  <button id="skill-echo-btn" class="skill-node locked" data-cost="20000">
-                    <span class="skill-name">Echo Cast<br><span style="font-size: 0.75rem; color: #ccc;">Nova has 20%
-                        chance to refund 50% Mana</span></span>
-                    <span class="skill-cost">20000 XP</span>
-                  </button>
                 </div>
 
-                <!-- Oracle Branch -->
-                <div class="talent-branch"
-                  style="display: flex; flex-direction: column; gap: 15px; flex: 1; align-items: center;">
-                  <h4 style="color: #9C27B0; margin-bottom: 5px; text-shadow: 0 0 5px rgba(156, 39, 176, 0.5);">The
-                    Oracle
-                  </h4>
-                  <div style="font-size: 0.8rem; color: #aaa; margin-bottom: 15px; text-align: center;">Survival &
-                    Vision
-                  </div>
+                <!-- Cryomancer — Control & Warding -->
+                <div class="talent-branch" data-class="Cryomancer">
+                  <div class="talent-branch-head"></div>
 
                   <button id="skill-life-btn" class="skill-node locked" data-cost="2500">
                     <span class="skill-name">Aegis Ward<br><span style="font-size: 0.75rem; color: #ccc;">Start with +1
@@ -636,6 +615,17 @@
 
                   <div class="branch-connector">↓</div>
 
+                  <button id="skill-precognition-btn" class="skill-node locked" data-cost="25000">
+                    <span class="skill-name">Precognition<br><span style="font-size: 0.75rem; color: #ccc;">First hit
+                        taken auto-casts free Nova instead</span></span>
+                    <span class="skill-cost">25000 XP</span>
+                  </button>
+                </div>
+
+                <!-- Chronomancer — Time & Mana -->
+                <div class="talent-branch" data-class="Chronomancer">
+                  <div class="talent-branch-head"></div>
+
                   <button id="skill-clairvoyance-btn" class="skill-node locked" data-cost="10000">
                     <span class="skill-name">Clairvoyance<br><span style="font-size: 0.75rem; color: #ccc;">Words spawn
                         slower but give more pts</span></span>
@@ -644,10 +634,18 @@
 
                   <div class="branch-connector">↓</div>
 
-                  <button id="skill-precognition-btn" class="skill-node locked" data-cost="25000">
-                    <span class="skill-name">Precognition<br><span style="font-size: 0.75rem; color: #ccc;">First hit
-                        taken auto-casts free Nova instead</span></span>
-                    <span class="skill-cost">25000 XP</span>
+                  <button id="skill-siphon-btn" class="skill-node locked" data-cost="12000">
+                    <span class="skill-name">Arcane Siphon<br><span style="font-size: 0.75rem; color: #ccc;">Boss Kills
+                        restore 50% Mana</span></span>
+                    <span class="skill-cost">12000 XP</span>
+                  </button>
+
+                  <div class="branch-connector">↓</div>
+
+                  <button id="skill-echo-btn" class="skill-node locked" data-cost="20000">
+                    <span class="skill-name">Echo Cast<br><span style="font-size: 0.75rem; color: #ccc;">Nova has 20%
+                        chance to refund 50% Mana</span></span>
+                    <span class="skill-cost">20000 XP</span>
                   </button>
                 </div>
 
@@ -834,11 +832,13 @@
 
           <div id="cc-class-container" style="display: none; flex-direction: column; gap: 3px;">
             <label style="color: var(--accent-primary); font-size: 0.8rem; letter-spacing: 1px;">Discipline:</label>
+            <!-- AT-L8: options are BUILT from backend/MageClasses.js (AuthUI
+                 ._populateClassOptions). This single option is only a fallback —
+                 never re-add the roster here, it drifted from the rest of the
+                 project once already (Scholar/Pyromancer/Oracle). -->
             <select id="cc-class"
               style="background: rgba(0,0,0,0.8); border: 1px solid var(--text-muted); color: var(--accent-primary); padding: 6px; text-align: center; border-radius: 5px; font-family: var(--font-family); font-size: 1rem; appearance: none; cursor: pointer; outline: none;">
-              <option value="Scholar">The Scholar (Balanced)</option>
-              <option value="Pyromancer">The Pyromancer (Destructive)</option>
-              <option value="Oracle">The Oracle (Accurate)</option>
+              <option value="Novice">Novice (Balanced &amp; Economy)</option>
             </select>
           </div>
 

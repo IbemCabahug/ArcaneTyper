@@ -1,4 +1,5 @@
 import { supabase } from '../../backend/supabaseClient.js';
+import { DEFAULT_MAGE_CLASS, MAGE_CLASSES, normalizeMageClass } from '../../backend/MageClasses.js';
 
 
 export class AuthUI {
@@ -30,7 +31,10 @@ export class AuthUI {
         this.ccUsernameLabel = document.getElementById('cc-username-label');
         this.togglePasswordBtn = document.getElementById('toggle-password-btn');
 
-        this.mageClassSelect = document.getElementById('mage-class-select');
+        // NOTE (AT-L8): `#mage-class-select` lives in the Mage Profile menu and is
+        // owned by ProfileUI — AuthUI only fills the registration picker
+        // (`#cc-class`). Neither dropdown may hard-code the roster any more; both
+        // are built from backend/MageClasses.js.
         this.profileUsernameUI = document.getElementById('profile-username');
         this.profileNickname = document.getElementById('profile-nickname');
 
@@ -47,12 +51,32 @@ export class AuthUI {
     init(updateProgressionUIParams) {
         this.updateProgressionUICallback = updateProgressionUIParams;
 
+        this._populateClassOptions();
         this.setupListeners();
         this.checkSession();
 
         if (this.lockoutUntil && Date.now() < this.lockoutUntil) {
             this.startLockoutCountdown();
         }
+    }
+
+    /**
+     * AT-L8: build the registration Discipline picker from the single roster.
+     * The old static `<option>` list offered Scholar/Pyromancer/Oracle, which no
+     * longer exists anywhere else in the project.
+     */
+    _populateClassOptions() {
+        if (!this.ccClass) return;
+        this.ccClass.innerHTML = '';
+        MAGE_CLASSES.forEach((cls) => {
+            const opt = document.createElement('option');
+            opt.value = cls.id;
+            opt.textContent = `${cls.title} (${cls.tagline})`;
+            opt.style.background = 'var(--bg-deep)';
+            opt.style.textShadow = 'none';
+            this.ccClass.appendChild(opt);
+        });
+        this.ccClass.value = DEFAULT_MAGE_CLASS;
     }
 
     setupListeners() {
@@ -177,7 +201,7 @@ export class AuthUI {
         const username = this.ccUsername.value.trim().toLowerCase();
         const displayName = this.ccName.value.trim();
         const password = this.ccPassword ? this.ccPassword.value : '';
-        const discipline = this.ccClass ? this.ccClass.value : 'Scholar';
+        const discipline = normalizeMageClass(this.ccClass ? this.ccClass.value : DEFAULT_MAGE_CLASS);
 
         if (this.isGuestMode) {
             if (!displayName) {
@@ -323,6 +347,12 @@ export class AuthUI {
                     this.resetRateLimitState();
                     this.game.stats.isAuthenticated = true;
                     this._applyIdentity(data.session || { user: data.user }, null);
+
+                    // AT-L8: the Discipline picked at registration now actually
+                    // becomes the class. Before this it was only signUp metadata
+                    // (`discipline`) that nothing ever read back, so every new
+                    // account stayed 'Novice' no matter what they chose.
+                    this.game.stats.setMageClass(discipline);
                 }
             }
         } else {

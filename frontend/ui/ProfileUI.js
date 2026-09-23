@@ -1,4 +1,5 @@
 import { MagicalToast } from './MagicalToast.js';
+import { DEFAULT_MAGE_CLASS, MAGE_CLASSES, mageClassInfo } from '../../backend/MageClasses.js';
 
 export class ProfileUI {
     constructor(game) {
@@ -12,11 +13,63 @@ export class ProfileUI {
         this.xpBarEl = document.getElementById('menu-xp-bar');
         this.wandGlows = document.querySelectorAll('.mage-wand-glow-img');
         this.menuMageName = document.getElementById('menu-mage-name');
+        this.mageClassSelect = document.getElementById('mage-class-select');
 
 
         // Character selection cards
         this.skinCards = document.querySelectorAll('.skin-card');
         this.setupSkinSelection();
+
+        // AT-L8: the Discipline picker was display-only — it had NO listener, and
+        // `Stats.setMageClass()` had no callers at all, so choosing a class here
+        // changed nothing (the class only ever moved if localStorage was edited).
+        this.setupClassSelection();
+    }
+
+    /**
+     * AT-L8: build the Mage Profile Discipline picker from the single roster and
+     * make it real — a change writes straight through to Stats (validated +
+     * persisted to localStorage and `profiles.mage_class`).
+     */
+    setupClassSelection() {
+        if (!this.mageClassSelect) return;
+
+        const select = this.mageClassSelect;
+        select.innerHTML = '';
+        MAGE_CLASSES.forEach((cls) => {
+            const opt = document.createElement('option');
+            opt.value = cls.id;
+            opt.textContent = cls.title;
+            opt.style.background = 'var(--bg-deep)';
+            opt.style.textShadow = 'none';
+            select.appendChild(opt);
+        });
+        select.value = this.game.stats.mageClass || DEFAULT_MAGE_CLASS;
+        this.applyClassAccent();
+
+        select.addEventListener('change', () => {
+            const chosen = select.value;
+            const changed = this.game.stats.setMageClass(chosen);
+            const info = mageClassInfo(chosen);
+            this.applyClassAccent();
+
+            if (changed) {
+                MagicalToast.show(
+                    `Discipline bound: <span style="color:${info.color}; font-weight:bold;">${info.title}</span>` +
+                    `<br><span style="font-size: 0.8em; color: var(--text-muted);">${info.blurb}</span>`
+                );
+                if (this.game.audio) this.game.audio.playSound('click');
+            }
+        });
+    }
+
+    /** Paint the picker in its class colour (and re-read after a cloud load). */
+    applyClassAccent() {
+        if (!this.mageClassSelect) return;
+        const info = mageClassInfo(this.game.stats.mageClass);
+        this.mageClassSelect.style.color = info.color;
+        this.mageClassSelect.style.textShadow = `0 0 10px ${info.color}80`;
+        this.mageClassSelect.value = info.id;
     }
 
     setupSkinSelection() {
@@ -104,6 +157,10 @@ export class ProfileUI {
         this.updateSkinCardsUI();
         this.drawHistoryChart();
         this.drawRecentRuns();
+
+        // AT-L8: re-read the class from Stats whenever the profile opens, since a
+        // cloud profile load can change it after the constructor ran.
+        this.applyClassAccent();
 
     }
 
