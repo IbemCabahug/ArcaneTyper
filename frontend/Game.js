@@ -782,7 +782,16 @@ export class Game {
             const selfIsLeft = this.duelSide === 'A';
             const opp = this.duelOpponent || {};
             this._drawTeamMage(selfIsLeft ? leftX : rightX, animProgress, this.stats, '#29b6f6', 'YOU', false);
-            const oppStats = { ...this.stats, combo: 0, wandColor: opp.wand || this.stats.wandColor, hasSkill: () => false };
+            const oppStats = {
+                ...this.stats,
+                // CharacterRenderer ignores characterId today (always the
+                // Archmage) — wiring it here means Forge skins light up for
+                // free once the renderer starts branching on it.
+                selectedCharacter: opp.character || this.stats.selectedCharacter,
+                combo: 0,
+                wandColor: opp.wand || this.stats.wandColor,
+                hasSkill: () => false
+            };
             this._drawTeamMage(selfIsLeft ? rightX : leftX, 0, oppStats, '#ff4b4b', opp.name || 'Opponent', true);
         } else {
             CharacterRenderer.draw(this.ctx, wizX, wizY, this.stats.selectedCharacter, animProgress, this.stats);
