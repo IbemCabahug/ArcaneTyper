@@ -12,6 +12,7 @@
     "verify:vanish": "node scripts/verify-duel-take-vanish.mjs",
     "verify:perf": "node scripts/verify-arena-panel-perf.mjs",
     "verify:roster": "node scripts/verify-class-roster.mjs",
-    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster"
+    "verify:wpm": "node scripts/verify-live-wpm-trim.mjs",
+    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm"
   }
 }
