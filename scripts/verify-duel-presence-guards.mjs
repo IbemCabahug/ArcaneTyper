@@ -11,8 +11,13 @@
  * `endDuel()` (which clears `duel`) while its own countdown was still running,
  * and the countdown's last tick then dereferenced the cleared `duel`.
  *
- * main.js is DOM-bound and cannot be imported here, so this script asserts the
- * source invariants that make the crash and the silent forfeit impossible.
+ * main.js is DOM-bound and cannot be imported here, so this script works in two
+ * halves:
+ *   1. source invariants (the guards exist in the right order), and
+ *   2. a behavioural probe that slices the real `opponentConfirmedGone` /
+ *      `onLobbyOpponentLeft` source out of main.js and drives it through a
+ *      stubbed duel/presence scope — a re-track must not end the duel, a real
+ *      departure still must.
  * Run:  node scripts/verify-duel-presence-guards.mjs
  */
 
@@ -89,9 +94,135 @@ check(
     count('if (survivalGameOver) game.onGameOver = survivalGameOver;') === 1
 );
 
+// ── 4. behaviour: a re-track must survive, a departure must still count ────
+// The helper block is sliced out of the live source and given a stubbed scope
+// via `with` (sloppy-mode function body), so these cases exercise the shipped
+// code rather than a copy of it.
+const helperBlock = src.slice(
+    src.indexOf('  // ── AT-F9 presence hardening'),
+    src.indexOf('  // Global State')
+);
+check(
+    'the presence helper block is discoverable in main.js',
+    helperBlock.includes('function opponentConfirmedGone') &&
+        helperBlock.includes('function onLobbyOpponentLeft')
+);
+
+function presenceHarness() {
+    const state = { duel: null, duelActive: false, race: null };
+    const calls = { endDuel: [] };
+    let pending = null;
+    const scope = {
+        setTimeout: (fn) => { pending = fn; },
+        endDuel: (won, reason) => calls.endDuel.push(reason)
+    };
+    Object.defineProperty(scope, 'duel', { get: () => state.duel });
+    Object.defineProperty(scope, 'duelActive', { get: () => state.duelActive });
+    Object.defineProperty(scope, 'race', { get: () => state.race });
+
+    const factory = new Function(
+        'scope',
+        `with (scope) { ${helperBlock}; return { opponentConfirmedGone, onLobbyOpponentLeft }; }`
+    );
+    return {
+        api: factory(scope),
+        state,
+        calls,
+        fire: () => { const fn = pending; pending = null; if (fn) fn(); },
+        hasPending: () => !!pending
+    };
+}
+
+function presenceDuel(keys) {
+    const presence = {};
+    for (const k of keys) presence[k] = [{ player_name: k }];
+    return { presenceKey: 'me', channel: { presenceState: () => presence } };
+}
+
+const settlePromises = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
+
+{
+    const h = presenceHarness();
+    h.state.duelActive = true;
+    h.state.duel = presenceDuel(['me', 'opp']); // opp re-tracked within the beat
+    h.api.onLobbyOpponentLeft();
+    check('a leave schedules a presence confirmation', h.hasPending());
+    h.fire();
+    await settlePromises();
+    check(
+        'a re-tracked opponent does NOT end the duel mid-countdown',
+        h.calls.endDuel.length === 0,
+        JSON.stringify(h.calls.endDuel)
+    );
+}
+
+{
+    const h = presenceHarness();
+    h.state.duelActive = true;
+    h.state.duel = presenceDuel(['me']); // really gone
+    h.api.onLobbyOpponentLeft();
+    h.fire();
+    await settlePromises();
+    check(
+        'a genuine departure still ends the duel as a disconnect',
+        h.calls.endDuel.length === 1 && h.calls.endDuel[0] === 'disconnect',
+        JSON.stringify(h.calls.endDuel)
+    );
+}
+
+{
+    const h = presenceHarness();
+    h.state.duelActive = true;
+    h.state.race = { over: false }; // FIGHT already happened
+    h.api.onLobbyOpponentLeft();
+    check('in-match leaves stay with DuelRace (no timer, no endDuel)',
+        !h.hasPending() && h.calls.endDuel.length === 0);
+}
+
+{
+    const h = presenceHarness();
+    h.state.duelActive = true;
+    h.state.duel = presenceDuel(['me']);
+    h.api.onLobbyOpponentLeft();
+    h.state.duel = presenceDuel(['me', 'someone-else']); // rematch took over
+    h.fire();
+    await settlePromises();
+    check('a duel that took over while waiting is left alone', h.calls.endDuel.length === 0);
+}
+
+{
+    const h = presenceHarness();
+    h.api.onLobbyOpponentLeft();
+    check('an idle client ignores the leave', !h.hasPending() && h.calls.endDuel.length === 0);
+}
+
+{
+    const h = presenceHarness();
+    h.state.duelActive = true;
+    h.state.duel = { presenceKey: 'me', channel: null }; // channel already gone
+    h.api.onLobbyOpponentLeft();
+    h.fire();
+    await settlePromises();
+    check('a torn-down channel ends cleanly instead of wedging',
+        h.calls.endDuel.length === 1 && h.calls.endDuel[0] === 'disconnect');
+}
+
+{
+    const h = presenceHarness();
+    h.state.duelActive = true;
+    h.state.duel = {
+        presenceKey: 'me',
+        channel: { presenceState: () => { throw new Error('socket closed'); } }
+    };
+    h.api.onLobbyOpponentLeft();
+    h.fire();
+    await settlePromises();
+    check('a throwing presenceState never wedges the match', h.calls.endDuel.length === 1);
+}
+
 console.log(
     failures === 0
-        ? '\nAll duel presence/countdown guards present.'
-        : `\n${failures} guard(s) missing — the countdown crash can come back.`
+        ? '\nAll duel presence/countdown guards and behaviours verified.'
+        : `\n${failures} check(s) failed — the countdown crash can come back.`
 );
 process.exit(failures === 0 ? 0 : 1);
