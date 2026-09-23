@@ -18,6 +18,9 @@ export class Duel {
         this.roomCode = null;
         this.channel = null;
         this.isHost = false;
+        // Room lock (AT-F9): flipped by markInMatch() when a match starts;
+        // join() refuses codes whose presences carry this flag.
+        this.inMatch = false;
 
         // Callbacks
         this.onOpponentUpdate = null;   // (opponentState) => void
@@ -52,7 +55,8 @@ export class Duel {
     /**
      * GUEST: Join an existing Duel room by code.
      * @param {string} roomCode
-     * @returns {Promise<string>} The Host's Name
+     * @returns {Promise<string|null>} The Host's display name, or null when
+     *   the room is locked because a match is already in progress (AT-F9).
      */
     async join(roomCode) {
         this.isHost = false;
@@ -60,30 +64,35 @@ export class Duel {
         await this._subscribe();
 
         return new Promise((resolve) => {
-            let found = false;
+            let settled = false;
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                resolve(value);
+            };
 
             // Listen for the first sync event to find the host's display name
             const onSync = () => {
-                if (found) return;
                 const state = this.channel.presenceState();
-                // Find opponent by presence key (UUID), get their display name from payload
-                const opponentKey = Object.keys(state).find(k => k !== this.presenceKey);
-                if (opponentKey) {
-                    found = true;
-                    const presences = state[opponentKey];
-                    const opponentName = presences?.[0]?.player_name || 'Unknown Mage';
-                    resolve(opponentName);
+                const otherKeys = Object.keys(state).filter(k => k !== this.presenceKey);
+                if (otherKeys.length === 0) return;
+
+                // Room lock (AT-F9): any presence already in a match → refuse,
+                // so a leaked room code cannot inject a client mid-round.
+                const inProgress = otherKeys.some(k => state[k]?.[0]?.in_match);
+                if (inProgress) {
+                    finish(null);
+                    return;
                 }
+
+                // Find opponent by presence key (UUID), get their display name from payload
+                const presences = state[otherKeys[0]];
+                finish(presences?.[0]?.player_name || 'Unknown Mage');
             };
             this.channel.on('presence', { event: 'sync' }, onSync);
 
             // Timeout after 1.5 seconds if sync doesn't return host
-            setTimeout(() => {
-                if (!found) {
-                    found = true;
-                    resolve('Unknown Mage');
-                }
-            }, 1500);
+            setTimeout(() => finish('Unknown Mage'), 1500);
         });
     }
 
@@ -116,6 +125,13 @@ export class Duel {
             }
         });
 
+        // AT-F9 race events (issue/claim/result/state/match_over). Local host
+        // actions run directly — ignore echoes of our own payloads.
+        this.channel.on('broadcast', { event: 'race' }, ({ payload }) => {
+            if (payload.player_key === this.presenceKey) return;
+            if (this.onRace) this.onRace(payload);
+        });
+
         // Presence tracking: detect when opponent joins or leaves
         this.channel.on('presence', { event: 'join' }, ({ key }) => {
             if (key !== this.presenceKey && this.onOpponentJoined) {
@@ -131,13 +147,29 @@ export class Duel {
 
         await this.channel.subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
-                // Track with UUID key; include display name in the payload
+                // Track with UUID key; display name + match-lock flag in payload
                 await this.channel.track({
                     player_name: this.playerName,
-                    online_at: new Date().toISOString()
+                    online_at: new Date().toISOString(),
+                    in_match: this.inMatch
                 });
             }
         });
+    }
+
+    /**
+     * AT-F9 room lock: flag this presence as mid-match. New join() callers
+     * see the flag and refuse the code; re-subscribes preserve it.
+     */
+    async markInMatch() {
+        this.inMatch = true;
+        if (this.channel) {
+            await this.channel.track({
+                player_name: this.playerName,
+                online_at: new Date().toISOString(),
+                in_match: true
+            });
+        }
     }
 
     /**
@@ -163,6 +195,20 @@ export class Duel {
             type: 'broadcast',
             event: 'attack',
             payload: { player_key: this.presenceKey, type }
+        });
+    }
+
+    /**
+     * AT-F9: send a race event ({ raceType, ... }) to the other player.
+     * @param {string} raceType - 'issue' | 'claim' | 'result' | 'state' | 'match_over'
+     * @param {object} data
+     */
+    broadcastRace(raceType, data = {}) {
+        if (!this.channel) return;
+        this.channel.send({
+            type: 'broadcast',
+            event: 'race',
+            payload: { player_key: this.presenceKey, player_name: this.playerName, raceType, ...data }
         });
     }
 

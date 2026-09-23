@@ -27,7 +27,7 @@
             <span class="label">SCORE</span>
             <span id="score-display" class="value">0</span>
           </div>
-          <div class="stat-box" title="Progressive difficulty wave. Higher waves speed up incantations!">
+          <div class="stat-box" id="wave-stat" title="Progressive difficulty wave. Higher waves speed up incantations!">
             <span class="label">WAVE</span>
             <span id="wave-display" class="value" style="color: #ffd700;">1</span>
           </div>
@@ -431,52 +431,30 @@
       </div>
 
       <!-- ═══════════════════════════════════════════════════════ -->
-      <!-- DUEL OPPONENT HUD (Overlay during game)                 -->
+      <!-- AT-F9 ARENA SCORE BAR (host blue · guest red)           -->
       <!-- ═══════════════════════════════════════════════════════ -->
-      <div id="duel-hud" class="hidden"
-        style="position: absolute; top: 80px; right: 20px; z-index: 50; pointer-events: none; opacity: 0.5;">
-        <div
-          style="background: linear-gradient(135deg, rgba(10,5,20,0.85), rgba(20,10,40,0.85)); border: 2px solid rgba(41,182,246,0.5); border-radius: 12px; padding: 15px 20px; min-width: 200px; backdrop-filter: blur(10px); box-shadow: 0 0 25px rgba(41,182,246,0.2), inset 0 0 15px rgba(41,182,246,0.1);">
-          <div
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(41,182,246,0.3); padding-bottom: 8px;">
-            <p
-              style="color: #29b6f6; font-size: 0.75rem; letter-spacing: 3px; margin: 0; text-shadow: 0 0 10px rgba(41,182,246,0.8); font-weight: bold;">
-              ⚔ OPPONENT</p>
-            <p id="duel-opp-name"
-              style="color: #fff; font-size: 0.85rem; font-weight: 700; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;">
-              ---</p>
+      <div id="duel-scorebar" class="hidden">
+        <div class="sb-side" id="sb-side-a">
+          <div class="sb-head">
+            <span class="sb-name" id="sb-name-a">—</span>
+            <span class="sb-wins"><span id="sb-wins-a">0</span> ✦</span>
           </div>
+          <div class="sb-hp"><div class="sb-hp-fill" id="sb-hp-fill-a"></div></div>
+          <div class="sb-hpval"><span id="sb-hpval-a">100</span> HP</div>
+        </div>
 
-          <div style="display: flex; justify-content: space-between; gap: 15px; margin-bottom: 10px;">
-            <div style="text-align: center; flex: 1;">
-              <div style="color: #b892b0; font-size: 0.65rem; letter-spacing: 1px; margin-bottom: 4px;">SCORE</div>
-              <div id="duel-opp-score"
-                style="color: #ffd700; font-size: 1.2rem; font-weight: 900; text-shadow: 0 0 10px rgba(255,215,0,0.4);">
-                0</div>
-            </div>
-            <div style="width: 1px; background: rgba(41,182,246,0.2);"></div>
-            <div style="text-align: center; flex: 1;">
-              <div style="color: #b892b0; font-size: 0.65rem; letter-spacing: 1px; margin-bottom: 4px;">WPM</div>
-              <div id="duel-opp-wpm"
-                style="color: #29b6f6; font-size: 1.2rem; font-weight: 900; text-shadow: 0 0 10px rgba(41,182,246,0.4);">
-                0</div>
-            </div>
-            <div style="width: 1px; background: rgba(41,182,246,0.2);"></div>
-            <div style="text-align: center; flex: 1;">
-              <div style="color: #b892b0; font-size: 0.65rem; letter-spacing: 1px; margin-bottom: 4px;">LIVES</div>
-              <div id="duel-opp-barriers"
-                style="color: #d500f9; font-size: 1.2rem; font-weight: 900; text-shadow: 0 0 10px rgba(213,0,249,0.4);">
-                4</div>
-            </div>
+        <div class="sb-center">
+          <div id="sb-timer">2:00</div>
+          <div id="sb-flag" class="hidden">SUDDEN DEATH</div>
+        </div>
+
+        <div class="sb-side" id="sb-side-b">
+          <div class="sb-head">
+            <span class="sb-name" id="sb-name-b">—</span>
+            <span class="sb-wins"><span id="sb-wins-b">0</span> ✦</span>
           </div>
-          <div id="duel-timer-box"
-            style="margin-top: 12px; text-align: center; background: rgba(0,0,0,0.5); border-radius: 6px; padding: 8px; border: 1px solid rgba(41,182,246,0.2);">
-            <div style="color: #b892b0; font-size: 0.65rem; letter-spacing: 2px; margin-bottom: 2px;">TIME REMAINING
-            </div>
-            <div id="duel-timer-display"
-              style="color: #29b6f6; font-size: 1.4rem; font-weight: 900; text-shadow: 0 0 15px rgba(41,182,246,0.5); font-family: monospace;">
-              1:30</div>
-          </div>
+          <div class="sb-hp"><div class="sb-hp-fill" id="sb-hp-fill-b"></div></div>
+          <div class="sb-hpval"><span id="sb-hpval-b">100</span> HP</div>
         </div>
       </div>
 

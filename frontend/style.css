@@ -944,6 +944,126 @@ h1 .highlight {
   mix-blend-mode: screen;
 }
 
+/* ── AT-F9 Arena Score Bar (top-center: host blue · guest red) ── */
+#duel-scorebar {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.sb-side {
+    min-width: 220px;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, rgba(10, 5, 20, 0.88), rgba(20, 10, 40, 0.88));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    backdrop-filter: blur(6px);
+}
+
+.sb-side.sb-you {
+    border-color: rgba(255, 255, 255, 0.35);
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.12);
+}
+
+.sb-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.sb-name {
+    flex: 1;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sb-wins {
+    font-size: 0.95rem;
+    font-weight: 900;
+    color: #ffd700;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+}
+
+.sb-hp {
+    height: 12px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.sb-hp-fill {
+    height: 100%;
+    width: 100%;
+    border-radius: 6px;
+    transition: width 0.45s ease;
+}
+
+#sb-hp-fill-a { background: linear-gradient(90deg, #1565a0, #29b6f6); }
+#sb-hp-fill-b { background: linear-gradient(90deg, #a02020, #ff4b4b); }
+
+.sb-hpval {
+    margin-top: 4px;
+    font-size: 0.7rem;
+    color: #b892b0;
+    letter-spacing: 1px;
+}
+
+.sb-center {
+    text-align: center;
+    min-width: 84px;
+}
+
+#sb-timer {
+    font-family: monospace;
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: #29b6f6;
+    text-shadow: 0 0 12px rgba(41, 182, 246, 0.5);
+}
+
+#sb-timer.sb-low {
+    color: #ff4b4b;
+    text-shadow: 0 0 12px rgba(255, 75, 75, 0.6);
+}
+
+#sb-flag {
+    margin-top: 2px;
+    font-size: 0.65rem;
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: #ffd700;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.7);
+    animation: pulseOpacity 1s infinite;
+}
+
+.sb-hit { animation: sbShake 0.35s ease; }
+
+@keyframes sbShake {
+    0% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    50% { transform: translateX(6px); }
+    75% { transform: translateX(-4px); }
+    100% { transform: translateX(0); }
+}
+
+@media (max-width: 768px) {
+    #duel-scorebar { gap: 8px; width: 96%; }
+    .sb-side { min-width: 0; flex: 1; padding: 6px 8px; }
+    #sb-timer { font-size: 1.1rem; }
+}
+
 /* ── Duel Opponent Silhouette (Start Menu Right Side) ── */
 .duel-avatar-background {
   position: absolute;

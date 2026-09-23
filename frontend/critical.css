@@ -26,7 +26,7 @@ html, body {
 .hidden, [hidden],
 .overlay-menu.hidden,
 #hud.hidden,
-#duel-hud.hidden,
+#duel-scorebar.hidden,
 #practice-ui.hidden,
 #practice-results.hidden,
 #game-over-menu.hidden,

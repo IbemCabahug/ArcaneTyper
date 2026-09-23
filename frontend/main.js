@@ -11,6 +11,7 @@ import { Duel } from '../backend/Duel.js';
 import { supabase } from '../backend/supabaseClient.js';
 import { dbHealth } from '../backend/dbHealth.js';
 import { syncQueue } from '../backend/syncQueue.js';
+import { DuelRace } from './game/DuelRace.js';
 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -106,16 +107,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const duelLobbyMenu = document.getElementById('duel-lobby-menu');
   const duelLobbyIdlePanel = document.getElementById('duel-lobby-idle');
   const duelLobbyWaitingPanel = document.getElementById('duel-lobby-waiting');
-  const duelHud = document.getElementById('duel-hud');
   const duelResultMenu = document.getElementById('duel-result-menu');
   const duelRoomInput = document.getElementById('duel-room-input');
   const duelRoomCodeDisplay = document.getElementById('duel-room-code-display');
   const duelLobbyError = document.getElementById('duel-lobby-error');
-  const duelOppName = document.getElementById('duel-opp-name');
-  const duelOppScore = document.getElementById('duel-opp-score');
-  const duelOppWpm = document.getElementById('duel-opp-wpm');
-  const duelOppBarriers = document.getElementById('duel-opp-barriers');
-  const duelTimerDisplay = document.getElementById('duel-timer-display');
   const duelResultTitle = document.getElementById('duel-result-title');
   const duelResultSubtitle = document.getElementById('duel-result-subtitle');
   const duelResMyScore = document.getElementById('duel-res-my-score');
@@ -180,11 +175,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Duel State
   let duel = null;
-  let duelBroadcastInterval = null;
-  let duelTimerInterval = null;
-  let duelSecondsLeft = 90;
   let duelActive = false;
-  let duelOpponentLastState = null;
+  let race = null; // AT-F9 shared-arena race controller
 
   // Global State
   let isGuest = false;
@@ -516,12 +508,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (unloadBanked) return;
 
     // Duel ends have their own persistence contract (endDuel): high score +
-    // WPM ring only — replicate it, don't extend it.
+    // WPM ring only — the shared finaliser encodes exactly that (AT-L5).
     if (duelActive) {
       unloadBanked = true;
       if (game.isRunning) game.stop();
-      game.stats.saveHighScore();
-      game.stats.recordWpm(game.stats.getSessionWPM());
+      game.finalizeRun();
       if (game.stats.isAuthenticated) game.stats.queueProfileInsurance();
       return;
     }
@@ -937,8 +928,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function startDuel(opponentName) {
     duelActive = true;
-    duelSecondsLeft = 90;
-    duelOpponentLastState = null;
+    // Room lock (AT-F9): flag this presence so a third client cannot join
+    // a match that is already running.
+    if (duel) duel.markInMatch();
 
     // Dimension shift immediately
     document.body.classList.add('duel-dimension');
@@ -948,38 +940,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     duelLobbyMenu.classList.add('hidden');
     startMenu.classList.remove('active');
     startMenu.classList.add('hidden');
-    duelHud.classList.remove('hidden');
-    duelOppName.innerText = opponentName;
+    // Score bar is shown by DuelRace.start() when the countdown hits FIGHT.
 
-    // Override game over: in duel mode, declare the local player lost
-    game.onGameOver = () => endDuel(false);
+    // Override game over: in duel mode, forfeit ends the match (AT-F9)
+    game.onGameOver = () => endDuel(false, 'forfeit');
 
-    // Sync Sabotage Events
-    game.onAttackCast = (type) => {
-      if (duel) duel.broadcastAttack(type);
-
-      const announcement = document.createElement('div');
-      announcement.innerText = `CAST ${type.toUpperCase()} ON ${opponentName}!`;
-      announcement.style.position = 'absolute';
-      announcement.style.top = '30%';
-      announcement.style.left = '50%';
-      announcement.style.transform = 'translate(-50%, -50%)';
-      announcement.style.color = '#ffd700';
-      announcement.style.fontSize = '2rem';
-      announcement.style.fontWeight = 'bold';
-      announcement.style.textShadow = '0 0 10px #ffd700';
-      announcement.style.pointerEvents = 'none';
-      announcement.style.zIndex = '1000';
-      announcement.style.animation = 'floatUpFade 2s forwards';
-      document.getElementById('game-container').appendChild(announcement);
-      setTimeout(() => announcement.remove(), 2000);
-    };
-
-    if (duel) {
-      duel.onOpponentAttack = (type) => {
-        game.receiveAttack(type);
-      };
-    }
+    // Sabotage (blind/swarm) is OUT of the arena — AT-F9 v1.
 
     // 3.. 2.. 1.. FIGHT overlay
     const countdownOverlay = document.createElement('div');
@@ -1014,84 +980,81 @@ document.addEventListener('DOMContentLoaded', async () => {
         countdownOverlay.remove();
 
         // --- START THE REAL MATCH HERE ---
-        game.start(difficultySelect.value || 'normal');
+        // AT-F9: difficulty/mode/dictionary pinned — both clients identical.
+        game.start('normal', 'duel', 'classic');
         hud.classList.remove('hidden');
+        // Survival boxes with no arena meaning (HP lives in the score bar)
+        document.querySelector('.stat-barriers')?.classList.add('hidden');
+        document.getElementById('wave-stat')?.classList.add('hidden');
 
-        // Broadcast loop: send local state every 500ms
-        duelBroadcastInterval = setInterval(() => {
-          if (!duelActive || !duel) return;
-          duel.broadcast({
-            score: game.stats.score,
-            wpm: game.stats.getWPM(),
-            barriers: game.stats.lives,
-            status: 'alive'
-          });
-        }, 500);
-
-        // Countdown timer
-        updateDuelTimerDisplay();
-        duelTimerInterval = setInterval(() => {
-          duelSecondsLeft--;
-          updateDuelTimerDisplay();
-          if (duelSecondsLeft <= 0) {
-            clearInterval(duelTimerInterval);
-            // Time's up — whoever has the highest score wins
-            const myScore = game.stats.score;
-            const oppScore = duelOpponentLastState ? duelOpponentLastState.score : 0;
-            endDuel(myScore >= oppScore);
-          }
-        }, 1000);
+        race = new DuelRace({
+          game,
+          duel,
+          isHost: duel.isHost,
+          opponentName,
+          onMatchEnd: (won, reason) => endDuel(won, reason)
+        });
+        race.start();
       }
     }, 1000);
   }
 
-  function updateDuelTimerDisplay() {
-    const m = Math.floor(duelSecondsLeft / 60);
-    const s = duelSecondsLeft % 60;
-    duelTimerDisplay.innerText = `${m}:${s.toString().padStart(2, '0')}`;
-    duelTimerDisplay.style.color = duelSecondsLeft <= 15 ? '#ff4b4b' : '#29b6f6';
-  }
-
-  function endDuel(isWinner) {
+  function endDuel(isWinner, reason = '') {
     if (!duelActive) return;
     duelActive = false;
 
-    clearInterval(duelBroadcastInterval);
-    clearInterval(duelTimerInterval);
+    // Race controller: capture its summary, tell the opponent when WE quit,
+    // then tear down timers/hooks (presence grace covers their quit).
+    let raceWins = { mine: 0, theirs: 0 };
+    if (race) {
+      raceWins = race.summary();
+      if (!race.over) race.announceForfeit();
+      race.stop();
+      race = null;
+    }
+    game.onAttackCast = null;
 
     // Stop underlying game if still running
     if (game.isRunning) game.stop();
 
-    // Save highscore and XP — normally done by triggerGameOver, but duel
-    // ends the game directly via stop(), so we must save manually here.
-    game.stats.saveHighScore();
-    game.stats.recordWpm(game.stats.getSessionWPM());
+    // Shared persistence (AT-L5): high score + WPM, exactly once — the same
+    // writes triggerGameOver and the unload bank route through.
+    game.finalizeRun();
 
-    // Broadcast defeat/victory to opponent
     if (duel) {
-      duel.broadcast({ status: isWinner ? 'won' : 'dead', score: game.stats.score });
       duel.disconnect();
       duel = null;
     }
 
-    // Hide game UI & revert dimensions
+    // Hide game UI & revert dimensions; restore survival-only boxes
     document.body.classList.remove('duel-dimension');
     hud.classList.add('hidden');
-    duelHud.classList.add('hidden');
+    document.querySelector('.stat-barriers')?.classList.remove('hidden');
+    document.getElementById('wave-stat')?.classList.remove('hidden');
+    document.getElementById('duel-scorebar')?.classList.add('hidden');
 
-    // Show result screen
-    const oppScore = duelOpponentLastState ? duelOpponentLastState.score : 0;
-    duelResMyScore.innerText = game.stats.score;
-    duelResOppScore.innerText = oppScore;
+    // Result screen — race wins as the headline numbers (AT-F9)
+    duelResMyScore.innerText = raceWins.mine;
+    duelResOppScore.innerText = raceWins.theirs;
 
     if (isWinner) {
       duelResultTitle.innerText = '⚔️ VICTORY!';
       duelResultTitle.style.color = '#ffd700';
-      duelResultSubtitle.innerText = 'You have vanquished your foe!';
+      duelResultSubtitle.innerText =
+        reason === 'disconnect' ? 'Your opponent vanished mid-cast!' :
+        reason === 'forfeit'   ? 'Your opponent yielded the duel!' :
+        reason === 'time'      ? 'Time! Your ward outlasted theirs.' :
+        reason === 'overtime'  ? 'Sudden death — the final strike landed!' :
+                                 'You have vanquished your foe!';
     } else {
       duelResultTitle.innerText = '💀 DEFEATED';
       duelResultTitle.style.color = '#ff4b4b';
-      duelResultSubtitle.innerText = 'Your barriers have crumbled...';
+      duelResultSubtitle.innerText =
+        reason === 'disconnect' ? 'Connection lost — the duel is conceded.' :
+        reason === 'forfeit'   ? 'You yielded the duel.' :
+        reason === 'time'      ? 'Time expired — their ward held.' :
+        reason === 'overtime'  ? 'Sudden death — the final strike found you.' :
+                                 'Your arcane ward has shattered...';
     }
 
     duelResultMenu.classList.remove('hidden');
@@ -1113,6 +1076,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     duel = new Duel(supabase, game.stats.mageName);
 
     duel.onOpponentJoined = () => {
+      // Room lock belt-and-suspenders: a third presence joining mid-match
+      // must never re-fire startDuel (AT-F9).
+      if (duelActive) return;
       // Read the opponent's display name from the presence payload
       const state = duel.channel.presenceState();
       const opponentPresenceKey = Object.keys(state).find(k => k !== duel.presenceKey);
@@ -1124,22 +1090,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       startDuel(opponentName);
     };
 
-    duel.onOpponentUpdate = (state) => {
-      const prevBarriers = duelOpponentLastState ? duelOpponentLastState.barriers : 4;
-      duelOpponentLastState = state;
-      duelOppScore.innerText = state.score ?? 0;
-      duelOppWpm.innerText = state.wpm ?? 0;
-      duelOppBarriers.innerText = state.barriers ?? '?';
-      if (state.barriers < prevBarriers) {
-        duelOppBarriers.style.animation = 'none';
-        void duelOppBarriers.offsetWidth; // trigger reflow
-        duelOppBarriers.style.animation = 'damageFlash 0.5s ease';
-      }
-      if (state.status === 'dead') endDuel(true);
-    };
-
+    // Opponent STATE is owned by DuelRace during the match (AT-F9).
     duel.onOpponentLeft = () => {
-      if (duelActive) endDuel(true); // If opponent disconnects mid-lobby, host wins
+      // Countdown-phase disconnects end immediately; during the match
+      // DuelRace overrides this with its 5 s presence grace (AT-F9).
+      if (duelActive && !race) endDuel(true, 'disconnect');
     };
 
     const code = await duel.create();
@@ -1162,25 +1117,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     duelLobbyError.innerText = 'Joining room ' + code + '...';
     duel = new Duel(supabase, game.stats.mageName);
 
-    duel.onOpponentUpdate = (state) => {
-      const prevBarriers = duelOpponentLastState ? duelOpponentLastState.barriers : 4;
-      duelOpponentLastState = state;
-      duelOppScore.innerText = state.score ?? 0;
-      duelOppWpm.innerText = state.wpm ?? 0;
-      duelOppBarriers.innerText = state.barriers ?? '?';
-      if (state.barriers < prevBarriers) {
-        duelOppBarriers.style.animation = 'none';
-        void duelOppBarriers.offsetWidth; // trigger reflow
-        duelOppBarriers.style.animation = 'damageFlash 0.5s ease';
-      }
-      if (state.status === 'dead') endDuel(true);
-    };
-
+    // Opponent STATE is owned by DuelRace during the match (AT-F9).
     duel.onOpponentLeft = () => {
-      if (duelActive) endDuel(true); // If opponent disconnects, local player wins
+      // Countdown-phase disconnects end immediately; during the match
+      // DuelRace overrides this with its 5 s presence grace (AT-F9).
+      if (duelActive && !race) endDuel(true, 'disconnect');
     };
 
     const hostKey = await duel.join(code);
+    if (hostKey === null) {
+      // Room locked — the match behind this code is already running (AT-F9).
+      duelLobbyError.innerText = 'That match is already in progress. Try again after it ends.';
+      await duel.disconnect();
+      duel = null;
+      return;
+    }
     duelLobbyError.innerText = '';
 
     startDuel(hostKey);

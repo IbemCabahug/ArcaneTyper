@@ -60,7 +60,9 @@ export class Word {
         }
 
         // Speed
-        const baseSpeed = 0.8 + Math.random() * 0.6;
+        // baseSpeed may be pinned by the caller (AT-F9 race issues carry the
+        // host's roll so both clients render the same fall speed)
+        const baseSpeed = (typeof options.baseSpeed === 'number') ? options.baseSpeed : (0.8 + Math.random() * 0.6);
         let finalSpeed = (baseSpeed * speedMultiplier) * (1 - (text.length * 0.02));
 
         if (this.isBossAttack) {

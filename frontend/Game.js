@@ -141,6 +141,7 @@ export class Game {
         }
         this.difficulty = difficulty;
         this.gameMode = mode;
+        this._runFinalised = false; // fresh run → finalisation armed (AT-L5)
         this.dictionary.setDictionary(dictionaryType);
 
         if (this.gameMode === 'daily') {
@@ -382,7 +383,9 @@ export class Game {
 
     update(dt) {
         // Progressive Difficulty Wave Scaling
-        if (!this.isBossPhase) {
+        // (frozen in duels — AT-F9: identical cadence for both sides, no
+        //  client-local scaling driven by your own typing.)
+        if (!this.isBossPhase && this.gameMode !== 'duel') {
             this.waveTimer += dt;
             // Advance wave every 30 seconds OR every 12 words typed
             if (this.waveTimer >= 30000 || this.waveWordsTyped >= 12) {
@@ -429,7 +432,8 @@ export class Game {
             this.achievements.onEvent('time_survived', { time: 300 });
         }
 
-        if (!this.isBossPhase && this.spawnTimer >= this.spawnInterval) {
+        // AT-F9: race words arrive from the host (DuelRace) — never spawn locally
+        if (this.gameMode !== 'duel' && !this.isBossPhase && this.spawnTimer >= this.spawnInterval) {
             this.spawnWord();
             this.spawnTimer = 0;
         }
@@ -525,7 +529,20 @@ export class Game {
                 const textHitboxSize = 20;
 
                 if (distance < activeRadius + textHitboxSize) {
-                    if (this.stats.hasSkill('precognition') && !this.precognitionUsed) {
+                    // AT-F9 duel: words never damage — arrival expires the race
+                    // word (DuelRace finalizes on the host; guests mirror).
+                    if (this.gameMode === 'duel') {
+                        this.words.splice(i, 1);
+                        if (word === this.targetedWord) {
+                            word.isTargeted = false;
+                            this.targetedWord = null;
+                        }
+                        this.audio.playShatter();
+                        this.combatSystem.spawnExplosion(word.x, word.y, { particles: [hitColor, '#ffffff'] });
+                        if (this.onRaceWordExpired) this.onRaceWordExpired(word);
+                        continue;
+                    }
+                    if (this.gameMode !== 'duel' && this.stats.hasSkill('precognition') && !this.precognitionUsed) {
                         this.precognitionUsed = true;
                         this.words.splice(i, 1);
                         if (word === this.targetedWord) {
@@ -582,6 +599,16 @@ export class Game {
                     }
                 } else if (word.y > this.canvas.height + 150) {
                     // Check if word drifted completely off-screen (missed)
+                    // AT-F9 duel: expiry only — never damage.
+                    if (this.gameMode === 'duel') {
+                        if (word === this.targetedWord) {
+                            word.isTargeted = false;
+                            this.targetedWord = null;
+                        }
+                        this.words.splice(i, 1);
+                        if (this.onRaceWordExpired) this.onRaceWordExpired(word);
+                        continue;
+                    }
                     this.words.splice(i, 1);
                     if (word === this.targetedWord) {
                         word.isTargeted = false;
@@ -724,18 +751,22 @@ export class Game {
         const r3 = r2 + rStep;
         const r4 = r3 + rStep;
 
-        const barriers = [
-            { radius: r1, color: '#29b6f6', active: this.stats.lives >= 2 },
-            { radius: r2, color: '#d500f9', active: this.stats.lives >= 3 },
-            { radius: r3, color: '#ffd700', active: this.stats.lives >= 4 },
-            ...(this.stats.hasSkill('life') ? [{ radius: r4, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
-        ];
+        // AT-F9: arena shields live in the score bar (HP bars) — no survival
+        // rings around the mage; they would falsely imply live shield state.
+        if (this.gameMode !== 'duel') {
+            const barriers = [
+                { radius: r1, color: '#29b6f6', active: this.stats.lives >= 2 },
+                { radius: r2, color: '#d500f9', active: this.stats.lives >= 3 },
+                { radius: r3, color: '#ffd700', active: this.stats.lives >= 4 },
+                ...(this.stats.hasSkill('life') ? [{ radius: r4, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
+            ];
 
-        barriers.forEach(barrier => {
-            if (barrier.active) {
-                this._blitBarrier(this._barrierImg('def', barrier.color, barrier.radius, 0), wizX, shieldY);
-            }
-        });
+            barriers.forEach(barrier => {
+                if (barrier.active) {
+                    this._blitBarrier(this._barrierImg('def', barrier.color, barrier.radius, 0), wizX, shieldY);
+                }
+            });
+        }
 
         this.ctx.restore();
         this.ctx.shadowBlur = window.__atLowQuality ? 0 : 0;
@@ -925,6 +956,31 @@ export class Game {
         this.ctx.globalAlpha = 1;
     }
 
+    /**
+     * AT-F9: spawn the shared race word issued by the host (duel mode only).
+     * Variant always 'normal'; x/baseSpeed come from the issue payload so
+     * both clients render the identical word. No class perks apply — one
+     * shared word, one shared speed (fairness pin, AT-L7 spirit).
+     */
+    spawnRaceWord(text, { x, baseSpeed } = {}) {
+        const targetX = this.canvas.width / 2;
+        const targetY = this.canvas.height - 53;
+        const margin = 100;
+        const wordX = (typeof x === 'number')
+            ? x
+            : margin + Math.random() * Math.max(this.canvas.width - 2 * margin, 1);
+        const newWord = new Word(text, this.canvas.width, this.canvas.height,
+            this.currentSpeedMultiplier, targetX, targetY, {
+                variant: 'normal',
+                x: wordX,
+                y: -50,
+                gameMode: this.gameMode,
+                baseSpeed
+            });
+        this.words.push(newWord);
+        return newWord;
+    }
+
     _spawnSingleWord() {
         const targetX = this.canvas.width / 2;
         const targetY = this.canvas.height - 53;
@@ -1082,17 +1138,34 @@ export class Game {
         this.spawnTimer = -2000;
     }
 
+    /**
+     * Shared run-end persistence (AT-L5 — extracted 2026-09-23 so every end
+     * path — triggerGameOver, endDuel, and the unload bank — writes through
+     * ONE place, exactly once). Contract: high score + WPM ring ONLY.
+     * run_history stays arena-only (AT-M8 scope): logRunToSupabase is
+     * deliberately NOT called here — triggerGameOver adds it for arena deaths.
+     */
+    finalizeRun() {
+        if (this._runFinalised) return;
+        this._runFinalised = true;
+        this.stats.saveHighScore();
+        this.stats.recordWpm(this.stats.getSessionWPM());
+    }
+
     triggerGameOver() {
         this.stop();
         this.stats.updateHUD();
-        this.stats.saveHighScore();
-        this.stats.recordWpm(this.stats.getSessionWPM());
+        this.finalizeRun();
         // AT-M4 fix (2026-08-24): the extra floor(score/10) XP grant that
         // lived here was removed. saveHighScore already converts 10% of
         // score to XP (+ Mage's Greed), matching the documented intent and
         // the duel path. Players were effectively earning ~20% per arena run
         // while duels paid 10%.
-        this.stats.logRunToSupabase('arena', this.stats.getSessionWPM(), this.stats.getAccuracy(), this.stats.score);
+        // AT-L5/AT-M8: duels never write run_history (endDuel contract) —
+        // forfeits that reach this function must not either.
+        if (this.gameMode !== 'duel') {
+            this.stats.logRunToSupabase('arena', this.stats.getSessionWPM(), this.stats.getAccuracy(), this.stats.score);
+        }
 
         if (this.onGameOver) {
             this.onGameOver(this.stats);

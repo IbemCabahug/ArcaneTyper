@@ -19,6 +19,15 @@ export class CombatSystem {
     }
 
     _castUltimateSpellInner() {
+        // AT-F9: ultimates are sealed out of the arena — the shared race
+        // word must never be cleared (or healed around) on one client only.
+        if (this.game.gameMode === 'duel') {
+            this.game.audio.playErrorSound();
+            const cx = this.game.canvas.width / 2;
+            const cy = this.game.canvas.height / 2;
+            this.game.floatingTexts.push(new FloatingText('THE ARENA SEALS YOUR ULTIMATE!', cx, cy - 30, '#ff9800', 26));
+            return;
+        }
         const hasDestructibleWords = this.game.words.some(w => !w.dying && !w.isBossAttack);
         const hasBoss = this.game.isBossPhase && this.game.boss && !this.game.boss.isDead;
         const canHeal = this.game.stats.hasSkill('burst') && this.game.stats.lives < (this.game.stats.hasSkill('life') ? 5 : 4);

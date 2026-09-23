@@ -67,6 +67,7 @@ export class InputHandler {
                 this.game.stats.recordStroke(false);
                 this.game.audio.playErrorSound();
                 this.game.stats.updateHUD(); // Ensure combo break is visible
+                if (this.game.onRaceMistake) this.game.onRaceMistake(); // AT-F9: stray key
             }
         }
     }
@@ -87,6 +88,7 @@ export class InputHandler {
             this.game.combatSystem.spawnHitSpark(sparkX, sparkY, word.elementColors);
 
             if (word.untyped.length === 0) {
+                if (this.game.onRaceTyped) this.game.onRaceTyped(); // AT-F9: claim instant
                 this.game.achievements.onEvent('word_typed');
                 this.game.waveWordsTyped++;
                 // Word fully typed — trigger death animation
@@ -168,6 +170,7 @@ export class InputHandler {
             this.game.stats.recordStroke(false);
             this.game.audio.playErrorSound();
             if (word) word.mistakesMade++;
+            if (this.game.onRaceMistake) this.game.onRaceMistake(); // AT-F9: mistake forfeits
 
             // Armored words reset on typo!
             if (word.variant === 'armored' && word.typed.length > 0) {
