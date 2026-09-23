@@ -9,6 +9,8 @@ import { MenuUI } from './ui/MenuUI.js';
 import { Leaderboard } from '../backend/Leaderboard.js';
 import { Duel } from '../backend/Duel.js';
 import { supabase } from '../backend/supabaseClient.js';
+import { dbHealth } from '../backend/dbHealth.js';
+import { syncQueue } from '../backend/syncQueue.js';
 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -50,6 +52,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const menuUI = new MenuUI(game, document.getElementById('start-menu'));
 
   menuUI.init();
+
+  // ── Cloud sync wiring ──────────────────────────────────────────────────────
+  // Before 2026-09-23 every Supabase failure ended as a console.warn, so a
+  // paused project looked exactly like "my progress vanished". Now:
+  //   dbHealth  → probes the project and shows an on-screen status chip
+  //   syncQueue → replays writes that failed while it was unreachable
+  syncQueue.onChange = (items) => dbHealth.setPendingCount(items.length);
+  dbHealth.setPendingCount(syncQueue.count());
+  dbHealth.onChange((status) => {
+    if (status === 'online') syncQueue.flush();
+  });
+  dbHealth.startWatch();
+  syncQueue.start();
 
   // UI Elements
   const hud = document.getElementById('hud');
@@ -729,21 +744,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
-      // Clear localStorage keys
-      localStorage.removeItem('typerMaster_xp');
-      localStorage.removeItem('typerMaster_skills');
-      localStorage.removeItem('typerMaster_wandColor');
-      localStorage.removeItem('typerMaster_mageClass');
-      localStorage.removeItem('typerMaster_mageName');
-      localStorage.removeItem('typerMaster_achievements');
-      localStorage.removeItem('typerMaster_selectedCharacter');
-      localStorage.removeItem('typerMaster_equippedTitle');
-      localStorage.removeItem('typerMaster_score');
-      localStorage.removeItem('typerMaster_wpm');
-      localStorage.removeItem('typerMaster_wpmHistory');
+      // Every key that belongs to THIS mage, including the ones the old
+      // hand-written list missed (best streak, daily reward, level) plus the
+      // offline outbox and the per-browser Hall of Fame cache. Without this the
+      // next account on this browser inherited the previous mage's identity.
+      game.stats.clearLocalProgression();
 
       try {
-        const { supabase } = await import('../backend/supabaseClient.js');
         if (supabase) {
           await supabase.auth.signOut();
         }

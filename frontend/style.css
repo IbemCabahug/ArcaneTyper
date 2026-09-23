@@ -2506,4 +2506,68 @@ h2 {
     font-size: 1.15rem;
   }
 }
+
+/* ============================================================================
+   Recent Runs panel (Mage Profile) — added 2026-09-23 with the account
+   persistence fix. Rows are rendered by ProfileUI.drawRecentRuns() from
+   Stats.getRunHistory() (cloud run_history, local-buffer fallback).
+   ========================================================================== */
+.recent-run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recent-run-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "mode score date"
+    "mode meta  date";
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid rgba(213, 0, 249, 0.5);
+  font-family: monospace;
+  font-size: 0.7rem;
+  text-align: left;
+}
+
+.recent-run-mode {
+  grid-area: mode;
+  color: #d500f9;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.recent-run-score {
+  grid-area: score;
+  color: #ffd700;
+  font-weight: bold;
+  font-size: 0.8rem;
+}
+
+.recent-run-meta {
+  grid-area: meta;
+  color: var(--text-muted);
+}
+
+.recent-run-date {
+  grid-area: date;
+  color: #b892b0;
+  opacity: 0.7;
+}
+
+.recent-run-empty {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-style: italic;
+  padding: 4px 0;
+}
+
 

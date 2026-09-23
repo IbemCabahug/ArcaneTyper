@@ -1,4 +1,61 @@
 import { supabase } from './supabaseClient.js';
+import { dbHealth, isMissingColumnError, isNetworkError, describeError } from './dbHealth.js';
+import { syncQueue } from './syncQueue.js';
+
+/** localStorage keys that belong to ONE mage account (purged on logout). */
+const PROGRESSION_KEYS = [
+    'typerMaster_xp',
+    'typerMaster_skills',
+    'typerMaster_wandColor',
+    'typerMaster_mageClass',
+    'typerMaster_mageName',
+    'typerMaster_achievements',
+    'typerMaster_equippedTitle',
+    'typerMaster_selectedCharacter',
+    'typerMaster_score',
+    'typerMaster_wpm',
+    'typerMaster_bestStreak',
+    'typerMaster_wpmHistory',
+    'typerMaster_runHistory',
+    'typerMaster_dailyCompleted',
+    'typerMaster_level',
+    'typerMaster_leaderboardSchema_v1'
+];
+
+/**
+ * `profiles` columns, split by whether the live database actually has them.
+ *
+ * Verified 2026-09-23: only `core` existed. The extended columns are added by
+ * supabase/migrations/20260923_arcanetyper_schema_repair.sql, and until that
+ * runs a full-payload upsert is rejected wholesale (HTTP 400 / PGRST204) —
+ * which is why NO cloud progress was ever saved. `_upsertProfile` therefore
+ * retries with `core` only, so XP and level sync even on an unmigrated DB.
+ * `null` = not discovered yet, `true` = extended columns present, `false` = core only.
+ */
+const PROFILE_CORE_COLUMNS = ['id', 'username', 'total_xp', 'player_level'];
+let _profileExtendedSupported = null;
+
+function readStoredJSON(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (raw === null || raw === '' || raw === 'undefined') return fallback;
+        const parsed = JSON.parse(raw);
+        return parsed === null || parsed === undefined ? fallback : parsed;
+    } catch (e) {
+        console.warn(`[Stats] Could not parse ${key}, using the fallback.`, e);
+        return fallback;
+    }
+}
+
+/** AT-L10 diagnostics: name the failing column/constraint/policy, not just "error". */
+function logProfileError(error) {
+    console.warn("[Stats] Supabase profiles sync error:", {
+        message: error && error.message,
+        details: error && error.details,
+        hint: error && error.hint,
+        code: error && error.code
+    });
+}
 
 export class Stats {
     constructor(achievements) {
@@ -26,8 +83,16 @@ export class Stats {
         // --- RPG Elements ---
         this._totalXP = parseInt(localStorage.getItem('typerMaster_xp') || '0', 10);
         this._playerLevel = Math.floor(Math.sqrt(this._totalXP / 500)) + 1;
-        this.unlockedSkills = JSON.parse(localStorage.getItem('typerMaster_skills') || '[]');
+        this.unlockedSkills = readStoredJSON('typerMaster_skills', []);
+        if (!Array.isArray(this.unlockedSkills)) this.unlockedSkills = [];
         this.wandColor = localStorage.getItem('typerMaster_wandColor') || '#ff00ff';
+        // `mageClass` used to never be read back, so saveProgression persisted
+        // the literal string "undefined" and every class bonus (Pyromancer
+        // score, Cryomancer speed, Chronomancer mana refund) vanished on reload.
+        const storedClass = localStorage.getItem('typerMaster_mageClass');
+        this.mageClass = (storedClass && storedClass !== 'undefined' && storedClass !== 'null')
+            ? storedClass
+            : 'Novice';
         this.mageName = localStorage.getItem('typerMaster_mageName') || null;
         let savedChar = localStorage.getItem('typerMaster_selectedCharacter');
         if (savedChar === 'gojo' || savedChar === 'sukuna') {
@@ -47,6 +112,12 @@ export class Stats {
         }
 
         this.bindDOM();
+
+        // Offline outbox replays (backend/syncQueue.js).
+        // The profile handler rebuilds its payload from LIVE state, so replaying
+        // a queued snapshot can never roll back newer XP.
+        syncQueue.register('profile', () => this._syncProfileNow());
+        syncQueue.register('run', (payload) => this._insertRun(payload));
     }
 
     isAdmin() {
@@ -400,6 +471,22 @@ export class Stats {
         this.saveProgression();
     }
 
+    /**
+     * Sets the display name from an AUTHORITATIVE source (auth metadata, the
+     * cloud profile, or the email prefix) and persists it.
+     *
+     * Before 2026-09-23 the name was only ever read from localStorage, so a
+     * second account on the same browser kept showing the first mage's name —
+     * which is what made the dashboard read "Anonymous Mage" for everyone.
+     */
+    setMageName(name) {
+        const clean = (name || '').trim();
+        if (!clean) return false;
+        this.mageName = clean;
+        localStorage.setItem('typerMaster_mageName', clean);
+        return true;
+    }
+
 
 
     getXPProgress() {
@@ -410,69 +497,232 @@ export class Stats {
         return Math.min(100, Math.max(0, (xpInCurrentLevel / xpRequired) * 100));
     }
 
+    /**
+     * Records a finished run locally (always) and in `run_history` (when a
+     * session exists). The local copy feeds the profile's Recent Runs panel and
+     * is the fallback when the cloud copy is unavailable or RLS-blocked —
+     * `run_history` was completely empty on 2026-09-23, which is why the account
+     * had no score history at all.
+     */
     async logRunToSupabase(mode, wpm, accuracy, score) {
-        if (!supabase) return;
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session || !session.user) return;
+        this.recordRun({ mode, wpm, accuracy, score });
 
-            const { error } = await supabase.from('run_history').insert([{
-                user_id: session.user.id,
-                mode: mode,
-                wpm: wpm,
-                accuracy: accuracy,
-                score: score
-            }]);
+        if (!supabase) return { ok: false, skipped: true };
 
-            if (error) {
-                console.warn("[Stats] Error saving run to run_history:", error);
-            } else {
-                console.log(`[Stats] Saved run to run_history (${mode}, wpm:${wpm})`);
-            }
-        } catch (e) {
-            console.warn("[Stats] Exception logging run to Supabase:", e);
-        }
+        const session = await this._getSession();
+        if (!session || !session.user) return { ok: false, skipped: true };
+
+        return this._insertRun({
+            user_id: session.user.id,
+            mode: mode,
+            wpm: wpm,
+            accuracy: accuracy,
+            score: score
+        });
     }
 
-    saveProgression() {
+    /** Single run_history insert. Also the outbox replay handler for `run`. */
+    async _insertRun(payload) {
+        if (!supabase) return { ok: false, retryable: false };
+
+        const { error } = await supabase.from('run_history').insert([payload]);
+
+        if (!error) {
+            dbHealth.reportSuccess();
+            console.log(`[Stats] Saved run to run_history (${payload.mode}, wpm:${payload.wpm})`);
+            return { ok: true };
+        }
+
+        dbHealth.reportFailure(error, 'run_history insert');
+        console.warn("[Stats] Error saving run to run_history:", describeError(error));
+        // RLS (42501) / constraint errors carry a SQLSTATE code: replaying them
+        // is pointless. Anything without one is transport-level → queue it.
+        return { ok: false, retryable: isNetworkError(error) || !error.code };
+    }
+
+    /** Appends to the local ring buffer (last 20 runs) used by the profile UI. */
+    recordRun(run) {
+        if (!run) return null;
+        const entry = {
+            mode: run.mode || 'arena',
+            wpm: Math.round(run.wpm || 0),
+            accuracy: Math.round(run.accuracy || 0),
+            score: Math.round(run.score || 0),
+            created_at: run.created_at || new Date().toISOString()
+        };
+
+        let history = readStoredJSON('typerMaster_runHistory', []);
+        if (!Array.isArray(history)) history = [];
+        history.push(entry);
+        if (history.length > 20) history = history.slice(-20);
+        try {
+            localStorage.setItem('typerMaster_runHistory', JSON.stringify(history));
+        } catch (e) {
+            console.warn('[Stats] Could not persist the local run history:', e);
+        }
+        return entry;
+    }
+
+    /**
+     * Most recent runs, newest first. Cloud rows when available, otherwise the
+     * local buffer (so guests and a paused database both still show a history).
+     */
+    async getRunHistory(limit = 5) {
+        const stored = readStoredJSON('typerMaster_runHistory', []);
+        const local = Array.isArray(stored) ? stored.slice(-limit).reverse() : [];
+
+        if (!supabase) return local;
+
+        const session = await this._getSession();
+        if (!session || !session.user) return local;
+
+        const { data, error } = await supabase
+            .from('run_history')
+            .select('mode, wpm, accuracy, score, created_at')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) {
+            dbHealth.reportFailure(error, 'run_history select');
+            console.warn('[Stats] run_history read failed, showing local runs:', describeError(error));
+            return local;
+        }
+
+        dbHealth.reportSuccess();
+        const remote = data || [];
+        return remote.length > 0 ? remote : local;
+    }
+
+    /**
+     * Clears every localStorage key that belongs to the signed-in mage.
+     * Used on logout: without this, the next account on the same browser
+     * inherited the previous mage's name (and its leaderboard identity),
+     * best streak and daily-reward flag.
+     */
+    clearLocalProgression() {
+        PROGRESSION_KEYS.forEach(key => {
+            try {
+                localStorage.removeItem(key);
+            } catch (e) { /* ignore */ }
+        });
+        // The outbox holds writes for the account that is leaving, and the local
+        // Hall of Fame cache is a per-browser artifact — neither should leak.
+        syncQueue.clear();
+        try {
+            localStorage.removeItem('typermaster_hall_of_fame_v2');
+        } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * Persists progression to localStorage (synchronously, so nothing is ever
+     * lost) and then to Supabase (awaited, with a degraded payload + outbox).
+     *
+     * Callers may ignore the returned promise; every failure is handled inside.
+     * @returns {Promise<{ok:boolean, skipped?:boolean, queued?:boolean}>}
+     */
+    async saveProgression() {
+        this._writeLocalProgression();
+        return this._syncProfileNow();
+    }
+
+    /** localStorage half of saveProgression (synchronous — never loses a write). */
+    _writeLocalProgression() {
         localStorage.setItem('typerMaster_xp', this.totalXP.toString());
         localStorage.setItem('typerMaster_skills', JSON.stringify(this.unlockedSkills));
         localStorage.setItem('typerMaster_wandColor', this.wandColor);
-        localStorage.setItem('typerMaster_mageClass', this.mageClass);
+        localStorage.setItem('typerMaster_mageClass', this.mageClass || 'Novice');
         if (this.mageName) {
             localStorage.setItem('typerMaster_mageName', this.mageName);
         }
+    }
 
-        if (supabase) {
-            supabase.auth.getSession().then(({ data: { session } }) => {
-                if (session && session.user) {
-                    supabase.from('profiles').upsert([{
-                        id: session.user.id,
-                        total_xp: this.totalXP,
-                        player_level: this.playerLevel,
-                        username: this.mageName || session.user.email.split('@')[0],
-                        unlocked_skills: this.unlockedSkills,
-                        wand_color: this.wandColor,
-                        mage_class: this.mageClass,
-                        best_score: this.bestScore,
-                        best_wpm: this.bestWPM
-                    }], { onConflict: 'id' }).then(({ error }) => {
-                        if (error) {
-                            // AT-L10 diagnostics: a bare console.warn of the error
-                            // object hid the cause of the observed HTTP 400. Log
-                            // every PostgREST field so the next occurrence names
-                            // the failing column/constraint/policy directly.
-                            console.warn("[Stats] Supabase profiles sync error:", {
-                                message: error.message,
-                                details: error.details,
-                                hint: error.hint,
-                                code: error.code
-                            });
-                        }
-                    });
-                }
-            });
+    /**
+     * Pushes the current profile to Supabase. No-op without an authenticated
+     * session (guests never reach the network — see docs/backend-and-data.md §3).
+     */
+    async _syncProfileNow() {
+        if (!supabase) return { ok: true, skipped: true };
+
+        const session = await this._getSession();
+        if (!session || !session.user) return { ok: true, skipped: true };
+
+        const payload = this._buildProfilePayload(session.user);
+        const res = await this._upsertProfile(payload);
+
+        if (!res.ok && res.retryable) {
+            // Deduped: profile state is a full snapshot, only the latest matters.
+            syncQueue.enqueue('profile', { at: Date.now() }, 'self');
+            return { ok: false, queued: true };
         }
+        return res;
+    }
+
+    async _getSession() {
+        try {
+            const { data } = await supabase.auth.getSession();
+            return data && data.session ? data.session : null;
+        } catch (e) {
+            console.warn('[Stats] Could not read the auth session:', describeError(e));
+            return null;
+        }
+    }
+
+    _buildProfilePayload(user) {
+        return {
+            id: user.id,
+            username: this.mageName || (user.email ? user.email.split('@')[0] : 'Anonymous Mage'),
+            total_xp: this.totalXP,
+            player_level: this.playerLevel,
+            unlocked_skills: this.unlockedSkills,
+            wand_color: this.wandColor,
+            mage_class: this.mageClass || 'Novice',
+            best_score: this.bestScore,
+            best_wpm: this.bestWPM
+        };
+    }
+
+    /**
+     * Upserts one profile row, degrading to the columns the live schema has.
+     * @returns {Promise<{ok:boolean, retryable?:boolean}>}
+     */
+    async _upsertProfile(payload) {
+        if (!supabase) return { ok: false, retryable: false };
+
+        const attempt = (body) => supabase.from('profiles').upsert([body], { onConflict: 'id' });
+
+        const includeExtended = _profileExtendedSupported !== false;
+        const body = includeExtended
+            ? payload
+            : Object.fromEntries(PROFILE_CORE_COLUMNS
+                .filter(col => col in payload)
+                .map(col => [col, payload[col]]));
+
+        const { error } = await attempt(body);
+
+        if (!error) {
+            _profileExtendedSupported = includeExtended;
+            dbHealth.reportSuccess();
+            return { ok: true };
+        }
+
+        if (isMissingColumnError(error)) {
+            dbHealth.noteSchema('profiles upsert', describeError(error));
+            if (includeExtended) {
+                _profileExtendedSupported = false;
+                console.warn('[Stats] profiles is missing progression columns — retrying with ' +
+                    PROFILE_CORE_COLUMNS.join(', ') + '. ' +
+                    'Apply supabase/migrations/20260923_arcanetyper_schema_repair.sql');
+                return this._upsertProfile(payload);
+            }
+            logProfileError(error);
+            return { ok: false, retryable: false };
+        }
+
+        dbHealth.reportFailure(error, 'profiles upsert');
+        logProfileError(error);
+        // No SQLSTATE code means the request never reached Postgres → replay it.
+        return { ok: false, retryable: isNetworkError(error) || !error.code };
     }
 
     loadFromSupabase(profile) {
@@ -489,8 +739,11 @@ export class Stats {
         if (profile.best_score && profile.best_score > this.bestScore) this.bestScore = profile.best_score;
         if (profile.best_wpm && profile.best_wpm > this.bestWPM) this.bestWPM = profile.best_wpm;
 
-        // Save these backend values down to localStorage so guest sessions don't revert
-        this.saveProgression();
+        // Mirror the cloud values into localStorage so an offline load or a
+        // guest session does not revert them. The network write happens in the
+        // caller AFTER the display name has been resolved (AuthUI), so we never
+        // upsert a half-applied identity.
+        this._writeLocalProgression();
 
         // Calculate dynamic properties
         this.lives = this.hasSkill('life') ? 5 : 4;

@@ -11,6 +11,8 @@ export class ProfileUI {
         this.levelEl = document.getElementById('menu-player-level');
         this.xpBarEl = document.getElementById('menu-xp-bar');
         this.wandGlows = document.querySelectorAll('.mage-wand-glow-img');
+        this.menuMageName = document.getElementById('menu-mage-name');
+
 
         // Character selection cards
         this.skinCards = document.querySelectorAll('.skin-card');
@@ -84,6 +86,14 @@ export class ProfileUI {
         if (this.menuBestWpm) this.menuBestWpm.innerText = this.game.stats.bestWPM;
         if (this.menuBestStreak) this.menuBestStreak.innerText = this.game.stats.bestStreak || 0;
 
+        // The dashboard mage name (<h2 id="menu-mage-name">) shipped with the
+        // hard-coded text "Anonymous Mage" in index.html and was NEVER written by
+        // any script, so every account displayed it. Show the real identity.
+        if (this.menuMageName) {
+            this.menuMageName.innerText = this.game.stats.mageName || 'Anonymous Mage';
+        }
+
+
         // Update Avatar Wand Color
         this.wandGlows.forEach(glow => {
             glow.style.backgroundColor = this.game.stats.wandColor;
@@ -93,6 +103,8 @@ export class ProfileUI {
         this.updateProgressionUI();
         this.updateSkinCardsUI();
         this.drawHistoryChart();
+        this.drawRecentRuns();
+
     }
 
     // Renders the "WPM History (Last 10 Runs)" panel (AT-M2). Data comes from
@@ -166,4 +178,39 @@ export class ProfileUI {
         ctx.textBaseline = 'bottom';
         ctx.fillText(`${history[history.length - 1]}`, Math.min(lastX, W - 4), lastY - 6);
     }
+
+    // Renders the "Recent Runs" list (cloud `run_history`, local-buffer fallback).
+    // Added 2026-09-23: the account had NO score history at all — the table was
+    // empty and nothing in the codebase ever read it. Stats.getRunHistory()
+    // merges the cloud rows with a local ring buffer so guests and a paused
+    // database still show a history.
+    async drawRecentRuns() {
+        const list = document.getElementById('profile-recent-runs');
+        if (!list || !this.game.stats || !this.game.stats.getRunHistory) return;
+
+        const render = (runs) => {
+            if (!runs || runs.length === 0) {
+                list.innerHTML = '<li class="recent-run-empty">No runs recorded yet. Forge your first legend!</li>';
+                return;
+            }
+            list.innerHTML = runs.map(run => {
+                const when = run.created_at ? new Date(run.created_at).toLocaleDateString() : '';
+                const mode = String(run.mode || 'arena').toUpperCase();
+                return `<li class="recent-run-row">
+                    <span class="recent-run-mode">${mode}</span>
+                    <span class="recent-run-score">${run.score ?? 0}</span>
+                    <span class="recent-run-meta">${run.wpm ?? 0} WPM · ${run.accuracy ?? 0}%</span>
+                    <span class="recent-run-date">${when}</span>
+                </li>`;
+            }).join('');
+        };
+
+        try {
+            render(await this.game.stats.getRunHistory(5));
+        } catch (e) {
+            console.warn('[ProfileUI] Could not load the recent runs:', e);
+            render([]);
+        }
+    }
+
 }

@@ -988,6 +988,16 @@
               <canvas id="profile-history-chart" width="350" height="110"
                 style="display: block; margin: 0 auto;"></canvas>
             </div>
+            <!-- Recent Runs — cloud run_history with a local-buffer fallback -->
+            <div
+              style="text-align: center; padding: 8px 10px; border: 1px solid rgba(213, 0, 249, 0.3); border-radius: 8px; background: rgba(0, 0, 0, 0.4);">
+              <p style="color: var(--text-muted); font-size: 0.75rem; letter-spacing: 1px; margin-bottom: 6px;">Recent Runs (Last
+                5)</p>
+              <ul id="profile-recent-runs" class="recent-run-list">
+                <li class="recent-run-empty">Loading your history...</li>
+              </ul>
+            </div>
+
 
             <div
               style="text-align: center; padding: 10px; border: 1px dashed var(--text-muted); border-radius: 8px; background: rgba(255, 255, 255, 0.05);">

@@ -273,15 +273,24 @@ export class AuthUI {
 
                 this.game.stats.isAuthenticated = true;
 
-                if (data.user && data.user.user_metadata && data.user.user_metadata.mage_title) {
-                    this.game.stats.mageName = data.user.user_metadata.mage_title;
-                }
+                // Cloud progress first, then the authoritative display name on
+                // top: loadFromSupabase() writes profile.username, which is
+                // itself derived from whatever name this account last used.
+                const { data: profile, error: profileError } = await supabase
+                    .from('profiles').select('*').eq('id', data.user.id).single();
 
-                // Fetch full profile and load it into Stats immediately after logging in
-                const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
                 if (profile) {
                     this.game.stats.loadFromSupabase(profile);
+                } else if (profileError && profileError.code !== 'PGRST116') {
+                    console.warn('[AuthUI] Could not read the cloud profile:', profileError.message);
                 }
+
+                // Identity comes from THIS session only — never from
+                // localStorage, which may still hold the previous mage's name.
+                this._applyIdentity(data.session || { user: data.user }, profile && profile.username);
+
+                // Persist immediately (and create the row when it is missing).
+                await this.game.stats.saveProgression();
 
             } else {
                 const { data, error } = await supabase.auth.signUp({
@@ -313,14 +322,14 @@ export class AuthUI {
                     // Real account created - authenticated, non-guest.
                     this.resetRateLimitState();
                     this.game.stats.isAuthenticated = true;
-                    this.game.stats.mageName = displayName;
+                    this._applyIdentity(data.session || { user: data.user }, null);
                 }
             }
         } else {
             this.game.stats.mageName = this.isLoginMode ? username : displayName;
         }
 
-        this.game.stats.saveProgression();
+        await this.game.stats.saveProgression();
 
         if (this.ccErrorMsg) this.ccErrorMsg.innerText = '';
         this.ccMenu.classList.add('hidden');
@@ -363,18 +372,24 @@ export class AuthUI {
         if (session) {
             this.game.stats.isAuthenticated = true;
 
-            if (session.user.user_metadata && session.user.user_metadata.mage_title) {
-                this.game.stats.mageName = session.user.user_metadata.mage_title;
-                this.game.stats.saveProgression();
-            } else if (!this.game.stats.mageName && session.user.email) {
-                this.game.stats.mageName = session.user.email.split('@')[0];
-                this.game.stats.saveProgression();
-            }
+            // Cloud progress first, then the authoritative name on top of it.
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles').select('*').eq('id', session.user.id).single();
 
-            const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
             if (profile) {
                 this.game.stats.loadFromSupabase(profile);
+            } else if (profileError && profileError.code !== 'PGRST116') {
+                console.warn('[AuthUI] Could not read the cloud profile:', profileError.message);
             }
+
+            // Always re-derive the display name from the session. The previous
+            // code kept whatever localStorage held, so a second account on the
+            // same browser inherited the first mage's name (and the dashboard
+            // showed "Anonymous Mage" for everyone).
+            this._applyIdentity(session, profile && profile.username);
+
+            // Also repairs/creates the cloud row for accounts that never had one.
+            await this.game.stats.saveProgression();
 
             if (this.updateProgressionUICallback) {
                 this.updateProgressionUICallback();
@@ -385,6 +400,32 @@ export class AuthUI {
         } else {
             this.showCharacterCreation();
         }
+    }
+
+    /**
+     * Resolves the mage display name from THIS session only.
+     * Priority: auth metadata `mage_title` → the cloud profile's username →
+     * the email prefix. localStorage is deliberately not a source.
+     * @param {{user?: object}} session
+     * @param {string|null} cloudUsername profiles.username for this user
+     */
+    _applyIdentity(session, cloudUsername = null) {
+        const user = session && session.user;
+        if (!user) return false;
+
+        const meta = user.user_metadata || {};
+        const emailName = user.email ? user.email.split('@')[0] : '';
+        const name = String(meta.mage_title || '').trim()
+            || String(cloudUsername || '').trim()
+            || emailName
+            || 'Anonymous Mage';
+
+        const applied = this.game.stats.setMageName
+            ? this.game.stats.setMageName(name)
+            : (this.game.stats.mageName = name, true);
+
+        console.info(`[AuthUI] Session identity resolved: ${this.game.stats.mageName}`);
+        return applied;
     }
 
     startLockoutCountdown() {
