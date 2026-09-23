@@ -806,9 +806,9 @@ export class Game {
             );
             const oppStats = {
                 ...this.stats,
-                // CharacterRenderer ignores characterId today (always the
-                // Archmage) — wiring it here means Forge skins light up for
-                // free once the renderer starts branching on it.
+                // AT-F16: the renderer branches on characterId now, so the
+                // opponent plays as whichever Forge skin their presence
+                // advertised (unknown/missing → the Archmage).
                 selectedCharacter: opp.character || this.stats.selectedCharacter,
                 combo: 0,
                 wandColor: opp.wand || this.stats.wandColor,

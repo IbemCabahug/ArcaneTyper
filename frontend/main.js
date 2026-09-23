@@ -13,6 +13,8 @@ import { dbHealth } from '../backend/dbHealth.js';
 import { syncQueue } from '../backend/syncQueue.js';
 import { DuelRace } from './game/DuelRace.js';
 import { mageClassInfo } from '../backend/MageClasses.js';
+import { characterInfo } from '../backend/Characters.js';
+import { CharacterRenderer } from './game/CharacterRenderer.js';
 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -874,6 +876,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       profileUI.updateMenuStats();
+      updateForgeUI();
 
       setMenuBehind(true);
 
@@ -881,6 +884,87 @@ document.addEventListener('DOMContentLoaded', async () => {
       setTimeout(() => authUI.profileMenu.classList.add('active'), 10);
     });
   }
+
+  // ── AT-F16: the Forge — characters bought with Arcane XP ──────────────────
+  // Prices, names and colours come from `Characters.js` (the same table
+  // CharacterRenderer switches on) and the previews are painted by the very call
+  // the arena makes, so a card can never sell art the game does not have.
+  const skinCards = Array.from(document.querySelectorAll('#character-skin-grid .skin-card'));
+
+  function paintSkinPreview(canvas, characterId) {
+    if (!canvas || !canvas.getContext) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    // The sprite spans ~67px around its anchor; this 0.8 scale and anchor keep the
+    // whole silhouette (halo included) inside the 160×72 strip at 0 combo.
+    ctx.translate(canvas.width / 2, 52);
+    ctx.scale(0.8, 0.8);
+    CharacterRenderer.draw(ctx, 0, 0, characterId, 0, { combo: 0, wandColor: '#ffd700', hasSkill: () => false }, 0);
+    ctx.restore();
+  }
+
+  function paintSkinPreviews() {
+    skinCards.forEach(card => paintSkinPreview(card.querySelector('.skin-preview'), card.dataset.char));
+  }
+
+  /**
+   * Repaints the Forge from the roster + Stats: owned → selectable, equipped →
+   * `.active`, unowned → its price read from the table (never from markup).
+   */
+  function updateForgeUI() {
+    skinCards.forEach(card => {
+      const id = card.dataset.char;
+      const info = characterInfo(id);
+      const owned = game.stats.isCharacterUnlocked(id);
+      const equipped = game.stats.selectedCharacter === id;
+      const status = card.querySelector('.skin-status');
+
+      card.classList.toggle('locked', !owned);
+      card.classList.toggle('active', equipped);
+      card.style.cursor = owned ? 'pointer' : 'not-allowed';
+      card.title = owned
+        ? (equipped ? `${info.title} — equipped` : `Equip ${info.title}`)
+        : `Coming Soon: ${info.blurb}`;
+
+      if (status) {
+        status.innerText = equipped ? 'Equipped'
+          : owned ? 'Unlocked'
+            : `FORGE ${info.unlockPrice.toLocaleString()} XP`;
+      }
+    });
+  }
+
+  skinCards.forEach(card => {
+    card.addEventListener('click', () => {
+      const id = card.dataset.char;
+      const info = characterInfo(id);
+
+      if (isGuest) {
+        MagicalToast.show(`The Forge needs a sealed Mage Card!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Log in or register to forge ${info.title}.</span>`);
+        return;
+      }
+
+      if (!game.stats.isCharacterUnlocked(id)) {
+        // The price is enforced inside Stats.purchaseCharacter (from the table),
+        // so a tampered card price buys nothing.
+        if (!game.stats.purchaseCharacter(id)) {
+          MagicalToast.show(`Not enough Arcane XP for ${info.title}.<br><span style='font-size: 0.8em; color: var(--text-muted);'>${info.unlockPrice.toLocaleString()} XP required.</span>`);
+          return;
+        }
+        game.audio.playExplosion();
+        MagicalToast.show(`${info.title} forged!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Click the card again to equip it.</span>`);
+        updateForgeUI();
+        return;
+      }
+
+      if (game.stats.setSelectedCharacter(id)) {
+        MagicalToast.show(`${info.title} equipped.`);
+        updateForgeUI();
+      }
+    });
+  });
 
   const closeProfileBtn = document.getElementById('close-profile-btn');
   if (closeProfileBtn) {

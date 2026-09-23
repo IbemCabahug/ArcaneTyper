@@ -1,18 +1,50 @@
 /**
  * CharacterRenderer — Procedural Sprite & Animation Engine
  *
- * Renders high-fidelity animated character sprites for ArcaneTyper:
+ * Renders high-fidelity animated character sprites for ArcaneTyper — one branch
+ * per `Characters.js` id:
  * - The Grand Chrono-Archmage (Wizard): Levitation hover, flowing hooded robes with gold embroidery,
  *   starlight celestial eyes, rotating astrological dial & runic pedestal, combo-scaling ascendant auras,
  *   and dynamic casting staff with player-attuned elemental gem.
+ * - The Voidweaver (AT-F16): astral gravitation — a singularity event horizon behind the cowl, a mote
+ *   stream that falls *inward* every frame, and a collapsing well under the hem.
+ * - The Bloodseeker (AT-F16): ancient blood runes — a rotating circle of code-drawn glyphs, a
+ *   netherblade held point-down, and droplets drawn *upward* against gravity into the ring.
+ *
+ * AT-F16: `draw` used to ignore `characterId` and paint the wizard unconditionally,
+ * so the Forge ids were decorative. It now switches on the same roster the Forge
+ * sells from, and an unknown id still degrades to the wizard.
+ *
+ * House rule: procedural vector work or RenderCache-baked bitmaps only — never
+ * raster assets (no <img>, no url(http...) anywhere in this file).
  */
+import { normalizeCharacter } from '../../backend/Characters.js';
+import { RenderCache } from '../RenderCache.js';
+
 export class CharacterRenderer {
+    /** Shared bake box for the AT-F16 bodies: 120×90px, anchored at (60, 62). */
+    static BODY_W = 120;
+    static BODY_H = 90;
+    static BODY_ANCHOR_X = 60;
+    static BODY_ANCHOR_Y = 62;
+
     /**
      * Main entry point for drawing the selected character.
+     * @param {string} characterId a Characters.js id (unknown → the wizard)
      */
     static draw(ctx, x, y, characterId, animProgress, stats, now = performance.now()) {
         ctx.save();
-        CharacterRenderer.drawWizard(ctx, x, y, animProgress, stats, now);
+        switch (normalizeCharacter(characterId)) {
+            case 'voidweaver':
+                CharacterRenderer.drawVoidweaver(ctx, x, y, animProgress, stats, now);
+                break;
+            case 'bloodseeker':
+                CharacterRenderer.drawBloodseeker(ctx, x, y, animProgress, stats, now);
+                break;
+            default:
+                CharacterRenderer.drawWizard(ctx, x, y, animProgress, stats, now);
+                break;
+        }
         ctx.restore();
     }
 
@@ -920,6 +952,524 @@ export class CharacterRenderer {
         }
 
         ctx.restore();
+    }
+
+    // =========================================================================
+    // 2. THE VOIDWEAVER (AT-F16) — ASTRAL GRAVITATION & SINGULARITY MAGIC
+    // =========================================================================
+    /**
+     * The card promises "Astral Gravitation & Singularity Magic", so the sprite
+     * *shows* gravity rather than asserting it: the mote stream shrinks its orbit
+     * every frame (falling inward, never outward), the well under the hem
+     * collapses, and the head is framed by a horizon drawn as absence — a black
+     * disc rimmed by light. Same anchor as the wizard: hem ≈ cy+19, cowl ≈ cy-42.
+     */
+    static drawVoidweaver(ctx, cx, cy, animProgress, stats, now) {
+        const hoverY = Math.sin(now / 380) * 3.0;      // slower, heavier drift
+        const vy = cy + hoverY;
+        const combo = stats ? (stats.combo || 0) : 0;
+        const lowQ = window.__atLowQuality;
+        const coreY = vy - 30;                          // the singularity sits behind the cowl
+        const coreR = combo >= 150 ? 13 : combo >= 50 ? 11 : 9;
+        const fast = combo >= 150 ? 1.8 : combo >= 50 ? 1.25 : 1;
+        const wellY = vy + 19;
+
+        ctx.save();
+
+        // --- Layer 0: the singularity (absence, rimmed by light) --------------
+        ctx.save();
+        ctx.translate(cx, coreY);
+        ctx.beginPath();
+        ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+        ctx.fillStyle = '#01010a';
+        ctx.fill();
+        const rings = combo >= 50 ? 2 : 1;
+        for (let r = 0; r < rings; r++) {
+            ctx.save();
+            ctx.rotate((r ? -1 : 1) * now * 0.0009 * fast);
+            ctx.beginPath();
+            ctx.arc(0, 0, coreR + 2 + r * 2.6, 0, Math.PI * 1.45);
+            ctx.strokeStyle = r ? 'rgba(124, 77, 255, 0.6)' : 'rgba(0, 229, 255, 0.9)';
+            ctx.lineWidth = r ? 1.0 : 1.4;
+            if (!lowQ && combo >= 50) {
+                ctx.shadowColor = r ? '#7c4dff' : '#00e5ff';
+                ctx.shadowBlur = 10;
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+        // Photon ring — the bright thin edge where light bends around the void.
+        ctx.beginPath();
+        ctx.arc(0, 0, coreR + 0.6, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+        ctx.restore();
+
+        // --- Layer 1: the well the caster stands in (rings collapsing inward) --
+        for (let w = 0; w < 3; w++) {
+            const phase = ((now * 0.00035 * fast) + w / 3) % 1;
+            const wr = 30 * (1 - phase);
+            ctx.beginPath();
+            ctx.ellipse(cx, wellY, wr, wr * 0.34, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(124, 77, 255, ${0.5 * phase + 0.08})`;
+            ctx.lineWidth = 1.1;
+            ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.ellipse(cx, wellY, 6, 2.2, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.35)';
+        ctx.fill();
+
+        // --- Layer 2: the body (baked once — see _bakeVoidBody) ---------------
+        const body = CharacterRenderer._bakeVoidBody();
+        ctx.drawImage(body, cx - CharacterRenderer.BODY_ANCHOR_X, vy - CharacterRenderer.BODY_ANCHOR_Y);
+
+        // --- Layer 3: the pull (motes fall *toward* the core) -----------------
+        const motes = combo >= 150 ? 7 : 5;
+        for (let m = 0; m < motes; m++) {
+            const p = ((now * 0.0011 * fast) + m / motes) % 1;   // 0 = far, 1 = core
+            const ang = (m * 2.399) + Math.sin(now / 900 + m) * 0.25;
+            const radius = 44 + (coreR - 44) * p;
+            ctx.globalAlpha = Math.sin(p * Math.PI) * 0.9;
+            ctx.fillStyle = m % 3 === 0 ? '#ffffff' : (m % 3 === 1 ? '#00e5ff' : '#7c4dff');
+            ctx.beginPath();
+            ctx.arc(cx + Math.cos(ang) * radius * 0.75, coreY + Math.sin(ang) * radius * 0.42,
+                1.4 - p * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // --- Layer 4: combo tiers ---------------------------------------------
+        if (combo >= 150) {
+            // Lensed halo: two offset crescents of bent light around the horizon.
+            ctx.save();
+            ctx.translate(cx, coreY);
+            for (let l = 0; l < 2; l++) {
+                ctx.beginPath();
+                ctx.arc(l ? 2.5 : -2.5, 0, coreR + 6.5, 0, Math.PI * 2);
+                ctx.strokeStyle = l ? 'rgba(0, 229, 255, 0.35)' : 'rgba(124, 77, 255, 0.35)';
+                ctx.lineWidth = 1.0;
+                ctx.stroke();
+            }
+            ctx.restore();
+            // Horizon pulse, collapsing outward from the caster's feet.
+            const pulse = (now % 700) / 700;
+            ctx.beginPath();
+            ctx.ellipse(cx, wellY, 10 + pulse * 34, (10 + pulse * 34) * 0.34, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(0, 229, 255, ${(1 - pulse) * 0.4})`;
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+        } else if (combo >= 50) {
+            ctx.beginPath();
+            ctx.arc(cx, coreY, coreR + 9, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(0, 229, 255, 0.22)';
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Bakes the Voidweaver's cloth body once. Everything expensive here
+     * (gradients, the baked hem glow, the starfield cowl) becomes a plain
+     * bitmap, so the live layers above stay cheap paths and never re-pay it.
+     */
+    static _bakeVoidBody() {
+        return RenderCache.bake('char_body_voidweaver', CharacterRenderer.BODY_W, CharacterRenderer.BODY_H, (ctx) => {
+            const x = CharacterRenderer.BODY_ANCHOR_X;
+            const y = CharacterRenderer.BODY_ANCHOR_Y;
+
+            // Cloth undershadow
+            ctx.fillStyle = '#02030a';
+            ctx.beginPath();
+            ctx.moveTo(x - 19, y + 19);
+            ctx.lineTo(x - 13, y - 15);
+            ctx.lineTo(x + 13, y - 15);
+            ctx.lineTo(x + 19, y + 19);
+            ctx.closePath();
+            ctx.fill();
+
+            // Void-touched robe (rear view)
+            const robe = ctx.createLinearGradient(x - 18, y - 22, x + 18, y + 20);
+            robe.addColorStop(0, '#0a0e2c');
+            robe.addColorStop(0.5, '#141c52');
+            robe.addColorStop(1, '#070a20');
+            ctx.fillStyle = robe;
+            ctx.strokeStyle = '#1d2a6b';
+            ctx.lineWidth = 1.3;
+            ctx.beginPath();
+            ctx.moveTo(x, y - 24);
+            ctx.lineTo(x - 17, y + 19);
+            ctx.quadraticCurveTo(x, y + 23, x + 17, y + 19);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Collapsing fold lines down the spine
+            ctx.strokeStyle = 'rgba(124, 77, 255, 0.5)';
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.moveTo(x - 5, y - 10);
+            ctx.lineTo(x - 7, y + 18);
+            ctx.moveTo(x + 5, y - 10);
+            ctx.lineTo(x + 7, y + 18);
+            ctx.stroke();
+
+            // Cyan data-piping along the hem (glow paid once, here)
+            ctx.save();
+            ctx.shadowColor = '#00e5ff';
+            ctx.shadowBlur = 7;
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(x - 16, y + 18);
+            ctx.quadraticCurveTo(x, y + 22, x + 16, y + 18);
+            ctx.stroke();
+            ctx.restore();
+
+            // Shoulder mantle
+            ctx.fillStyle = '#101542';
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.moveTo(x - 14, y - 14);
+            ctx.quadraticCurveTo(x, y - 8, x + 14, y - 14);
+            ctx.lineTo(x + 12, y - 21);
+            ctx.quadraticCurveTo(x, y - 17, x - 12, y - 21);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Orbital sash — the ring the caster is caught in.
+            ctx.strokeStyle = 'rgba(124, 77, 255, 0.8)';
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.ellipse(x, y - 4, 11, 3.2, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Cowl: bent-light rim around a starfield (absence, not a face).
+            ctx.fillStyle = '#050a24';
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.arc(x, y - 23, 9.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            for (const star of [[-4, -2], [2, 1], [4, -4], [-1, 3], [0, -6], [-5, 4]]) {
+                ctx.beginPath();
+                ctx.arc(x + star[0], y - 23 + star[1], 0.7, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            // Tall cowl peak
+            ctx.fillStyle = '#030614';
+            ctx.beginPath();
+            ctx.moveTo(x - 9.5, y - 22);
+            ctx.quadraticCurveTo(x, y - 19, x + 9.5, y - 22);
+            ctx.lineTo(x + 2, y - 42);
+            ctx.lineTo(x - 2, y - 42);
+            ctx.closePath();
+            ctx.fill();
+        });
+    }
+
+    // =========================================================================
+    // 3. THE BLOODSEEKER (AT-F16) — ANCIENT BLOOD RUNES & NETHERBLADE
+    // =========================================================================
+    /**
+     * The card promises "Ancient Blood Runes & Netherblade": the sprite carries a
+     * code-drawn rune circle (six stroke glyphs — no glyph fonts, no rasters) that
+     * wakes at 50 combo, the netherblade is held point-down in the baked body, and
+     * the droplets travel *upward* out of the hem into the ring — the same arcane
+     * pull the Voidweaver's motes obey, running the other way.
+     */
+    static drawBloodseeker(ctx, cx, cy, animProgress, stats, now) {
+        const hoverY = Math.sin(now / 520) * 2.0;      // heavier: the hem barely clears the ground
+        const by = cy + hoverY;
+        const combo = stats ? (stats.combo || 0) : 0;
+        const lowQ = window.__atLowQuality;
+        const runeR = combo >= 150 ? 26 : combo >= 50 ? 23 : 20;
+        const spin = now * 0.0005 * (combo >= 150 ? 2.0 : combo >= 50 ? 1.4 : 1);
+        const sigY = by + 19;
+
+        ctx.save();
+
+        // --- Layer 0: the rune circle (dashed ring + six riding glyphs) -------
+        ctx.save();
+        ctx.translate(cx, by - 12);
+        ctx.rotate(spin);
+        ctx.beginPath();
+        ctx.arc(0, 0, runeR, 0, Math.PI * 2);
+        ctx.strokeStyle = combo >= 50 ? 'rgba(255, 23, 68, 0.95)' : 'rgba(255, 23, 68, 0.6)';
+        ctx.lineWidth = 1.3;
+        ctx.setLineDash([4, 3]);
+        if (!lowQ && combo >= 50) {
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = 9;
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (let g = 0; g < 6; g++) {
+            const a = (g * Math.PI) / 3;
+            ctx.save();
+            ctx.translate(Math.cos(a) * runeR, Math.sin(a) * runeR);
+            ctx.rotate(a + Math.PI / 2);
+            CharacterRenderer._strokeBloodGlyph(ctx, g, combo >= 50);
+            ctx.restore();
+        }
+        ctx.restore();
+
+        // --- Layer 1: the oath sigil on the ground (the card's triangle) ------
+        ctx.beginPath();
+        ctx.moveTo(cx, sigY - 13);
+        ctx.lineTo(cx + 13, sigY + 9);
+        ctx.lineTo(cx - 13, sigY + 9);
+        ctx.closePath();
+        ctx.strokeStyle = 'rgba(255, 23, 68, 0.45)';
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(cx, sigY + 9, 13, 3.4, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // --- Layer 2: body + netherblade (baked once) -------------------------
+        const body = CharacterRenderer._bakeBloodBody();
+        ctx.drawImage(body, cx - CharacterRenderer.BODY_ANCHOR_X, by - CharacterRenderer.BODY_ANCHOR_Y);
+
+        // --- Layer 3: droplets drawn *upward* into the ring -------------------
+        const drops = combo >= 50 ? 7 : 5;
+        for (let d = 0; d < drops; d++) {
+            const p = ((now * 0.00105) + d / drops) % 1;
+            const dy = (by + 17) - p * 34;
+            const dx = cx - 9 + d * 3.6 + Math.sin(now / 260 + d) * 2.4;
+            ctx.globalAlpha = Math.max(0, 1 - p) * 0.85;
+            ctx.fillStyle = d % 3 === 0 ? '#ff8a95' : '#ff1744';
+            ctx.beginPath();
+            ctx.arc(dx, dy, 1.3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // --- Layer 4: combo tiers ---------------------------------------------
+        if (combo >= 150) {
+            // Blood moon: pale disc, crescent shadow, behind the cowl.
+            ctx.save();
+            ctx.translate(cx, by - 26);
+            ctx.beginPath();
+            ctx.arc(0, 0, 14, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 138, 149, 0.16)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255, 138, 149, 0.75)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(5, -3, 12, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(10, 2, 4, 0.5)';
+            ctx.fill();
+            ctx.restore();
+            // Oath pulse spreading across the sigil.
+            const pulse = (now % 640) / 640;
+            ctx.beginPath();
+            ctx.ellipse(cx, sigY + 9, 14 + pulse * 30, (14 + pulse * 30) * 0.28, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255, 23, 68, ${(1 - pulse) * 0.45})`;
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Bakes the Bloodseeker's body, hood and netherblade once. The blade's
+     * crimson edge glow is the expensive part and is spent here — per frame the
+     * blade is a single drawImage plus one thin moving highlight.
+     */
+    static _bakeBloodBody() {
+        return RenderCache.bake('char_body_bloodseeker', CharacterRenderer.BODY_W, CharacterRenderer.BODY_H, (ctx) => {
+            const x = CharacterRenderer.BODY_ANCHOR_X;
+            const y = CharacterRenderer.BODY_ANCHOR_Y;
+
+            // ---- Netherblade: held point-down at the right, behind the shoulder
+            ctx.save();
+            ctx.translate(x + 17, y + 2);
+            ctx.rotate(0.12);
+            ctx.beginPath();
+            ctx.moveTo(-2.2, -26);
+            ctx.lineTo(2.2, -26);
+            ctx.lineTo(1.1, 12);
+            ctx.lineTo(-1.1, 12);
+            ctx.closePath();
+            ctx.fillStyle = '#0b0206';
+            ctx.fill();
+            ctx.save();
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = 8;
+            ctx.strokeStyle = 'rgba(255, 23, 68, 0.9)';
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+            ctx.restore();
+            // Crossguard, hilt and pommel stone
+            ctx.fillStyle = '#2b0710';
+            ctx.fillRect(-5.4, -27.5, 10.8, 2.2);
+            ctx.fillStyle = '#12030a';
+            ctx.fillRect(-1.6, -33, 3.2, 6);
+            ctx.fillStyle = '#ff1744';
+            ctx.beginPath();
+            ctx.arc(0, -33.6, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // ---- Cloth undershadow
+            ctx.fillStyle = '#0a0205';
+            ctx.beginPath();
+            ctx.moveTo(x - 18, y + 20);
+            ctx.lineTo(x - 13, y - 14);
+            ctx.lineTo(x + 13, y - 14);
+            ctx.lineTo(x + 18, y + 20);
+            ctx.closePath();
+            ctx.fill();
+
+            // ---- Crimson-lined cloak (rear view), tattered hem
+            const cloak = ctx.createLinearGradient(x - 18, y - 22, x + 18, y + 20);
+            cloak.addColorStop(0, '#1a0409');
+            cloak.addColorStop(0.5, '#360912');
+            cloak.addColorStop(1, '#140306');
+            ctx.fillStyle = cloak;
+            ctx.strokeStyle = '#5c1420';
+            ctx.lineWidth = 1.3;
+            ctx.beginPath();
+            ctx.moveTo(x, y - 24);
+            ctx.lineTo(x - 16, y + 19);
+            ctx.lineTo(x - 9, y + 16);
+            ctx.lineTo(x - 4, y + 21);
+            ctx.lineTo(x, y + 17);
+            ctx.lineTo(x + 5, y + 21);
+            ctx.lineTo(x + 10, y + 16);
+            ctx.lineTo(x + 16, y + 19);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // ---- Severed-cord stitching: three glyphs bound down the spine
+            ctx.strokeStyle = 'rgba(255, 23, 68, 0.75)';
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.moveTo(x - 4, y - 4);
+            ctx.lineTo(x + 4, y - 4);
+            ctx.moveTo(x - 4, y + 1);
+            ctx.lineTo(x + 4, y + 1);
+            ctx.moveTo(x - 4, y + 6);
+            ctx.lineTo(x + 2, y + 6);
+            ctx.stroke();
+
+            // ---- Waist belt with two hanging vials
+            ctx.fillStyle = '#2b0710';
+            ctx.fillRect(x - 13, y + 5, 26, 3.2);
+            ctx.fillStyle = '#ff1744';
+            ctx.fillRect(x - 8, y + 8.2, 2.4, 5);
+            ctx.fillRect(x + 5, y + 8.2, 2.4, 4);
+            ctx.fillStyle = '#ff8a95';
+            ctx.fillRect(x - 7.6, y + 9.6, 1.6, 3.2);
+            ctx.fillRect(x + 5.4, y + 9.4, 1.6, 2.6);
+
+            // ---- Shoulder mantle (bone-trimmed pauldrons)
+            ctx.fillStyle = '#280711';
+            ctx.strokeStyle = '#ff1744';
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.moveTo(x - 14, y - 14);
+            ctx.quadraticCurveTo(x, y - 8, x + 14, y - 14);
+            ctx.lineTo(x + 12, y - 21);
+            ctx.quadraticCurveTo(x, y - 17, x - 12, y - 21);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // ---- Hood, deep and closed (nothing looks back)
+            ctx.fillStyle = '#12030a';
+            ctx.strokeStyle = '#ff1744';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.arc(x, y - 23, 9.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#3d0a12';
+            ctx.beginPath();
+            ctx.moveTo(x - 9.5, y - 22);
+            ctx.quadraticCurveTo(x, y - 19, x + 9.5, y - 22);
+            ctx.lineTo(x + 2, y - 42);
+            ctx.lineTo(x - 2, y - 42);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Fed edge highlight: the only bright line on the whole silhouette
+            ctx.strokeStyle = '#ff8a95';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(x - 8, y - 15);
+            ctx.quadraticCurveTo(x, y - 10, x + 8, y - 15);
+            ctx.stroke();
+        });
+    }
+
+    /**
+     * One of six runes, stroked inside a ~13px box centred on the origin. Drawn
+     * from line/curve primitives on purpose: glyph fonts would be a raster-ish
+     * dependency and would not scale-free or bake, and the house rule for
+     * character art is procedural only.
+     * @param {number} kind glyph index (wraps)
+     * @param {boolean} lit true at 50+ combo — brighter, thicker, ember-shifted
+     */
+    static _strokeBloodGlyph(ctx, kind, lit) {
+        ctx.strokeStyle = lit ? '#ff7a8a' : 'rgba(255, 23, 68, 0.85)';
+        ctx.lineWidth = lit ? 1.3 : 1.0;
+        ctx.beginPath();
+        switch (kind % 6) {
+            case 0: // stroke and two branches
+                ctx.moveTo(-2, -6);
+                ctx.lineTo(-2, 6);
+                ctx.moveTo(-2, -1);
+                ctx.lineTo(3, -4);
+                ctx.moveTo(-2, 3);
+                ctx.lineTo(2, 1);
+                break;
+            case 1: // the card's triangle, bound
+                ctx.moveTo(0, -6);
+                ctx.lineTo(4.5, 5);
+                ctx.lineTo(-4.5, 5);
+                ctx.closePath();
+                break;
+            case 2: // barred cross
+                ctx.moveTo(-4, -4);
+                ctx.lineTo(4, 4);
+                ctx.moveTo(4, -4);
+                ctx.lineTo(-4, 4);
+                ctx.moveTo(-5, 0);
+                ctx.lineTo(5, 0);
+                break;
+            case 3: // droplet
+                ctx.moveTo(0, -6);
+                ctx.quadraticCurveTo(4, 1, 0, 5);
+                ctx.quadraticCurveTo(-4, 1, 0, -6);
+                break;
+            case 4: // angled tick stack
+                ctx.moveTo(-4, -5);
+                ctx.lineTo(0, -1);
+                ctx.lineTo(0, 5);
+                ctx.moveTo(3, -5);
+                ctx.lineTo(3, 2);
+                break;
+            default: // hooked double stroke
+                ctx.moveTo(-3, -6);
+                ctx.quadraticCurveTo(-3, 0, 2, 0);
+                ctx.lineTo(2, 5);
+                ctx.moveTo(3, -6);
+                ctx.lineTo(3, 2);
+                break;
+        }
+        ctx.stroke();
     }
 
     /**

@@ -2056,16 +2056,37 @@ h2 {
   box-shadow: 0 0 15px rgba(0, 229, 255, 0.15);
 }
 
-/* Active specific borders & glows */
+/* Active specific borders & glows. AT-F16: one rule per character id, so the
+   equipped skin owns its border colour (the wizard's original rule, kept). */
 #skin-wizard.active {
   border-color: var(--accent-primary) !important;
   box-shadow: 0 0 12px rgba(41, 182, 246, 0.3);
 }
 
-/* Previews keyframe animations for high visual quality */
+#skin-voidweaver.active {
+  border-color: #00e5ff !important;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+#skin-bloodseeker.active {
+  border-color: #ff1744 !important;
+  box-shadow: 0 0 12px rgba(255, 23, 68, 0.3);
+}
+
+/* Previews keyframe animations for high visual quality. AT-F16: the previews are
+   <canvas> now (painted by CharacterRenderer), so the float applies to them too. */
 .skin-avatar-preview div,
-.skin-avatar-preview svg {
+.skin-avatar-preview svg,
+.skin-avatar-preview canvas {
   animation: floatPreview 3s ease-in-out infinite;
+}
+
+/* AT-F16: the renderer draws into a 160×72 backing store; the card stretches it
+   to the preview strip's height, so a preview stays crisp at any card width. */
+.skin-preview {
+  display: block;
+  width: 100%;
+  height: 38px;
 }
 
 @keyframes floatPreview {

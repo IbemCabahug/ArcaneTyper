@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient.js';
 import { dbHealth, isMissingColumnError, isNetworkError, describeError } from './dbHealth.js';
 import { syncQueue } from './syncQueue.js';
 import { DEFAULT_MAGE_CLASS, normalizeMageClass } from './MageClasses.js';
+import { DEFAULT_CHARACTER, isCharacter, normalizeCharacter, characterInfo } from './Characters.js';
 
 /** localStorage keys that belong to ONE mage account (purged on logout). */
 const PROGRESSION_KEYS = [
@@ -13,6 +14,7 @@ const PROGRESSION_KEYS = [
     'typerMaster_achievements',
     'typerMaster_equippedTitle',
     'typerMaster_selectedCharacter',
+    'typerMaster_unlockedCharacters', // AT-F16: Forge skins bought with XP (local, like the selection itself)
     'typerMaster_score',
     'typerMaster_wpm',
     'typerMaster_bestStreak',
@@ -101,12 +103,23 @@ export class Stats {
                 : DEFAULT_MAGE_CLASS
         );
         this.mageName = localStorage.getItem('typerMaster_mageName') || null;
-        let savedChar = localStorage.getItem('typerMaster_selectedCharacter');
-        if (savedChar === 'gojo' || savedChar === 'sukuna') {
-            savedChar = 'wizard';
-            localStorage.setItem('typerMaster_selectedCharacter', 'wizard');
+        // AT-F16: the selection is healed through the roster table itself, so a
+        // hand-edited value — or an id from a retired roster (the pre-AT-L8
+        // skins, named in the docs) — degrades to the default instead of
+        // lingering as an id nothing can render. The healed value is written back.
+        const storedChar = localStorage.getItem('typerMaster_selectedCharacter');
+        this.selectedCharacter = normalizeCharacter(storedChar);
+        if (storedChar && storedChar !== this.selectedCharacter) {
+            localStorage.setItem('typerMaster_selectedCharacter', this.selectedCharacter);
         }
-        this.selectedCharacter = savedChar || 'wizard';
+        // AT-F16: which Forge characters this account owns. Validated against the
+        // roster on load (a hand-edited/corrupt list degrades to the default,
+        // exactly like `mageClass`) — the default character is always owned.
+        this.unlockedCharacters = readStoredJSON('typerMaster_unlockedCharacters', [DEFAULT_CHARACTER])
+            .filter((id) => isCharacter(id));
+        if (!this.unlockedCharacters.includes(DEFAULT_CHARACTER)) {
+            this.unlockedCharacters.push(DEFAULT_CHARACTER);
+        }
 
         // True only after a successful authenticated (non-guest) login.
         // Gates the admin bypass - see AuthUI. Never inferred from mageName alone.
@@ -719,6 +732,7 @@ export class Stats {
     _writeLocalProgression() {
         localStorage.setItem('typerMaster_xp', this.totalXP.toString());
         localStorage.setItem('typerMaster_skills', JSON.stringify(this.unlockedSkills));
+        localStorage.setItem('typerMaster_unlockedCharacters', JSON.stringify(this.unlockedCharacters));
         localStorage.setItem('typerMaster_wandColor', this.wandColor);
         localStorage.setItem('typerMaster_mageClass', this.mageClass || 'Novice');
         if (this.mageName) {
@@ -840,15 +854,42 @@ export class Stats {
         this.combo = this.hasSkill('combo') ? 10 : 0;
     }
 
-    setSelectedCharacter(characterId) {
-        this.selectedCharacter = characterId;
-        localStorage.setItem('typerMaster_selectedCharacter', characterId);
-        this.saveProgression();
-    }
-
     isCharacterUnlocked(charId) {
         if (this.isAdmin()) return true;
-        if (charId === 'wizard') return true;
-        return false;
+        if (!isCharacter(charId)) return false;
+        if (charId === DEFAULT_CHARACTER) return true;
+        return this.unlockedCharacters.includes(charId);
+    }
+
+    /**
+     * AT-F16: buy a Forge character. The PRICE comes from `Characters.js` — never
+     * from the card — and the spend is the Workshop's own `spendXP` rule
+     * (deductive, one save for the XP, one for the roster), so a skin costs the
+     * same economy the talent nodes do.
+     * @returns {boolean} true only when this call actually bought it
+     */
+    purchaseCharacter(characterId) {
+        const id = normalizeCharacter(characterId);
+        if (this.isCharacterUnlocked(id)) return false;   // admin/default/owned
+        const { unlockPrice } = characterInfo(id);
+        if (unlockPrice > 0 && !this.spendXP(unlockPrice)) return false;
+        this.unlockedCharacters.push(id);
+        this.saveProgression();
+        return true;
+    }
+
+    /**
+     * Equip a character. Refuses anything this account does not own, so a
+     * stale/edited `selectedCharacter` can never dress a player in a locked
+     * skin (the Forge click path checks first; this is the belt-and-braces).
+     * @returns {boolean} true when the selection changed
+     */
+    setSelectedCharacter(characterId) {
+        const id = normalizeCharacter(characterId);
+        if (!this.isCharacterUnlocked(id) || id === this.selectedCharacter) return false;
+        this.selectedCharacter = id;
+        localStorage.setItem('typerMaster_selectedCharacter', id);
+        this.saveProgression();
+        return true;
     }
 }
