@@ -2385,8 +2385,9 @@ h2 {
     font-size: 1.05rem;
   }
 
-  /* Hide non-essential speed/acc on narrow mobile to keep 100% open drop corridor */
-  .stat-box.stat-wpm,
+  /* Hide the non-essential accuracy box on narrow mobile to keep the drop
+     corridor open. AT-F12: the live SPEED box is gone from the markup, so only
+     ACC is left to hide here. */
   .stat-box.stat-acc {
     display: none;
   }

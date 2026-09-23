@@ -1053,11 +1053,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         // AT-F9: difficulty/mode/dictionary pinned — both clients identical.
         game.start('normal', 'duel', 'classic');
         hud.classList.remove('hidden');
-        // Survival boxes with no arena meaning (HP lives in the score bar;
-        // live WPM leaves PvP per AT-F12 — also clears overlap room)
+        // Survival boxes with no arena meaning (HP lives in the score bar) —
+        // also clears overlap room. There is no SPEED box to hide any more:
+        // AT-F12 deleted it from the markup outright (Survival and PvP alike).
         document.querySelector('.stat-barriers')?.classList.add('hidden');
         document.getElementById('wave-stat')?.classList.add('hidden');
-        document.querySelector('.stat-wpm')?.classList.add('hidden');
 
         race = new DuelRace({
           game,
@@ -1127,10 +1127,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Hide game UI & revert dimensions; restore survival-only boxes
+    // (no SPEED box to restore — AT-F12 removed it from the markup)
     document.body.classList.remove('duel-dimension');
     hud.classList.add('hidden');
     document.querySelector('.stat-barriers')?.classList.remove('hidden');
-    document.querySelector('.stat-wpm')?.classList.remove('hidden');
     document.getElementById('wave-stat')?.classList.remove('hidden');
     document.getElementById('duel-scorebar')?.classList.add('hidden');
 

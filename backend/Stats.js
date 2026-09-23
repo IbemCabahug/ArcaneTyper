@@ -170,6 +170,10 @@ export class Stats {
         this.manaFillEl = document.getElementById('mana-bar-fill');
         this.manaTextEl = document.getElementById('mana-text');
         this.manaHintEl = document.getElementById('mana-hint');
+        // AT-F12: the live SPEED box is no longer in index.html, so this is null
+        // in the real DOM. The binding stays because updateHUD() prints only
+        // when the element exists — restoring the box must not require touching
+        // the achievement path (see updateHUD).
         this.wpmEl = document.getElementById('wpm-display');
         this.accEl = document.getElementById('acc-display');
         this.livesContainer = document.getElementById('lives-display');
@@ -325,7 +329,11 @@ export class Stats {
     updateHUD() {
         if (!this.scoreEl) return;
         this.scoreEl.innerText = this.score;
-        this.wpmEl.innerText = this.getWPM();
+        // AT-F12: compute, then print only if the box exists. getWPM() must run
+        // either way — it fires `wpm_update`, which unlocks speed_demon
+        // (Achievements.js), so guarding the CALL would silently break it.
+        const wpm = this.getWPM();
+        if (this.wpmEl) this.wpmEl.innerText = wpm;
         this.accEl.innerText = this.getAccuracy() + '%';
 
         if (this.comboEl) {
