@@ -11,6 +11,7 @@
     "verify:duel": "node scripts/verify-duel-presence-guards.mjs",
     "verify:vanish": "node scripts/verify-duel-take-vanish.mjs",
     "verify:perf": "node scripts/verify-arena-panel-perf.mjs",
-    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf"
+    "verify:roster": "node scripts/verify-class-roster.mjs",
+    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster"
   }
 }

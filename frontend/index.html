@@ -893,11 +893,12 @@
                 Discipline (Class)</p>
               <select id="mage-class-select"
                 style="background: transparent; border: none; color: #00e5ff; font-size: 1.2rem; margin-top: 5px; font-family: var(--font-family); outline: none; text-align: center; cursor: pointer; text-shadow: 0 0 10px rgba(0, 229, 255, 0.5); font-weight: bold;">
-                <option value="Novice" style="background: var(--bg-deep); text-shadow: none;">Novice</option>
-                <option value="Pyromancer" style="background: var(--bg-deep); text-shadow: none;">Pyromancer</option>
-                <option value="Cryomancer" style="background: var(--bg-deep); text-shadow: none;">Cryomancer</option>
-                <option value="Chronomancer" style="background: var(--bg-deep); text-shadow: none;">Chronomancer
-                </option>
+                <!-- AT-L8: options are BUILT from backend/MageClasses.js by
+                     ProfileUI.setupClassSelection (it clears this element first, so
+                     the four options that used to live here were dead markup).
+                     Never re-add the roster here — a second list in markup is
+                     exactly how the registration picker drifted to
+                     Scholar/Pyromancer/Oracle. -->
               </select>
             </div>
 
