@@ -226,7 +226,10 @@ const typesOf = (duel) => duel.sent.map((m) => m.type);
     );
     race._onTyped();
     check('a late keystroke cannot claim a stolen word', typesOf(duel).length === 1 && !race.myResolved);
-    await sleep(1450);   // window (600) + result beat (700) + slack
+    await sleep(2200);   // window (600) + result beat (700) + >=900 ms slack —
+                          // the SLACK is what absorbs a loaded box; the checks
+                          // below are unchanged (AT-F6 follow-up: a flake hit
+                          // the old 150 ms slack once under parallel load)
     check('a no-claim steal still advances the lane', race.idx === 2 && race.phase === 'word');
     check('a no-claim steal scores nothing', race.hp.A === 100 && race.hp.B === 100);
     race.stop();
@@ -237,7 +240,7 @@ const typesOf = (duel) => duel.sent.map((m) => m.type);
     const { duel, race } = buildRace(true);
     race._onRace({ raceType: 'claim', idx: 1, dur: 480, player_key: 'key-guest' });
     check('an incoming claim arms the arbitration window', race._windowTimer !== null);
-    await sleep(650);
+    await sleep(1000);   // window (600) + >=400 ms slack
     check('the challenger takes the word inside the window', race.hp.A === 100 - WORD.length && race.wins.B === 1,
         `hpA=${race.hp.A} winsB=${race.wins.B}`);
     check('the host arbitrates exactly once', typesOf(duel).filter((t) => t === 'result').length === 1);
@@ -272,7 +275,7 @@ const typesOf = (duel) => duel.sent.map((m) => m.type);
         JSON.stringify(taken));
     check('the host does not broadcast a claim to itself', !typesOf(duel).includes('claim'));
     check('our own claim arms the window', race._windowTimer !== null);
-    await sleep(650);
+    await sleep(1000);   // window (600) + >=400 ms slack
     check('an unanswered claim wins inside the window', race.hp.B === 100 - WORD.length && race.wins.A === 1,
         `hpB=${race.hp.B} winsA=${race.wins.A}`);
     await sleep(850);
