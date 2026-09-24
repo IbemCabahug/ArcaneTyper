@@ -158,6 +158,29 @@ export class Stats {
         return this.mageName.toLowerCase().trim() === 'admin';
     }
 
+    /**
+     * AT-M9: does this deployment still need a sealed Mage Card before the
+     * entitlement menus (Workshop, Arena lobby, Forge) open?
+     *
+     * `main.js` used to answer that with `let isGuest = false` — a flag that
+     * four guards read and NOTHING ever assigned, so all four were dead code: a
+     * guest could buy Workshop upgrades and forge AT-F16's 12,000 XP character
+     * out of local XP. This is the one predicate those gates call now, and it is
+     * DERIVED from `isAuthenticated` (kept by AuthUI on password login,
+     * registration and session restore, cleared on guest entry) instead of
+     * cached in main.js — a second copy of auth state is exactly what went stale.
+     *
+     * `hasBackend === false` deliberately lets everyone through: with no
+     * Supabase env there is no account to sign in as, so gating would lock a
+     * developer out of features that have no cloud side to protect.
+     *
+     * @param {boolean} hasBackend true when a Supabase client exists
+     * @returns {boolean} true when a guest must be prompted rather than let in
+     */
+    requiresMageCard(hasBackend) {
+        return !!hasBackend && !this.isAuthenticated;
+    }
+
     get totalXP() {
         if (this.isAdmin()) return 999999;
         return this._totalXP;

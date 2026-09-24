@@ -173,8 +173,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mobileInput = document.getElementById('mobile-input');
   const mobileNovaBtn = document.getElementById('mobile-nova-btn');
 
-  let pendingStats = null;
-  let pendingScribeStats = null;
+  // AT-M9: two `pendingStats` / `pendingScribeStats` locals used to sit here,
+  // declared and never read once. They are gone along with the dead `isGuest`
+  // flag further down — dead state in this file is not harmless: it is what a
+  // later reader trusts (that is how the gate below rotted).
 
   // Duel State
   let duel = null;
@@ -228,7 +230,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Global State
-  let isGuest = false;
+  // AT-M9: this used to be `let isGuest = false;` — read by four guards (the
+  // Workshop, the Arena lobby, the Forge and the profile label) and assigned by
+  // NOTHING, so all four were dead code: a guest could open the Workshop and the
+  // Arena lobby, and forge AT-F16's 12,000 XP character out of local XP.
+  // The truth is `Stats.isAuthenticated`, which AuthUI maintains on password
+  // login, registration and session restore (and clears on guest entry), so this
+  // is DERIVED at use time — the cached copy is what went stale.
+  const isGuest = () => !game.stats.isAuthenticated;
+  // Gate for the entitlement menus: on a configured deployment a guest is
+  // prompted instead of let in; with no backend there is nothing to sign in as,
+  // so the local sandbox stays open (Stats.requiresMageCard owns that rule).
+  const needsMageCard = () => game.stats.requiresMageCard(!!supabase);
 
   authUI.init(() => {
     profileUI.updateMenuStats();
@@ -869,7 +882,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     mageAvatarBg.addEventListener('click', () => {
       // Populate profile display using local variables already in scope
       if (authUI.profileUsernameUI) {
-        authUI.profileUsernameUI.innerText = isGuest ? 'Wandering Guest' : (authUI.profileUsernameUI.innerText || 'Unknown Mage');
+        authUI.profileUsernameUI.innerText = isGuest() ? 'Wandering Guest' : (authUI.profileUsernameUI.innerText || 'Unknown Mage');
       }
       if (authUI.profileNickname) {
         authUI.profileNickname.innerText = game.stats.mageName || 'Unknown Mage';
@@ -941,7 +954,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const id = card.dataset.char;
       const info = characterInfo(id);
 
-      if (isGuest) {
+      if (needsMageCard()) {
         MagicalToast.show(`The Forge needs a sealed Mage Card!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Log in or register to forge ${info.title}.</span>`);
         return;
       }
@@ -1010,7 +1023,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Workshop Listeners
   workshopBtn.addEventListener('click', () => {
-    if (isGuest) {
+    if (needsMageCard()) {
       MagicalToast.show("The Workshop requires a sealed Mage Card!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Please log in or register to unlock upgrades.</span>");
       return;
     }
@@ -1050,7 +1063,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const duelMageSilhouette = document.getElementById('duel-mage');
   if (duelMageSilhouette) {
     duelMageSilhouette.addEventListener('click', () => {
-      if (isGuest) {
+      if (needsMageCard()) {
         MagicalToast.show("The Arena requires a sealed Mage Card!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Please log in or register to duel other mages.</span>");
         return;
       }
