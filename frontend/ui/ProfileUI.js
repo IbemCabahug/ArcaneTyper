@@ -16,9 +16,15 @@ export class ProfileUI {
         this.mageClassSelect = document.getElementById('mage-class-select');
 
 
-        // Character selection cards
-        this.skinCards = document.querySelectorAll('.skin-card');
-        this.setupSkinSelection();
+        // AT-M9b: the character cards are NOT this class's business any more.
+        // ProfileUI used to bind its own click handler on every `.skin-card` and
+        // rewrite `.skin-status` to UNLOCKED/LOCKED, so a single click fired two
+        // handlers — the legacy one announced "IN FORGE: this original class is
+        // currently being forged!" (plus the error sound) *before* the Forge's
+        // real purchase ran — and the Forge's prices were overwritten on every
+        // `updateMenuStats()`. The Forge in main.js owns the cards now: it reads
+        // the roster, the price and the purchase path, and `npm run verify:skins`
+        // asserts it is the ONLY writer.
 
         // AT-L8: the Discipline picker was display-only — it had NO listener, and
         // `Stats.setMageClass()` had no callers at all, so choosing a class here
@@ -72,60 +78,6 @@ export class ProfileUI {
         this.mageClassSelect.value = info.id;
     }
 
-    setupSkinSelection() {
-        this.skinCards.forEach(card => {
-            card.addEventListener('click', () => {
-                const charId = card.getAttribute('data-char');
-                if (!this.game.stats) return;
-
-                if (this.game.stats.isCharacterUnlocked(charId)) {
-                    this.game.stats.setSelectedCharacter(charId);
-                    this.updateSkinCardsUI();
-                    
-                    const name = charId === 'wizard' ? 'GRAND CHRONO-ARCHMAGE' : charId.toUpperCase();
-                    MagicalToast.show(`Bound to avatar: <span style="color:#00e5ff; font-weight:bold;">${name}</span>`);
-                    if (this.game.audio) this.game.audio.playSound('click');
-                } else {
-                    MagicalToast.show(`<span style="color:#ffd700; font-weight:bold;">IN FORGE:</span> This original class is currently being forged!`);
-                    if (this.game.audio) this.game.audio.playErrorSound();
-                }
-            });
-        });
-    }
-
-    updateSkinCardsUI() {
-        if (!this.game.stats) return;
-        const currentSelected = this.game.stats.selectedCharacter || 'wizard';
-
-        this.skinCards.forEach(card => {
-            const charId = card.getAttribute('data-char');
-            const isUnlocked = this.game.stats.isCharacterUnlocked(charId);
-            
-            // Toggle active state
-            if (charId === currentSelected) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
-
-            // Toggle locked state
-            const statusEl = card.querySelector('.skin-status');
-            if (isUnlocked) {
-                card.classList.remove('locked');
-                if (statusEl) {
-                    statusEl.innerText = "UNLOCKED";
-                    statusEl.style.color = "#00e5ff";
-                }
-            } else {
-                card.classList.add('locked');
-                if (statusEl) {
-                    statusEl.innerText = "LOCKED";
-                    statusEl.style.color = "#ff5252";
-                }
-            }
-        });
-    }
-
     updateProgressionUI() {
         if (!this.game.stats) return;
         if (this.levelEl) this.levelEl.innerText = this.game.stats.playerLevel || 1;
@@ -154,7 +106,6 @@ export class ProfileUI {
         });
 
         this.updateProgressionUI();
-        this.updateSkinCardsUI();
         this.drawHistoryChart();
         this.drawRecentRuns();
 

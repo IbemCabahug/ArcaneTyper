@@ -362,6 +362,13 @@ check(
 
 // ── 7. the Forge UI: table prices, the real purchase path, canvases ───────
 const mainSrc = strip(read('frontend/main.js'));
+/**
+ * Code with whole-line `//` comments removed. The notes in these files quote the
+ * legacy code they replaced (and name the very selectors this block forbids), so
+ * ownership checks have to read code, not history.
+ */
+const codeOnly = (src) => src.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+const mainCode = codeOnly(mainSrc);
 check(
     'the Forge reads its labels and prices from the roster table',
     mainSrc.includes('characterInfo(id)') && mainSrc.includes('info.unlockPrice')
@@ -377,7 +384,7 @@ check(
 );
 check(
     'the Forge re-syncs every time the profile panel opens',
-    /profileUI\.updateMenuStats\(\);\s*\n\s*updateForgeUI\(\);/.test(mainSrc)
+    /profileUI\.updateMenuStats\(\);[\s\S]{0,160}?updateForgeUI\(\);/.test(mainCode)
 );
 check(
     'a guest is told to log in rather than buying into a void',
@@ -386,6 +393,48 @@ check(
 check(
     'the cards are wired from the markup grid, not from a hard-coded list',
     mainSrc.includes("querySelectorAll('#character-skin-grid .skin-card')")
+);
+
+// ── 7b. ONE owner for the card surface (live-browser finding, 2026-09-24) ──
+// A real Chrome pass caught what these source checks could not: ProfileUI still
+// bound its own `.skin-card` click handler and rewrote `.skin-status` to
+// UNLOCKED/LOCKED, so one click fired two handlers — the legacy one announced
+// "IN FORGE: currently being forged!" (plus the error sound) *before* the real
+// purchase ran — and the Forge's prices were wiped on every updateMenuStats().
+const profileUiCode = codeOnly(strip(read('frontend/ui/ProfileUI.js')));
+check(
+    'ProfileUI no longer touches the character cards',
+    !profileUiCode.includes('skin-card') && !profileUiCode.includes('skin-status') &&
+        !profileUiCode.includes('setupSkinSelection') && !profileUiCode.includes('updateSkinCardsUI')
+);
+check(
+    'the legacy "being forged" toast is gone (it raced the real purchase)',
+    !mainCode.includes('This original class is currently being forged!') &&
+        !profileUiCode.includes('currently being forged')
+);
+check(
+    'the cards are bound exactly once, by the Forge',
+    count(mainCode, "querySelectorAll('#character-skin-grid .skin-card')") === 1 &&
+        count(mainCode, "card.addEventListener('click'") === 1
+);
+check(
+    'exactly one writer of `.skin-status` in the frontend source',
+    count(mainCode, "querySelector('.skin-status')") === 1
+);
+
+// ── 7c. the preview painter must be CALLED, not merely defined ────────────
+// `paintSkinPreviews` shipped with ZERO callers: the cards rendered as three
+// blank strips until the profile was opened, and no source-level check noticed,
+// because the function itself was perfect. A definition is not a feature, so
+// this asserts the call sites, not the implementation.
+check(
+    'paintSkinPreviews() is actually called (boot + panel open)',
+    count(mainCode, 'paintSkinPreviews();') >= 2,
+    `found ${count(mainCode, 'paintSkinPreviews();')} call(s)`
+);
+check(
+    'the Forge paints and prices itself at boot, before a panel is opened',
+    /paintSkinPreviews\(\);\s*\n\s*updateForgeUI\(\);/.test(mainCode)
 );
 check(
     'each equipped id owns its border colour in CSS',

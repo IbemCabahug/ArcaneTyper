@@ -889,6 +889,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       profileUI.updateMenuStats();
+      paintSkinPreviews(); // a font swap can invalidate the baked previews
       updateForgeUI();
 
       setMenuBehind(true);
@@ -978,6 +979,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
   });
+
+  // AT-M9b: paint at BOOT. `paintSkinPreviews` existed but nothing ever called
+  // it, so the shipped Forge showed three blank strips until the profile was
+  // opened — a painter without a caller is a promise the player never sees. The
+  // source-level guards could not see this (the code was correct and unused); a
+  // live Chrome pass read the canvases and found zero painted pixels.
+  // `updateForgeUI` runs here too, so the prices are on the cards before the
+  // panel is ever opened.
+  paintSkinPreviews();
+  updateForgeUI();
 
   const closeProfileBtn = document.getElementById('close-profile-btn');
   if (closeProfileBtn) {
