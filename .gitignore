@@ -32,6 +32,7 @@ scratch/
 *.sln
 *.sw?
 
-# Agent skills/rules suite (nested repo with its own .git) - never commit into the game repo.
-/.samananiagents/
+# Agent skills/rules suite — a NESTED repo with its own .git, local only.
+# Never committed here: its contents are the agent's own workspace, not game
+# source. Matching at any level (no leading slash) also covers a stray copy.
 .samananiagents/
