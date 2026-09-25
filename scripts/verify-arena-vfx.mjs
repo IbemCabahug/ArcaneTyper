@@ -24,6 +24,18 @@ const audio = read('frontend/AudioController.js');
 const boss = read('frontend/Boss.js');
 const projectile = read('frontend/Projectile.js');
 const input = read('frontend/game/InputHandler.js');
+const duelRace = read('frontend/game/DuelRace.js');
+const race = duelRace;
+// The Reaper's own function body, so the "rejected shapes must not return"
+// assertions cannot be satisfied (or defeated) by an unrelated mark. A bare
+// `i < 3` search over the whole file would match Bloodletting's legitimate
+// triangle loop.
+const reaperSrc = (() => {
+    const at = sigils.indexOf('function drawReaperMark(');
+    if (at < 0) return '';
+    const end = sigils.indexOf('\n}\n', at);
+    return sigils.slice(at, end < 0 ? sigils.length : end);
+})();
 const updateStart = game.indexOf('        for (let i = this.words.length - 1; i >= 0; i--) {');
 const updateEnd = game.indexOf('        // Update particles via ParticlePool', updateStart);
 const collision = updateStart >= 0 && updateEnd > updateStart ? game.slice(updateStart, updateEnd) : '';
@@ -123,8 +135,156 @@ check('an armed active quiets, but does not erase, the character streak overlay'
 check('every new character-family sigil is registered in the production renderer',
     ['crushing-gravity', 'event-horizon', 'rift-tether', 'final-cut', 'bloodletting']
         .every((id) => sigils.includes(`'${id}': { color:`)) &&
-        sigils.includes("skillId === 'crushing-gravity'") &&
-        sigils.includes("skillId === 'final-cut' || skillId === 'bloodletting'"));
+        sigils.includes("skillId === 'crushing-gravity'"));
+check('the two Bloodseeker strikes draw DIFFERENT marks, not one shared shape',
+    // The Reaper cuts outward at the opponent, the Bloodruner turns the blade
+    // inward at themselves. Sharing drawBloodCut made them indistinguishable
+    // apart by colour, which is not an identity.
+    sigils.includes("skillId === 'final-cut') drawReaperMark(ctx, inner, now)") &&
+        sigils.includes("skillId === 'bloodletting') drawBloodlettingMark(ctx, inner)") &&
+        !sigils.includes('drawBloodCut'));
+check('the Reaper mark is A RETICLE: a sniper sight, not a weapon or a face',
+    // RESEARCH RATIONALE (five rejected shapes, each recorded in the renderer's
+    // own header): an upright crescent axe read as a SPEEDOMETER (the spin laid
+    // the haft on its side), a spoked cutting wheel read as a CLOCK FACE (even
+    // teeth + a cross), a three-blade shuriken was unambiguous but "worse" (a
+    // spinning blade has no gaze), an Amaterasu-style eye was too much face for
+    // a compact sigil, and the faceless hood owned the stillness but the owner
+    // chose a crosshair.
+    //
+    // WHY A RETICLE: Final Cut scales off the opponent's MISSING HP, so the
+    // fantasy is a wound already located and ranged — the moment BEFORE the
+    // swing, not the swing. A sight says that, and needs no legend to decode,
+    // which none of the five weapon/face silhouettes managed.
+    sigils.includes('function drawReaperMark(ctx, r, now = 0)') &&
+        // Cancels the family spin, so the scope sits level. That stillness is
+        // the threat, and it is what allows true sniper proportions (long post,
+        // short cross) instead of four-fold symmetry forced by rotation.
+        sigils.includes('ctx.rotate(-now / 1200);') &&
+        sigils.includes("else if (skillId === 'final-cut') drawReaperMark(ctx, inner, now);") &&
+        // The scope ring is FOUR arcs broken by four gaps, aligned to the arms.
+        sigils.includes('for (let q = 0; q < 4; q++) {') &&
+        sigils.includes('const ringR = r * .98;') &&
+        // The OPEN centre is what makes it a sight: a cross that reached its own
+        // middle would read as a plus sign.
+        sigils.includes('const gap = r * .12;') &&
+        // True sniper proportions: a long main post, a shorter fine cross.
+        sigils.includes('ctx.lineTo(0, dir * r * .92);') &&
+        sigils.includes('ctx.lineTo(dir * r * .58, 0);') &&
+        // The stadia ladder is the part that says "measured", with alternating
+        // long/short ticks breathing very slightly.
+        sigils.includes('for (let i = 1; i <= 4; i++) {') &&
+        sigils.includes('const long = i % 2 === 1;') &&
+        // One fixed point at the centre: the shot already taken.
+        sigils.includes('ctx.arc(0, 0, r * .045, 0, Math.PI * 2);') &&
+        // Every rejected shape, including the hood, must not return. The loop
+        // check is scoped to THIS function, since a bare `i < 3` search would
+        // also match Bloodletting's legitimate triangle loop.
+        !reaperSrc.includes('const topW = r * .30;') &&
+        !reaperSrc.includes('const botW = r * .98;') &&
+        !reaperSrc.includes('quadraticCurveTo(botW * .92, hem, botW * .70, hem);') &&
+        !reaperSrc.includes("ctx.fillStyle = 'rgba(3, 0, 2, 0.96)';") &&
+        !reaperSrc.includes('for (let i = 0; i < 3; i++) {') &&
+        !reaperSrc.includes('quadraticCurveTo(0, -ctrl') &&
+        !reaperSrc.includes('ellipse(0, 0, irisR * .26') &&
+        !reaperSrc.includes("fillStyle = '#0b0205';") &&
+        !reaperSrc.includes('ctx.lineTo(0, -r * 1.02);'));
+check('the Novice mark is painted in the CHARACTER\'s own identity colour',
+    // The Novice active is one shared Discipline, so its mark has to be
+    // per-character — and the cheapest way to be attributable is to wear the
+    // body's own colour rather than the class's arcane violet. These two are
+    // read back out of `backend/Characters.js`, the single source of truth for
+    // character identity, so a colour change there cannot silently leave a
+    // mismatched sigil behind.
+    (() => {
+        const chars = read('backend/Characters.js');
+        const colourOf = (id) => (chars.match(new RegExp(`id: '${id}'[\\s\\S]*?color: '([^']+)'`)) || [])[1];
+        const tintOf = (id) => (sigils.match(new RegExp(`${id}: \\{ color: '(#[0-9a-fA-F]{6})'`)) || [])[1];
+        return !!colourOf('voidweaver') && !!colourOf('bloodseeker') &&
+            tintOf('voidweaver') === colourOf('voidweaver') &&
+            tintOf('bloodseeker') === colourOf('bloodseeker');
+    })(),
+    'CHARACTER_TINT has drifted from backend/Characters.js');
+check('the Novice FRAME wears the character colour too, not just the interior',
+    // The violet-frame bug: drawNova was character-aware but drawCasterSigil
+    // resolved its palette from EFFECTS[skillId] alone, so the glow, the solid
+    // ring, the dashed companion ring and the expiry arc stayed arcane violet
+    // around a red or cyan mark. paletteFor now resolves ONCE and the whole
+    // sigil is drawn from it, which is why the dispatcher no longer reads
+    // EFFECTS[skillId] for its own palette.
+    sigils.includes('function paletteFor(skillId, character = \'wizard\')') &&
+        sigils.includes("if (skillId === 'arcane-surge') return CHARACTER_TINT[character] || base;") &&
+        /export function drawCasterSigil[\s\S]{0,600}const effect = paletteFor\(skillId, character\);/.test(sigils) &&
+        sigils.includes('const fx = paletteFor(\'arcane-surge\', character);') &&
+        // No other site may fall back to the raw arcane palette for the frame.
+        !/const effect = EFFECTS\[skillId\];\s*\n\s*if \(!effect\) return;/.test(sigils),
+    'the enclosing frame must resolve through paletteFor, or it reverts to violet');
+check('the Wizard Novice keeps Arcane Surge violet (it is that class\' colour)',
+    sigils.includes("const fx = paletteFor('arcane-surge', character);") &&
+        !/wizard: \{ color: '#/.test(sigils),
+    'the wizard must fall through to the shared Arcane Surge palette');
+check('Novice is ONE Discipline but THREE sigils, one per character',
+    // The owner is right that a Novice under three characters is three people.
+    // Balance stays shared (one roster entry, one wire id, +50% on the next won
+    // claim) so this is presentation only — but the mark must speak each
+    // character's language, which is why `character` is threaded all the way
+    // from DuelRace's per-slot skin into the renderer.
+    sigils.includes("function drawNova(ctx, r, character = 'wizard')") &&
+        sigils.includes("if (skillId === 'arcane-surge') drawNova(ctx, inner, character);") &&
+        // The skin id is carried per team slot, not inferred from the class:
+        // Novice is shared, so the class cannot say which character is playing.
+        race.includes("this.characters[this.mine] = this.game.stats?.selectedCharacter || 'wizard';") &&
+        race.includes("this.characters[this.theirs] = oppPresence?.character || 'wizard';") &&
+        race.includes('this.game.duelCharacters = this.characters;') &&
+        game.includes('this.duelCharacters[slot]') &&
+        // The three costumes, each in its own language.
+        sigils.includes("if (character === 'voidweaver') {") &&
+        sigils.includes("if (character === 'bloodseeker') {") &&
+        // Void: an inward collapse to a dark core. Blood: a droplet RISING,
+        // echoing the character's upward life-motes.
+        sigils.includes('Math.cos(a + 0.78) * r * .22, Math.sin(a + 0.78) * r * .22') &&
+        sigils.includes('ctx.moveTo(0, -r * .70);'));
+check('each Voidweaver active has its OWN mechanic-derived mark (no shared fallback)',
+    // All three used to share one generic "ring + 3 spokes + centre dot" mark,
+    // so the three Voidweaver actives were indistinguishable in the Arena.
+    // Each is now dispatched on its own id to a mark built from what the skill
+    // does: a collapsing well, a barrier that stops an incoming blow, a tear
+    // with a tether across it.
+    sigils.includes("else if (skillId === 'crushing-gravity') drawSingulistMark(ctx, inner, now);") &&
+        sigils.includes("else if (skillId === 'event-horizon') drawNullwardenMark(ctx, inner, now);") &&
+        sigils.includes("else if (skillId === 'rift-tether') drawRiftbinderMark(ctx, inner, now);") &&
+        !sigils.includes('function drawVoidMark') &&
+        !sigils.includes("'crushing-gravity' || skillId === 'event-horizon' || skillId === 'rift-tether'"),
+    'the three Voidweaver actives must not share one mark');
+check('the three Voidweaver marks each counter-rotate so their geometry stays upright',
+    // Same reason the Reaper does: the family ring spins at now/1200, so a
+    // gravity-dependent mark (mass falling, a barrier facing a vector) would
+    // otherwise be rendered at an arbitrary angle.
+    ['drawSingulistMark', 'drawNullwardenMark', 'drawRiftbinderMark'].every((fn) => {
+        const at = sigils.indexOf(`function ${fn}(ctx, r, now = 0)`);
+        return at > 0 && sigils.slice(at, at + 200).includes('ctx.rotate(-now / 1200);');
+    }));
+check('each Voidweaver mark encodes its own mechanic, not decoration',
+    // SINGULIST: rings collapsing inward to a dense core (scales off own combo).
+    sigils.includes('for (const [rad, lw] of [[r * .98, 1], [r * .70, 1.5], [r * .44, 1.2]])') &&
+        sigils.includes("core.addColorStop(0, 'rgba(0, 0, 0, 0.96)');") &&
+        // NULLWARDEN: an incoming vector that STOPS at the ring, and an empty
+        // interior — denial is drawn by absence, so nothing is past the wall.
+        sigils.includes('function drawNullwardenMark') &&
+        sigils.includes('ctx.moveTo(-r * 1.12, 0);') &&
+        sigils.includes('ctx.arc(0, 0, r * .92, 0, Math.PI * 2);') &&
+        // RIFTBINDER: a vertical tear with the tether stretched across it.
+        sigils.includes('function drawRiftbinderMark') &&
+        sigils.includes('ctx.moveTo(0, -slit);') &&
+        sigils.includes('ctx.moveTo(-r * .70, 0);'));
+check('the Bloodruner mark inverts the Reaper: the blade turns inward, blood falls',
+    sigils.includes('function drawBloodlettingMark(ctx, r)') &&
+        sigils.includes('ctx.quadraticCurveTo(r * .26, -r * .26, r * .06, r * .12);') &&
+        sigils.includes('ctx.ellipse(r * .06, r * .18, r * .13, r * .09, 0, 0, Math.PI * 2);') &&
+        // Falling droplets are the exact inverse of Hemomancer's rising motes,
+        // so the sustain and the sacrifice actives cannot be confused.
+        sigils.includes('for (const [dx, dy, s] of [[-.34, .40, 2.4], [-.10, .58, 2.0], [.20, .44, 1.7]]) {') &&
+        sigils.includes('ctx.quadraticCurveTo(dx * r + s * .7, dy * r, dx * r, dy * r + s);'));
 check('the active sigil is painted before the mage sprite, keeping the body readable',
     game.indexOf('this._drawDuelAuras(frozen);') < game.indexOf('this._drawTeamMage('));
 
@@ -533,6 +693,156 @@ check('the Voidweaver streak is a brighter aqua than the wells\' own photon ring
 check('the Voidweaver black-hole wells keep their original deep colours',
     voidBody.includes("rgba(0, 229, 255, 0.9)") &&
     voidBody.includes("rgba(124, 77, 255, 0.6)"));
+
+// ── character-bound word defeat (meteor death animation) ────────────────────
+// A completed word's death animation belongs to the CHARACTER that solved it,
+// not to one fixed shatter. These run the REAL CombatSystem methods (sliced
+// out of the shipped source) so a dispatcher that silently falls back to
+// spawnBurst, or a cut that misses the meteor's centre, cannot pass.
+const defeatDispatch = sliceMethod(combat, 'spawnWordDefeat');
+const voidDefeat = sliceMethod(combat, 'spawnVoidDefeat');
+const slashDefeat = sliceMethod(combat, 'spawnSlashDefeat');
+check('all three word-defeat methods exist in the shipped CombatSystem',
+    !!defeatDispatch && !!voidDefeat && !!slashDefeat);
+
+if (defeatDispatch && voidDefeat && slashDefeat) {
+    // A particle stub rich enough for the two new effects, recording every
+    // spawn so a dispatch can be told apart by what it actually produced.
+    const mkCombat = () => {
+        const spawned = [];
+        const c = {
+            spawned,
+            game: {
+                particles: {
+                    spawn(x, y, color) {
+                        const p = { x, y, color };
+                        spawned.push(p);
+                        return p;
+                    }
+                }
+            }
+        };
+        c.spawnWordDefeat = defeatDispatch;
+        c.spawnVoidDefeat = voidDefeat;
+        c.spawnSlashDefeat = slashDefeat;
+        c.spawnBurst = (x, y, palette) => { c.spawned.push({ x, y, color: { type: 'burst' }, palette }); };
+        return c;
+    };
+
+    // The Wizard must keep the original burst — he is the baseline the other
+    // two are read against, and letting him change would hide a regression in
+    // the one character that is supposed to stay untouched.
+    {
+        const c = mkCombat();
+        c.spawnWordDefeat(100, 200, 'wizard', ['#ff4500']);
+        const only = c.spawned[0];
+        check('the Wizard keeps the original element shatter',
+            c.spawned.length === 1 && only.color && only.color.type === 'burst' && only.x === 100);
+    }
+
+    // Voidweaver: motes pulled inward, element colour preserved.
+    {
+        const c = mkCombat();
+        c.spawnWordDefeat(100, 200, 'voidweaver', ['#ff4500']);
+        const motes = c.spawned.filter((p) => p.isVoidMote);
+        const pop = c.spawned[0];
+        check('a Voidweaver kill collapses the meteor instead of shattering it',
+            pop.color && pop.color.type === 'burst' && motes.length > 0,
+            `spawned ${c.spawned.length}, motes ${motes.length}`);
+        // REGRESSION GUARD: the first version reused the full 96px splash, which
+        // is the SAME splash the Wizard gets, so the effect was invisible in play
+        // because it looked identical to him. The collapse must stay the star.
+        check('the Voidweaver kill flash is a SMALL pop, not the Wizard full splash',
+            pop.burstScale !== undefined && pop.burstScale < 0.6,
+            `burstScale=${pop.burstScale}`);
+        check('the Voidweaver motes are large enough to actually see',
+            motes.length > 0 && motes.every((p) => p.size >= 2.4),
+            `min size ${motes.length ? Math.min(...motes.map((p) => p.size)).toFixed(2) : 'n/a'}`);
+        // A void mote draws a r*0.75 core, so anything under ~2px is one dot.
+        check('every void mote draws a core at least ~1.8px wide',
+            motes.length > 0 && motes.every((p) => p.size * 0.75 >= 1.8));
+        check('the collapse starts ON the meteor, not scattered across the sky',
+            motes.length > 0 && motes.every((p) => {
+                const r = Math.hypot(p.x - 100, (p.y - 200) / 0.6);
+                return r <= 36.5;
+            }),
+            `max radius ${motes.length ? Math.max(...motes.map((p) => Math.hypot(p.x - 100, (p.y - 200) / 0.6))).toFixed(1) : 'n/a'}`);
+        // Swirl AND inward. Either alone reads wrong (orbit, or dull convergence).
+        check('the collapse carries BOTH a vortex and an inward term',
+            motes.length > 0 && motes.every((p) => {
+                const a = Math.atan2((p.y - 200) / 0.6, p.x - 100);
+                // Inward component must be a real share of the velocity.
+                const inward = -Math.cos(a) * p.vx - Math.sin(a) * p.vy;
+                return inward > 0.3;
+            }));
+        check('the Voidweaver collapse keeps the element colour so the meteor still reads',
+            motes.length > 0 && motes.some((p) => p.color === '#ff4500'));
+        check('the collapse is targeted inward at the meteor centre',
+            motes.length > 0 && motes.every((p) => p.targetX === 100 && p.targetY === 200 && p.gravity === 0));
+    }
+
+    // burstScale must not leak across pool reuse: the pool recycles Particle
+    // objects, so a shrunk splash left set would shrink the next burst too.
+    check('the particle pool resets burstScale on every init',
+        particles.includes('this.burstScale = 1;') &&
+        particles.includes('const scale = this.burstScale || 1;'));
+
+    // Bloodseeker: one cut line, dead-centre, angle varies per kill.
+    {
+        const angles = [];
+        for (let i = 0; i < 12; i++) {
+            const c = mkCombat();
+            c.spawnWordDefeat(300, 400, 'bloodseeker', ['#00e5ff']);
+            const cut = c.spawned.find((p) => p.isSlashLine);
+            if (!cut) continue;
+            angles.push(cut.slashAngle);
+            if (i === 0) {
+                check('a Bloodseeker kill draws exactly ONE cut line',
+                    c.spawned.filter((p) => p.isSlashLine).length === 1);
+                check('the cut passes dead-centre through the meteor, never offset',
+                    cut.x === 300 && cut.y === 400 && cut.slashSpread === 0,
+                    `x=${cut.x} y=${cut.y} spread=${cut.slashSpread}`);
+                check('the cut is unmoving and gravity-free (a blade, not debris)',
+                    cut.vx === 0 && cut.vy === 0 && cut.gravity === 0);
+                const debris = c.spawned.filter((p) => !p.isSlashLine);
+                check('the meteor splits into two halves pushed apart along the cut normal',
+                    debris.length > 0 && debris.every((p) => p.vx !== 0 || p.vy !== 0));
+            }
+        }
+        check('the cut angle is randomised per kill, not a fixed slash',
+            angles.length === 12 && new Set(angles.map((a) => a.toFixed(3))).size > 1,
+            `${new Set(angles.map((a) => a.toFixed(3))).size} distinct angle(s)`);
+        const c = mkCombat();
+        c.spawnWordDefeat(300, 400, 'bloodseeker', ['#00e5ff']);
+        check('the cut debris keeps the element colour',
+            c.spawned.some((p) => !p.isSlashLine && p.color === '#00e5ff'));
+    }
+
+    // Unknown / missing character must degrade to the Wizard burst, never throw.
+    {
+        const c = mkCombat();
+        let threw = '';
+        try { c.spawnWordDefeat(10, 10, undefined, ['#fff']); } catch (e) { threw = e.message; }
+        check('an unknown character falls back to the burst instead of throwing',
+            threw === '' && c.spawned.length === 1 && c.spawned[0].color?.type === 'burst', threw);
+    }
+}
+
+// Both completion sites must route through the dispatcher, so the treatment is
+// bound to whoever solved the word. The duel path is the important one: the
+// loser's client has to see the TAKER's character treatment, not its own.
+check('solving a word routes through the character-bound dispatcher',
+    input.includes('spawnWordDefeat(') && !input.includes('spawnBurst(word.x'));
+check("a stolen duel word shows the TAKER's character, from the loser's client",
+    duelRace.includes("this.game.dissolveRaceWord(teamColorFor(taker), this.game.duelOpponent?.character || 'wizard');") &&
+        game.includes("dissolveRaceWord(color = '#b892b0', character = 'wizard')") &&
+        game.includes("this.combatSystem.spawnWordDefeat(word.x, word.y, character, [color, '#ffffff']);"));
+check('the duel-side duelOpponent record carries the character this needs',
+    duelRace.includes('character: oppPresence?.character'));
+check('the slash line particle renders (the flag is not left dead)',
+    particles.includes('} else if (this.isSlashLine) {') &&
+        particles.includes('ctx.strokeStyle = this.slashGlow;') &&
+        particles.includes('ctx.rotate(this.slashAngle);'));
 
 if (failures) {
     console.error(`${failures} Arena VFX hierarchy check(s) FAILED.`);

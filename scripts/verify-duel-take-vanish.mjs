@@ -69,7 +69,10 @@ check(
 );
 check(
     'the receiver dissolves the word and locks its own input',
-    methodBody(raceSrc, '_onTaken').includes('dissolveRaceWord(teamColorFor(taker))') &&
+    // AT: the call also carries the TAKER's character, so the loser's client
+    // renders the killer's own defeat treatment. Both halves of the contract
+    // are asserted — dropping the character would silently unbind the animation.
+    methodBody(raceSrc, '_onTaken').includes('dissolveRaceWord(teamColorFor(taker), this.game.duelOpponent?.character') &&
         methodBody(raceSrc, '_onTaken').includes('myDecided = true')
 );
 // AT-F10 added a third receiver of an opponent frame — the class-active `cast` —

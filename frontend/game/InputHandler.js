@@ -99,9 +99,16 @@ export class InputHandler {
                 this.game.audio.playExplosion();
                 this.game.floatingTexts.push(new FloatingText(`+${word.text.length * 10}`, word.x, word.y - 15 * word.scale, "#00e5ff", 28));
 
-                // Element-colored shatter burst
+                // Element-colored shatter burst — AT: bound to the CHARACTER
+                // that solved the word, so a Voidweaver collapses it and a
+                // Bloodseeker cuts it, while the element palette still tints
+                // the result. The Wizard keeps the original burst.
                 const comboBonus = Math.min(this.game.stats.combo, 50) / 50;
-                this.game.combatSystem.spawnBurst(word.x, word.y + 15 * word.scale, word.elementColors.particles);
+                this.game.combatSystem.spawnWordDefeat(
+                    word.x, word.y + 15 * word.scale,
+                    this.game.stats.selectedCharacter,
+                    word.elementColors.particles
+                );
 
                 this.game.playerAnimTimer = 200;
                 this.game.combatSystem.triggerShake(4 + comboBonus * 4, 150 + comboBonus * 100);

@@ -111,6 +111,10 @@ export class Particle {
             this.isShockwave = false;
             this.burstKey = color.burstKey;
             this.burstColors = color.colors || [color.color || '#ffffff'];
+            // Reset on EVERY init: the pool reuses Particle objects, so a caller
+            // that shrinks the splash (the Voidweaver's core pop) would otherwise
+            // leak that scale into the next unrelated burst.
+            this.burstScale = 1;
             this.color = this.burstColors[0];
             this.vx = 0;
             this.vy = 0;
@@ -249,12 +253,46 @@ export class Particle {
             ctx.fill();
             ctx.stroke();
             ctx.restore();
+        } else if (this.isSlashLine) {
+            // AT: the Bloodseeker's clean cut. The blade sweeps a straight
+            // line THROUGH the meteor's centre at a random angle, so the two
+            // halves visibly part along the cut rather than scattering like a
+            // generic shatter. Length contracts as it fades, which reads as
+            // the blade being drawn back out of the target.
+            const half = (this.slashLen * (0.35 + 0.65 * lifeAlpha)) / 2;
+            const nx = Math.cos(this.slashAngle + Math.PI / 2);
+            const ny = Math.sin(this.slashAngle + Math.PI / 2);
+            const ox = nx * this.slashSpread;
+            const oy = ny * this.slashSpread;
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.slashAngle);
+            ctx.lineCap = 'round';
+            // Soft crimson bleed along the cut.
+            ctx.globalAlpha = lifeAlpha * 0.34;
+            ctx.strokeStyle = this.slashGlow;
+            ctx.lineWidth = Math.max(1, 7 * lifeAlpha);
+            ctx.beginPath();
+            ctx.moveTo(ox - half, oy);
+            ctx.lineTo(ox + half, oy);
+            ctx.stroke();
+            // The hot edge of the blade.
+            ctx.globalAlpha = lifeAlpha;
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = Math.max(1, 2.4 * lifeAlpha);
+            ctx.beginPath();
+            ctx.moveTo(ox - half, oy);
+            ctx.lineTo(ox + half, oy);
+            ctx.stroke();
         } else if (this.isBurst) {
-            // Bake-once splash: drawImage only, expanding and fading out
+            // Bake-once splash: drawImage only, expanding and fading out.
+            // `burstScale` lets a caller shrink the splash to a small core pop
+            // without a second particle type; it defaults to 1 so every
+            // existing caller keeps the original full-size splash.
             const img = bakeBurst(this.burstColors);
             if (img) {
                 const grow = 1.4 - this.life * 0.4; // shrink as it fades
-                const s = 96 * grow * (window.__atLowQuality ? 0.75 : 1);
+                const scale = this.burstScale || 1;
+                const s = 96 * grow * scale * (window.__atLowQuality ? 0.75 : 1);
                 ctx.globalAlpha = lifeAlpha;
                 ctx.drawImage(img, this.x - s / 2, this.y - s / 2, s, s);
                 ctx.globalAlpha = 1;

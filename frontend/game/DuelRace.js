@@ -94,6 +94,7 @@ export class DuelRace {
         // Slot → Discipline id (ours from stats, theirs from presence). Labels
         // only: arbitration reads `buffs`, never this.
         this.classes = { A: null, B: null };
+        this.characters = { A: null, B: null };
         // The cast surfaces' pre-duel wording, saved so stop() can put it back.
         this._novaLabel = null;
         this._hintHTML = null;
@@ -163,6 +164,14 @@ export class DuelRace {
         this.classes[this.theirs] = oppPresence?.mage_class
             ? normalizeMageClassForCharacter(oppPresence.mage_class, oppPresence.character || 'wizard')
             : null;
+        // Which CHARACTER each slot plays. The Novice Discipline is shared by
+        // all three characters, so the class id alone cannot say whether a
+        // Novice sigil is the Celestial, Void or Blood variant — the renderer
+        // needs the skin id directly. Keyed to the fixed team slots so both
+        // clients read the same character for the same slot.
+        this.characters[this.mine] = this.game.stats?.selectedCharacter || 'wizard';
+        this.characters[this.theirs] = oppPresence?.character || 'wizard';
+        this.game.duelCharacters = this.characters;
         this._labelCastSurfaces();
         this._render();
 
@@ -208,6 +217,7 @@ export class DuelRace {
         // Survival HUD (the same contract the score bar follows).
         this.buffs = { A: null, B: null };
         this.classes = { A: null, B: null };
+        this.characters = { A: null, B: null };
         this.timeStopUntil = 0;
         this.timeStopSlot = null;
         this.duelCombos = { A: 0, B: 0 };
@@ -979,7 +989,7 @@ export class DuelRace {
         if (this.phase !== 'word' || p.idx !== this.idx || this.myDecided) return;
         this.myDecided = true;   // our keystrokes can no longer claim this word
         const taker = this.theirs;
-        this.game.dissolveRaceWord(teamColorFor(taker));
+        this.game.dissolveRaceWord(teamColorFor(taker), this.game.duelOpponent?.character || 'wizard');
         this._floatAtSlot(taker, 'TAKEN!', teamColorFor(taker), 26);
         // Defensive: the paired `claim` may be lost in flight; the host must
         // still resolve this word inside the window instead of wedging.

@@ -361,6 +361,154 @@ export class CombatSystem {
     }
 
     /**
+     * AT: a word was completed, so its death animation is bound to the
+     * CHARACTER that typed it rather than always being the same shatter.
+     *
+     * `character` is the killer, not the victim: in a duel the loser's client
+     * passes the opponent's character, so watching a Voidweaver steal your
+     * word shows THEIR implosion. `palette` is the meteor's element colours and
+     * is always blended in, so a fire kill still reads as fire under the
+     * character's treatment instead of losing its elemental identity.
+     *
+     * The Wizard keeps the original burst untouched — he is the baseline that
+     * the other two are read against.
+     */
+    spawnWordDefeat(x, y, character, palette) {
+        const colors = Array.isArray(palette) ? palette : [palette, '#ffffff'];
+        if (character === 'voidweaver') {
+            this.spawnVoidDefeat(x, y, colors);
+        } else if (character === 'bloodseeker') {
+            this.spawnSlashDefeat(x, y, colors);
+        } else {
+            this.spawnBurst(x, y, colors);
+        }
+    }
+
+    /**
+     * AT: the Voidweaver does not shatter a word — it collapses it.
+     *
+     * The first version of this was invisible in play, and the cause is worth
+     * recording: it reused the full 96px baked splash, which is the SAME splash
+     * the Wizard gets, so a Voidweaver kill looked like a Wizard kill; and the
+     * motes were ~1px specks scattered 30-70px out in open sky, too small to
+     * read. So the splash is now a small core pop and the COLLAPSE is the star.
+     *
+     * The motes carry both a tangential term (the vortex) and an inward term
+     * (the collapse) — swirl alone reads as an orbit, inward alone reads as a
+     * dull convergence, and the pair reads as space being drawn in. They start
+     * on the meteor's own edge in two rings so the funnel has depth rather than
+     * being one flat circle.
+     */
+    spawnVoidDefeat(x, y, palette) {
+        const element = Array.isArray(palette) ? palette : [palette, '#ffffff'];
+        const voidColors = ['#7c4dff', '#00e5ff', '#b388ff', '#ffffff'];
+
+        // A small core pop in the ELEMENT colour: the "this meteor died" beat,
+        // so a kill never reads as the word merely fading out. Kept deliberately
+        // small — this is not the effect, it is the punctuation.
+        const pop = this.game.particles.spawn(x, y, { type: 'burst', colors: element.slice(0, 2) });
+        if (pop) {
+            pop.burstScale = 0.4;
+            pop.decay = 0.1;   // brief, so it does not linger over the collapse
+        }
+
+        const count = window.__atLowQuality ? 16 : 30;
+        for (let i = 0; i < count; i++) {
+            const angle = (i / count) * Math.PI * 2 + Math.random() * 0.25;
+            // Two rings: an outer one peeling off the meteor's edge, an inner
+            // one already close in. Depth is what makes it read as a funnel.
+            const outer = i % 2 === 0;
+            const radius = outer ? 20 + Math.random() * 16 : 5 + Math.random() * 11;
+            // Mostly the void's own colours, with every third mote keeping the
+            // element so the meteor's identity is still legible inside it.
+            const color = (i % 3 === 0)
+                ? element[i % element.length]
+                : voidColors[i % voidColors.length];
+            const p = this.game.particles.spawn(
+                x + Math.cos(angle) * radius,
+                y + Math.sin(angle) * radius * 0.6,
+                color
+            );
+            if (!p) continue;
+            p.targetX = x;
+            p.targetY = y;
+            p.isVoidMote = true;
+            p.isRune = false;
+            p.gravity = 0;
+            // Tangential (vortex) + inward (collapse). Both, or it reads wrong.
+            p.vx = (-Math.sin(angle) * 0.34) + (-Math.cos(angle) * 0.5);
+            p.vy = (Math.cos(angle) * 0.34) + (-Math.sin(angle) * 0.5);
+            // Far larger than the old 1.2-3.4 specks: a void mote draws a
+            // r*0.75 core, so a size of ~1 was a single near-invisible pixel.
+            p.size = 2.4 + Math.random() * 3.2;
+            p.initialSize = p.size;
+            p.life = 1;
+            p.decay = 0.036 + Math.random() * 0.014;   // long enough to arrive
+        }
+    }
+
+    /**
+     * AT: the Bloodseeker cuts the meteor in half. ONE random angle is drawn
+     * per kill and the blade line passes exactly through the meteor's centre,
+     * so the cut is always clean and dead-centre no matter which way it comes
+     * from. The debris is then split into two groups pushed apart along the
+     * cut's NORMAL, which is what makes it read as a bisected meteor instead
+     * of a burst.
+     */
+    spawnSlashDefeat(x, y, palette) {
+        // A random entry angle, but biased away from dead-flat horizontal and
+        // dead-vertical so the cut never looks axis-aligned.
+        const angle = Math.random() * Math.PI;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        // Perpendicular — the direction the two halves travel.
+        const nx = -sin;
+        const ny = cos;
+
+        const edge = '#ff2d4d';
+        const glow = '#ff8a95';
+        const cut = this.game.particles.spawn(x, y, palette[0] || edge);
+        if (cut) {
+            cut.isSlashLine = true;
+            cut.isRune = false;
+            cut.isShockwave = false;
+            cut.vx = 0;
+            cut.vy = 0;
+            cut.gravity = 0;
+            cut.color = edge;
+            cut.slashGlow = glow;
+            cut.slashAngle = angle;
+            cut.slashLen = 96;
+            cut.slashSpread = 0;
+            cut.size = 0;
+            cut.life = 1;
+            cut.decay = 0.055;
+        }
+
+        // Two halves, parted along the cut's normal.
+        const shards = window.__atLowQuality ? 4 : 8;
+        for (let i = 0; i < shards; i++) {
+            for (let side = -1; side <= 1; side += 2) {
+                const along = (Math.random() - 0.5) * 74;
+                const color = palette[i % palette.length] || edge;
+                const p = this.game.particles.spawn(
+                    x + cos * along + nx * side * 5,
+                    y + sin * along + ny * side * 5,
+                    color
+                );
+                if (!p) continue;
+                p.vx = nx * side * (0.7 + Math.random() * 0.5) + cos * (Math.random() - 0.5) * 0.3;
+                p.vy = ny * side * (0.7 + Math.random() * 0.5) + sin * (Math.random() - 0.5) * 0.3;
+                p.gravity = 0.0012;
+                p.size = 1.6 + Math.random() * 2.4;
+                p.initialSize = p.size;
+                p.life = 1;
+                p.decay = 0.05 + Math.random() * 0.02;
+            }
+        }
+    }
+
+    /**
      * A boss meteor is swallowed by the Voidweaver's outer event horizon.
      * This is a pooled, target-seeking inward burst; it changes presentation
      * only, while Game.js has already resolved the actual defense charge.

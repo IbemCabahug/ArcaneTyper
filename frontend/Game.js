@@ -17,6 +17,15 @@ import { CharacterRenderer } from './game/CharacterRenderer.js';
 import { otherSlot, slotX, teamColorFor } from './game/ArenaTeams.js';
 import { drawCasterSigil, drawTimeStopSeal } from './game/ArenaSigils.js';
 
+/**
+ * AT: the Bloodseeker's netherblades catch a meteor once this fraction of its
+ * letters have been typed. 0.6 is tuned to be a genuine near miss — it is
+ * reachable by a fast typist who misjudged the fall, and out of reach for a
+ * slow or sloppy one, so the character stays fragile rather than gaining a
+ * passive fourth-and-a-half life.
+ */
+const BLADE_CATCH_TYPED = 0.6;
+
 export class Game {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -53,6 +62,7 @@ export class Game {
         this.duelCombos = { A: 0, B: 0 };
         this.duelBuffUntil = { A: 0, B: 0 };
         this.duelDebuffs = { A: null, B: null };
+        this.duelCharacters = { A: null, B: null };
         this.duelTimeStopUntil = 0;
         this.duelTimeStopSlot = null;
         this.stats.onBarrierRestored = (combo) => this._onBarrierRestored(combo);
@@ -285,6 +295,7 @@ export class Game {
         this.duelBuffUntil = { A: 0, B: 0 };
         this.duelDebuffs = { A: null, B: null };
         this.duelAuras = { A: null, B: null };
+        this.duelCharacters = { A: null, B: null };
         this.duelCombos = { A: 0, B: 0 };
         this.duelTimeStopUntil = 0;
         this.duelTimeStopSlot = null;
@@ -666,6 +677,15 @@ export class Game {
                     // character's defense. Only the off-screen path below is
                     // streak-only for ordinary meteors.
                     if (word.meteor) {
+                        // AT: the Bloodseeker's blades CATCH a near miss. A
+                        // meteor the player had nearly finished is destroyed by
+                        // a blade instead of landing, so neither the defense
+                        // pool nor the streak is touched. This rewards a close
+                        // read rather than caution, and it cannot be idled into:
+                        // the player has to have been genuinely typing THIS word.
+                        if (this._bladeCatchesNearMiss(word)) {
+                            continue;
+                        }
                         const defense = this.stats.consumeSurvivalDefense();
                         // The Voidweaver CAPTURES the meteor at its ward instead
                         // of shattering it, so the impact treatment is derived
@@ -1129,6 +1149,51 @@ export class Game {
     }
 
     /**
+     * AT: the Bloodseeker's netherblades intercept a meteor the player nearly
+     * finished typing. Returns TRUE when a blade caught it, and the caller then
+     * skips the whole defense/streak consequence.
+     *
+     * The rule is deliberately narrow so the fragile-hunter identity survives:
+     *   - Bloodseeker only (every other character keeps the plain impact);
+     *   - the meteor must be at least BLADE_CATCH_TYPED of the way typed, so a
+     *     slow or sloppy player still loses lives;
+     *   - a blade must actually be free. If all four are already in flight the
+     *     meteor lands, which is the honest outcome for a fast double-strike
+     *     rather than a free save.
+     *
+     * The collision loop has already spliced the meteor out of `this.words` by
+     * the time this runs, so this owns the save's presentation: the blade
+     * flight, the crimson catch burst, and the readout.
+     */
+    _bladeCatchesNearMiss(word) {
+        if (this.gameMode === 'duel') return false;
+        if (this.stats.selectedCharacter !== 'bloodseeker') return false;
+        if (!word || word.isBossAttack) return false;   // boss meteors stay lethal
+        if (typeof word.typed !== 'string' || typeof word.text !== 'string') return false;
+
+        const total = word.text.length;
+        if (total <= 0) return false;
+        const progress = word.typed.length / total;
+        if (progress < BLADE_CATCH_TYPED) return false;
+
+        // No free blade in formation → the meteor lands. Returning false lets
+        // the caller run its normal defense path untouched.
+        const blade = this._leaseBladeSlash(word.x, word.y, 700);
+        if (blade < 0) return false;
+
+        this.audio.playShatter();
+        this.combatSystem.spawnReaverArc(word.x, word.y);
+        this.combatSystem.triggerShake(6, 220);
+        this.floatingTexts.push(
+            new FloatingText('BLADE CATCH', this.canvas.width / 2, this.canvas.height - 150, '#ff2d4d', 26)
+        );
+        // Deliberately NOT resetting combo: the read was nearly clean, and this
+        // is the one meteor path that rewards the player for keeping it.
+        this.stats.updateHUD();
+        return true;
+    }
+
+    /**
      * Supernova leases ALL FOUR blades at once. The flight is deliberately
      * shorter than the Blood Moon cinematic so every blade has landed back in
      * formation by the time the takeover finishes — a volley that outlived its
@@ -1488,7 +1553,8 @@ export class Game {
                 Math.round(radius * breathe),
                 now,
                 skillId === 'time-stop' ? .86 : .72,
-                skillId === 'time-stop' ? remaining : this.duelBuffUntil[slot] - now
+                skillId === 'time-stop' ? remaining : this.duelBuffUntil[slot] - now,
+                this.duelCharacters[slot]
             );
         }
     }
@@ -1686,9 +1752,12 @@ export class Game {
      * callback: DuelRace owns the arbitration, this is only the visual.
      * The dying animation is reused so the word fades out like a normal kill.
      * @param {string} color team colour of the player who took the word
+     * @param {string} character that player's character, so the death animation
+     *   is THEIR treatment (a Voidweaver steal collapses, a Bloodseeker steal
+     *   cuts) — the loser's client still sees who killed their word.
      * @returns {boolean} true when a live race word was dissolved
      */
-    dissolveRaceWord(color = '#b892b0') {
+    dissolveRaceWord(color = '#b892b0', character = 'wizard') {
         const word = this.words.find(w => !w.dying && !w.isDead);
         if (!word) return false;
         if (word === this.targetedWord) {
@@ -1696,7 +1765,7 @@ export class Game {
             this.targetedWord = null;
         }
         word.dying = true;
-        this.combatSystem.spawnBurst(word.x, word.y, [color, '#ffffff']);
+        this.combatSystem.spawnWordDefeat(word.x, word.y, character, [color, '#ffffff']);
         return true;
     }
 
