@@ -419,7 +419,7 @@ body.duel-dimension #app::before {
   min-width: 350px;
   /* AT-F13: solid enough to stand alone now that the blur chain is gone */
   background: linear-gradient(200deg, rgba(12, 7, 24, 0.97), rgba(8, 4, 16, 0.98));
-  border-left: 1px solid rgba(41, 182, 246, 0.3);
+  border-left: 1px solid rgba(168, 85, 247, 0.72);
   box-shadow: -20px 0 50px rgba(0, 0, 0, 0.9);
   /* AT-F13: this panel is the owner's "too laggy" case, so give it its own
      compositor layer (transform + opacity only) and isolate its layout/style so
@@ -439,7 +439,392 @@ body.duel-dimension #app::before {
   transform: translateX(0);
 }
 
-/* ── Arena audition rings (AT-F13) ──────────────────────────────────────────
+/* ── Arena victory / result card — same Enchanted Library language as the
+   Arena lobby, but centered and ceremonial. The result is a single opaque
+   card over the frozen game surface: no nested blur, and the parent overlay's
+   opacity/transform transition remains compositor-only. */
+.duel-result-card {
+  width: min(92%, 680px);
+  padding: clamp(24px, 5vh, 48px) clamp(24px, 6vw, 72px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  background: linear-gradient(160deg, rgba(43, 27, 70, 0.98), rgba(15, 10, 20, 0.99));
+  border: 1px solid rgba(255, 215, 0, 0.45);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.72), 0 0 36px rgba(255, 215, 0, 0.12), inset 0 0 0 1px rgba(184, 146, 176, 0.12), inset 0 0 38px rgba(43, 27, 70, 0.45);
+}
+
+.duel-result-title {
+  margin-bottom: 0.35rem;
+  color: var(--accent-primary);
+  font-size: clamp(2.2rem, 6vh, 4rem);
+  letter-spacing: 7px;
+  text-shadow: 0 0 24px rgba(255, 215, 0, 0.35);
+}
+
+.duel-result-subtitle {
+  margin-bottom: 1.5rem;
+  color: var(--text-muted);
+  font-size: clamp(0.78rem, 2vh, 1.05rem);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.duel-result-scoreboard {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 5vw, 4rem);
+  margin-bottom: 1.8rem;
+  padding: clamp(14px, 3vh, 26px) clamp(18px, 4vw, 44px);
+  background: rgba(8, 4, 16, 0.48);
+  border: 1px solid rgba(255, 215, 0, 0.16);
+  border-radius: 12px;
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.28);
+}
+
+.duel-result-score {
+  min-width: 96px;
+  text-align: center;
+}
+
+.duel-result-label {
+  margin-bottom: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+
+.duel-result-score-local .duel-result-label {
+  color: var(--accent-primary);
+}
+
+.duel-result-score-opponent .duel-result-label {
+  color: #d9a8c7;
+}
+
+.duel-result-number {
+  color: var(--text-main);
+  font-size: clamp(2rem, 5vh, 3rem);
+  font-weight: 900;
+  text-shadow: 0 0 18px rgba(255, 215, 0, 0.22);
+}
+
+.duel-result-versus {
+  color: var(--text-muted);
+  font-size: clamp(1.1rem, 3vh, 1.5rem);
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.duel-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8rem;
+}
+
+.duel-result-actions .primary-btn {
+  min-width: 150px;
+  padding: 11px 24px;
+  font-size: 0.9rem;
+  letter-spacing: 2px;
+}
+
+.duel-result-rematch {
+  border-color: rgba(255, 215, 0, 0.6);
+  background: linear-gradient(135deg, rgba(85, 57, 18, 0.55), rgba(43, 27, 70, 0.9));
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.16);
+}
+
+.duel-result-return {
+  color: var(--text-muted);
+  background: rgba(8, 4, 16, 0.35);
+  border-color: rgba(184, 146, 176, 0.4);
+}
+
+@media (max-height: 500px) {
+  .duel-result-card {
+    padding: 16px 24px;
+  }
+
+  .duel-result-subtitle {
+    margin-bottom: 0.75rem;
+  }
+
+  .duel-result-scoreboard {
+    margin-bottom: 0.8rem;
+    padding: 10px 22px;
+  }
+
+  .duel-result-actions .primary-btn {
+    padding: 8px 18px;
+  }
+}
+
+
+/* ── Arena lobby / shared Enchanted Library components ─────────────────── */
+/* The class card explains a PvP-only active, so the desktop lobby needs a
+   little tighter rhythm to keep its return action inside the fixed 600px
+   frame. The tablet/phone rules below own the narrower layouts. */
+@media (min-width: 901px) {
+  #duel-lobby-menu .arena-lobby-class-info {
+    margin-bottom: 0.55rem;
+    padding: 0.4rem 0.7rem;
+    gap: 0.12rem;
+  }
+
+  #duel-lobby-menu .arena-lobby-active-effect {
+    font-size: 0.64rem;
+    line-height: 1.2;
+  }
+
+  #duel-lobby-menu .arena-lobby-card {
+    padding: 24px;
+  }
+
+  #duel-lobby-menu .arena-lobby-idle,
+  #duel-lobby-menu .arena-lobby-waiting {
+    gap: 0.85rem;
+  }
+}
+
+.arena-lobby-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  margin: 0 0 0.35rem;
+  color: #e8d9ff;
+  font-size: clamp(2rem, 5vh, 3.5rem);
+  letter-spacing: 5px;
+  text-align: center;
+  text-shadow: 0 0 20px rgba(155, 108, 255, 0.38);
+}
+
+.arena-lobby-sigil {
+  width: 1.05em;
+  height: 1.05em;
+  flex: 0 0 auto;
+  color: #c084fc;
+  filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.48));
+}
+
+.arena-lobby-subtitle {
+  margin: 0 0 1.5rem;
+  color: #b892b0;
+  font-size: clamp(0.7rem, 2vh, 0.9rem);
+  letter-spacing: 3px;
+  text-align: center;
+  text-shadow: 0 0 10px rgba(184, 146, 176, 0.3);
+}
+
+.arena-lobby-class-info {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 0 0.9rem;
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  text-align: center;
+  color: var(--discipline-accent, #c084fc);
+  background: linear-gradient(110deg, rgba(168, 85, 247, 0.12), rgba(43, 27, 70, 0.34));
+  border: 1px solid color-mix(in srgb, var(--discipline-accent, #a855f7) 45%, transparent);
+  border-radius: 10px;
+  box-shadow: inset 0 0 18px rgba(168, 85, 247, 0.08);
+}
+
+.arena-lobby-class-line,
+.arena-lobby-active-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.arena-lobby-class-label,
+.arena-lobby-pvp-only,
+.arena-lobby-active-cost {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+}
+
+.arena-lobby-class-line strong {
+  color: var(--discipline-accent, #c084fc);
+  font-size: 0.9rem;
+  letter-spacing: 0.5px;
+}
+
+.arena-lobby-pvp-only {
+  color: #e879f9;
+  text-shadow: 0 0 8px rgba(232, 121, 249, 0.35);
+}
+
+.arena-lobby-active-line strong {
+  color: var(--text-main);
+  font-size: 0.78rem;
+}
+
+.arena-lobby-active-cost {
+  color: #c084fc;
+}
+
+.arena-lobby-active-effect {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.arena-lobby-card {
+  width: 100%;
+  max-width: 440px;
+  padding: clamp(20px, 4vh, 36px);
+  background: linear-gradient(160deg, rgba(43, 27, 70, 0.82), rgba(10, 5, 20, 0.94));
+  border: 1px solid rgba(184, 146, 176, 0.28);
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.46), inset 0 0 30px rgba(43, 27, 70, 0.32);
+}
+
+.arena-lobby-idle,
+.arena-lobby-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.arena-lobby-waiting {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(255, 215, 0, 0.36);
+}
+
+.arena-lobby-section {
+  width: 100%;
+  padding: 0.8rem;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(8, 4, 16, 0.35);
+}
+
+.arena-lobby-section-host { border-color: rgba(41, 182, 246, 0.28); }
+.arena-lobby-section-join { border-color: rgba(213, 0, 249, 0.24); }
+
+.arena-lobby-label {
+  margin: 0 0 0.65rem;
+  color: #b892b0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.arena-lobby-section-host .arena-lobby-label { color: #29b6f6; }
+.arena-lobby-section-join .arena-lobby-label { color: #e879f9; }
+
+.arena-lobby-action {
+  width: 100%;
+  border-radius: 8px;
+  font-size: 0.86rem;
+  letter-spacing: 2px;
+}
+
+.arena-lobby-create {
+  border-color: rgba(41, 182, 246, 0.6);
+  background: linear-gradient(135deg, #12324b, #18204b);
+  box-shadow: 0 0 16px rgba(41, 182, 246, 0.16);
+}
+
+.arena-lobby-join {
+  border-color: rgba(213, 0, 249, 0.55);
+  background: linear-gradient(135deg, #32134b, #241443);
+  box-shadow: 0 0 16px rgba(213, 0, 249, 0.14);
+}
+
+.arena-lobby-divider {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(184, 146, 176, 0.5), transparent);
+}
+
+.arena-lobby-join-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.arena-lobby-input {
+  width: 100%;
+  padding: 11px 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.48);
+  border: 1px solid rgba(213, 0, 249, 0.45);
+  border-radius: 7px;
+  outline: none;
+  font: inherit;
+  font-size: 1rem;
+  letter-spacing: 5px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.arena-lobby-input:focus {
+  border-color: rgba(232, 121, 249, 0.85);
+  box-shadow: 0 0 14px rgba(213, 0, 249, 0.24);
+}
+
+.arena-lobby-room-label { position: relative; z-index: 2; margin: 1.2rem 0 0; }
+
+.arena-room-code {
+  position: relative;
+  z-index: 2;
+  margin: 0 0 0.8rem;
+  color: #fff;
+  font-size: clamp(2.5rem, 8vh, 4rem);
+  font-weight: 900;
+  letter-spacing: 12px;
+  text-shadow: 0 0 24px rgba(41, 182, 246, 0.8);
+}
+
+.arena-lobby-waiting-copy {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  color: #29b6f6;
+  font-size: 0.8rem;
+  letter-spacing: 2px;
+  animation: pulseOpacity 1.5s infinite;
+}
+
+.arena-lobby-error {
+  min-height: 1em;
+  margin: 0;
+  color: #ff6b81;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.arena-lobby-menu #duel-lobby-error { margin-top: 0.8rem; }
+
+.arena-lobby-return {
+  margin-top: 1rem;
+  color: #b892b0;
+  background: transparent;
+  border-color: rgba(184, 146, 176, 0.4);
+  font-size: 0.78rem;
+  letter-spacing: 1px;
+}
+
+/* ── Arena audition rings (AT-F13) ─────────────────────────────────────────
    The waiting card's two rings were inline-styled divs spinning inside a
    blurred card, which forced that blur to re-rasterise every frame. They are
    now their own composited layers (transform-only animation + contain: paint),
@@ -1013,19 +1398,19 @@ h1 .highlight {
 /* ── AT-F9 Arena Score Bar (top-center: host blue · guest red) ── */
 #duel-scorebar {
     position: absolute;
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
+    inset: 0;
+    width: 100%;
+    height: 100%;
     z-index: 60;
     pointer-events: none;
-    display: flex;
-    align-items: center;
-    gap: 10px;
 }
 
 .sb-side {
-    min-width: 172px;
-    padding: 6px 10px;
+    position: absolute;
+    bottom: 18px;
+    width: clamp(160px, 19vw, 220px);
+    min-width: 0;
+    padding: 8px 11px;
     /* AT-F13: no backdrop-filter here — this bar sits over the arena canvas,
        which redraws every frame, so a blur on it re-sampled 60x/second for the
        whole match. A more opaque gradient reads the same and costs nothing. */
@@ -1033,6 +1418,9 @@ h1 .highlight {
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 10px;
 }
+
+#sb-side-a { left: 18px; }
+#sb-side-b { right: 18px; }
 
 .sb-side.sb-you {
     border-color: rgba(255, 255, 255, 0.35);
@@ -1088,6 +1476,40 @@ h1 .highlight {
     letter-spacing: 1px;
 }
 
+.sb-streak {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 1.1em;
+    margin-top: 4px;
+    color: #d9a8c7;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.sb-streak strong {
+    color: #ffd700;
+    font-size: 0.78rem;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+}
+
+.sb-streak-pips {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: 2px;
+}
+
+.sb-streak-pips::before {
+    content: '';
+    display: block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #6b5b78;
+    box-shadow: 9px 0 #6b5b78, 18px 0 #6b5b78;
+}
+
 /* AT-F10: the class active, one chip per mage (see #sb-buff-a in index.html).
    Deliberately no blur / no transition / no animation: this bar lives over the
    arena canvas, which redraws every frame, so AT-F13's rule for it applies —
@@ -1109,6 +1531,10 @@ h1 .highlight {
 }
 
 .sb-center {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
     text-align: center;
     min-width: 72px;
 }
@@ -2143,7 +2569,7 @@ h2 {
   #profile-menu {
     padding: 0.5rem 0;
   }
-  
+
   #profile-menu h2 {
     font-size: 1.1rem !important;
   }
@@ -2385,6 +2811,38 @@ h2 {
   #duel-lobby-menu {
     width: 75vw;
     max-width: 440px;
+  }
+
+  /* AT-F15: the tablet frame is only 600px tall. Keep the redesigned lobby
+     readable while making its complete idle column reachable instead of
+     letting the centered overlay push the return action below the frame. */
+  #duel-lobby-menu .arena-lobby-title {
+    font-size: clamp(1.8rem, 4.5vh, 2.6rem);
+  }
+
+  #duel-lobby-menu .arena-lobby-subtitle {
+    margin-bottom: 0.85rem;
+  }
+
+  #duel-lobby-menu .arena-lobby-card {
+    padding: 16px;
+  }
+
+  #duel-lobby-menu .arena-lobby-idle,
+  #duel-lobby-menu .arena-lobby-waiting {
+    gap: 0.75rem;
+  }
+
+  #duel-lobby-menu .arena-lobby-section {
+    padding: 0.6rem;
+  }
+
+  #duel-lobby-menu .arena-lobby-label {
+    margin-bottom: 0.45rem;
+  }
+
+  #duel-lobby-menu .arena-lobby-return {
+    margin-top: 0.65rem;
   }
 }
 
@@ -2882,6 +3340,299 @@ h2 {
   font-size: 0.7rem;
   font-style: italic;
   padding: 4px 0;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AT-M11 — the start menu's vertical rhythm, owned by CSS
+   ═══════════════════════════════════════════════════════════════════════════
+   Found by the owner's eye on scratch/live-1-forge.png (the AT-F16 live pass):
+   the home screen's title was cut in half by the top of the frame and HALL OF
+   FAME hung out of the bottom — unclickable.
+
+   Measured cause (node scratch/probe-layout-fit.mjs): the frame is a FIXED
+   1000x600 box at every desktop viewport (critical.css owns it), but the menu
+   chrome sized itself in `vh`. A 1080p monitor therefore asked for 730px of
+   content in a 598px box; `.overlay-menu` centres its column, so the overflow
+   spilled BOTH ways equally — 66px off each end — and `#game-container
+   { overflow: hidden }` ate it. Same menu, same frame, different monitor.
+
+   These values used to be inline styles in index.html, which is why every
+   mobile override needed `!important` to reach them, and why a short frame
+   could not be compacted at all. They reproduce the inline originals exactly;
+   the `@container frame` block at the end of this file is what compacts them
+   for the fixed frame. */
+.menu-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(5px, 1vh, 15px);
+  width: 100%;
+  position: relative;
+  z-index: 50;
+  pointer-events: none;
+}
+
+#menu-mage-name {
+  font-size: 1.5rem;
+}
+
+#menu-mage-title {
+  font-size: 0.9rem;
+}
+
+#start-menu .stats-overview {
+  flex-direction: column;
+  gap: 8px;
+}
+
+#start-menu .stats-overview > div:first-child {
+  font-size: 1.1rem;
+}
+
+#start-menu .stats-overview > div:first-child span {
+  font-size: 1.3rem;
+}
+
+#start-menu .stats-overview > div:last-child {
+  font-size: 0.9rem;
+}
+
+#start-menu .button-group {
+  gap: clamp(8px, 1.5vh, 15px);
+}
+
+#start-menu .menu-hint {
+  font-size: 0.75rem;
+  margin-top: 5px;
+}
+
+/* The Spellbook label and the two stat rows carry their own sizes; they were
+   inline too. Same owner now. */
+#top-right-controls .difficulty-selector label {
+  font-size: 0.8rem;
+}
+
+#start-menu .stats-overview > div {
+  gap: 15px;
+}
+
+#start-menu .selectors-container {
+  gap: 15px;
+}
+
+/* ── The no-clip invariant: an overlay fits its frame, or it scrolls ──────────
+   `safe center` is the class-level fix for what AT-M11 found. `.overlay-menu`
+   centres its column; with plain `center`, a too-tall column overflows ABOVE
+   the frame, where nothing can reach it — it is not scrollable and is not even
+   reported by `scrollHeight`. `safe center` falls back to start-aligned the
+   moment the content does not fit, so the top edge stays visible and reachable.
+   A browser without the `safe` keyword drops the declaration and behaves
+   exactly as before, so this cannot itself be the regression. */
+.overlay-menu {
+  justify-content: safe center;
+}
+
+/* Only #start-menu needs its own scroll container: it is the one overlay whose
+   content can exceed the frame (profile-menu declares its own overflow-y).
+   Thin gold scrollbar, matching the mobile treatment. */
+#start-menu {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#start-menu::-webkit-scrollbar {
+  width: 4px;
+}
+
+#start-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 215, 0, 0.3);
+  border-radius: 4px;
+}
+
+/* ── The desktop fit: ONE constant scale for the fixed 1000x600 frame ─────────
+   Container queries, not media queries: the FRAME decides, not the monitor.
+   The tuned scale is the look the old <=1280x720 desktop path already produced
+   — the one that nearly fit (605px of 598px) — now held constant for every
+   desktop monitor instead of growing with `vh`.
+   Tuned against scratch/probe-layout-fit.mjs, which must report `fits` for
+   start-menu at every desktop viewport. Nothing here is a guess. */
+@container frame (min-width: 900px) {
+  .menu-column {
+    gap: 6px;
+  }
+
+  #start-menu h1 {
+    font-size: 2.4rem;
+    letter-spacing: -1px;
+  }
+
+  #start-menu .subtitle {
+    font-size: 0.72rem;
+    letter-spacing: 4px;
+    margin-bottom: 4px;
+  }
+
+  #menu-mage-name {
+    font-size: 1.32rem;
+  }
+
+  #menu-mage-title {
+    font-size: 0.82rem;
+  }
+
+  #start-menu .stats-overview {
+    gap: 5px;
+    padding: 5px 14px;
+    margin-bottom: 5px;
+  }
+
+  #start-menu .stats-overview > div:first-child {
+    font-size: 0.95rem;
+  }
+
+  #start-menu .stats-overview > div:first-child span {
+    font-size: 1.1rem;
+  }
+
+  #start-menu .stats-overview > div:last-child {
+    font-size: 0.8rem;
+  }
+
+  /* Scoped to .selectors-container: the Spellbook selector sits in
+     #top-right-controls, not here, and keeps its own compact box below. */
+  #start-menu .selectors-container .difficulty-selector {
+    gap: 4px;
+  }
+
+  #start-menu .selectors-container .difficulty-selector label {
+    font-size: 0.82rem;
+  }
+
+  #start-menu .selectors-container .difficulty-selector select {
+    padding: 6px 16px;
+    font-size: 0.92rem;
+    min-width: 180px;
+  }
+
+  #top-right-controls {
+    top: 14px;
+    right: 14px;
+  }
+
+  #top-right-controls .difficulty-selector label {
+    font-size: 0.72rem;
+  }
+
+  #top-right-controls select {
+    font-size: 0.82rem;
+    padding: 4px 10px;
+    min-width: 140px;
+  }
+
+  #start-menu .button-group {
+    gap: 9px;
+  }
+
+  #start-menu .button-group .primary-btn {
+    padding: 9px 20px;
+    font-size: 0.9rem;
+    letter-spacing: 1.5px;
+  }
+
+  #start-menu .menu-hint {
+    font-size: 0.7rem;
+    margin-top: 3px;
+  }
+}
+
+
+/* ── The narrow-frame fit: the same principle at tablet/phone widths ─────────
+   At <=900px the frame is no longer 1000px wide, so the desktop fit block must
+   not be extended wholesale (its desktop type is deliberately readable). The
+   narrow frame instead gets a denser, frame-sized rhythm. This is deliberately
+   a container query: a 768px-wide tablet in a wide desktop window gets the same
+   compact menu as a phone-sized frame, independent of monitor width. The values
+   are the second measured pass in scratch/probe-layout-fit.mjs; they keep every
+   row and control reachable, with scrolling retained as the final safety net.
+   `!important` is required only where the legacy mobile block already uses it. */
+@container frame (max-width: 899px) {
+  .menu-column {
+    gap: 4px !important;
+  }
+
+  #start-menu h1 {
+    font-size: 1.45rem !important;
+    letter-spacing: -0.5px;
+  }
+
+  #start-menu .subtitle {
+    font-size: 0.62rem !important;
+    letter-spacing: 2px;
+    margin-bottom: 2px;
+  }
+
+  #menu-mage-name {
+    font-size: 1rem !important;
+  }
+
+  #menu-mage-title {
+    font-size: 0.72rem !important;
+  }
+
+  #start-menu .stats-overview {
+    gap: 3px !important;
+    padding: 3px 8px;
+    margin-bottom: 3px;
+  }
+
+  #start-menu .stats-overview > div:first-child {
+    font-size: 0.8rem;
+  }
+
+  #start-menu .stats-overview > div:first-child span {
+    font-size: 0.95rem;
+  }
+
+  #start-menu .stats-overview > div:last-child {
+    font-size: 0.68rem;
+  }
+
+  #start-menu .selectors-container {
+    gap: 5px !important;
+  }
+
+  #start-menu .selectors-container .difficulty-selector {
+    gap: 2px;
+  }
+
+  #start-menu .selectors-container .difficulty-selector label {
+    font-size: 0.68rem;
+  }
+
+  #start-menu .selectors-container .difficulty-selector select {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 4px 8px !important;
+    font-size: 0.78rem !important;
+  }
+
+  #start-menu .button-group {
+    width: 92% !important;
+    max-width: 300px;
+    gap: 5px !important;
+  }
+
+  #start-menu .button-group .primary-btn {
+    padding: 6px 8px !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.6px !important;
+  }
+
+  #start-menu .menu-hint {
+    font-size: 0.6rem;
+    margin-top: 1px;
+  }
 }
 
 

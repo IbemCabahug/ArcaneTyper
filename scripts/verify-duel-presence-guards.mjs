@@ -27,6 +27,8 @@ import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = readFileSync(join(root, 'frontend', 'main.js'), 'utf8');
+const duelSrc = readFileSync(join(root, 'backend', 'Duel.js'), 'utf8');
+const raceSrc = readFileSync(join(root, 'frontend', 'game', 'DuelRace.js'), 'utf8');
 
 let failures = 0;
 function check(name, condition, detail = '') {
@@ -82,6 +84,23 @@ check(
 check(
     'the paired re-track join cannot re-fire startDuel on a torn-down duel',
     src.includes('if (!duel || duelActive) return;')
+);
+check(
+    'the in-match grace re-checks settled presence before forfeiting',
+    raceSrc.includes('if (this._opponentIsPresent())') &&
+        raceSrc.includes("this._endMatch(this.mine, 'disconnect');")
+);
+check(
+    'the in-match presence check ignores the local key and handles a torn channel',
+    raceSrc.includes('key !== this.duel.presenceKey') &&
+        raceSrc.includes('this.duel.channel?.presenceState?.() || {}') &&
+        raceSrc.includes('return false;')
+);
+check(
+    'visibility re-track is installed and removed with the channel',
+    duelSrc.includes("document.addEventListener('visibilitychange'") &&
+        duelSrc.includes('this._removeVisibilityHandler();') &&
+        duelSrc.includes("document.removeEventListener('visibilitychange'")
 );
 
 // ── 3. the survival death screen survives a duel ──────────────────────────

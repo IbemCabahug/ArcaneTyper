@@ -92,7 +92,7 @@ export class Stats {
         this.wandColor = localStorage.getItem('typerMaster_wandColor') || '#ff00ff';
         // `mageClass` used to never be read back, so saveProgression persisted
         // the literal string "undefined" and every class bonus (Pyromancer
-        // score, Cryomancer speed, Chronomancer mana refund) vanished on reload.
+        // score, Cryomancer speed, Chronomancer's Survival Nova refund) vanished on reload.
         const storedClass = localStorage.getItem('typerMaster_mageClass');
         // AT-L8: normalised through MageClasses so a hand-edited/legacy value
         // ("Scholar", "undefined", a blank string) can never leave the class
@@ -315,11 +315,9 @@ export class Stats {
     }
 
     /**
-     * AT-F10: ADD mana outside of `addScore` — the Chronomancer active (Mana
-     * Echo) refunds the caster on a won claim. Clamped to the pool like every
-     * other write, repainted even when the pool is already full (so the bar can
-     * never disagree with `this.mana`), and it returns how much actually landed
-     * so the caller can show an honest number.
+     * Add mana outside of `addScore`, clamped to the pool and repainted even
+     * when already full. Kept as a shared Stats primitive for future mana
+     * effects; the current Chronomancer Arena active spends mana without refunding.
      */
     refundMana(amount) {
         if (!(amount > 0)) return 0;

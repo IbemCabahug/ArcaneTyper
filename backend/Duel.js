@@ -111,11 +111,32 @@ export class Duel {
         });
     }
 
+    _removeVisibilityHandler() {
+        if (this._visibilityHandler && typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+            document.removeEventListener('visibilitychange', this._visibilityHandler);
+        }
+        this._visibilityHandler = null;
+    }
+
     /**
      * Subscribe to the Supabase Realtime channel for this room.
      */
     async _subscribe() {
         const channelName = `duel:${this.roomCode}`;
+
+        this._removeVisibilityHandler();
+
+        // A browser tab can be throttled in the background. Re-publish presence
+        // when it becomes visible again; the peer still has to pass its normal
+        // five-second leave grace, so this cannot mask a real disconnect.
+        this._visibilityHandler = () => {
+            if (typeof document !== 'undefined' && !document.hidden) {
+                this.refreshPresence();
+            }
+        };
+        if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+            document.addEventListener('visibilitychange', this._visibilityHandler);
+        }
 
         // Clean up any previous channel
         if (this.channel) {
@@ -163,16 +184,35 @@ export class Duel {
         await this.channel.subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
                 // Track with UUID key; display name + match-lock flag in payload
-                await this.channel.track({
-                    player_name: this.playerName,
-                    online_at: new Date().toISOString(),
-                    in_match: this.inMatch,
-                    character: this.character,
-                    wand: this.wandColor,
-                    mage_class: this.mageClass
-                });
+                await this.channel.track(this._presencePayload());
             }
         });
+    }
+
+    _presencePayload() {
+        return {
+            player_name: this.playerName,
+            online_at: new Date().toISOString(),
+            in_match: this.inMatch,
+            character: this.character,
+            wand: this.wandColor,
+            mage_class: this.mageClass
+        };
+    }
+
+    /**
+     * Re-publish the local presence after a browser visibility transition.
+     * Supabase may emit a transient leave while a backgrounded tab is throttled;
+     * this does not suppress a real opponent disconnect, it restores our own
+     * presence state so the normal presence confirmation can observe it.
+     */
+    async refreshPresence() {
+        if (!this.channel) return false;
+        try {
+            return await this.channel.track(this._presencePayload());
+        } catch (err) {
+            return false;
+        }
     }
 
     /**
@@ -193,14 +233,7 @@ export class Duel {
     async markInMatch() {
         this.inMatch = true;
         if (this.channel) {
-            await this.channel.track({
-                player_name: this.playerName,
-                online_at: new Date().toISOString(),
-                in_match: true,
-                character: this.character,
-                wand: this.wandColor,
-                mage_class: this.mageClass
-            });
+            await this.channel.track(this._presencePayload());
         }
     }
 
@@ -248,6 +281,7 @@ export class Duel {
      * Disconnect from the duel channel.
      */
     async disconnect() {
+        this._removeVisibilityHandler();
         if (this.channel && this.supabase) {
             await this.supabase.removeChannel(this.channel);
         }

@@ -57,7 +57,11 @@ export class CharacterRenderer {
         const wizX = cx;
         const wizY = cy + hoverY;
         const wandColor = (stats && stats.wandColor) ? stats.wandColor : '#00e5ff';
-        const combo = stats ? (stats.combo || 0) : 0;
+        const rawCombo = stats ? (stats.combo || 0) : 0;
+        // An armed class active owns the focal space around the mage. The real
+        // combo remains intact for gameplay, but the Arena renderer caps only
+        // its visual escalation so the sigil stays dominant at high streaks.
+        const combo = stats && stats.arenaSkillActive ? Math.min(rawCombo, 100) : rawCombo;
         const lowQ = window.__atLowQuality;
 
         ctx.save();

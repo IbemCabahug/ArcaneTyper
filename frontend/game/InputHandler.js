@@ -65,6 +65,7 @@ export class InputHandler {
                 this.processKeystroke(this.game.targetedWord, letter);
             } else {
                 this.game.stats.recordStroke(false);
+                if (this.game.onDuelCombo) this.game.onDuelCombo(this.game.stats.combo);
                 this.game.audio.playErrorSound();
                 this.game.stats.updateHUD(); // Ensure combo break is visible
                 if (this.game.onRaceMistake) this.game.onRaceMistake(); // AT-F9: stray key
@@ -77,6 +78,7 @@ export class InputHandler {
             word.typed += word.untyped[0];
             word.untyped = word.untyped.slice(1);
             this.game.stats.recordStroke(true);
+            if (this.game.onDuelCombo) this.game.onDuelCombo(this.game.stats.combo);
             this.game.audio.playTypeSound();
 
             // Spark at typed position (centralized to match word baseline)

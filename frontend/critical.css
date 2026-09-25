@@ -66,4 +66,16 @@ html, body {
   border-radius: 12px;
   position: relative;
   overflow: hidden;
+  /* AT-M11 — the frame is the UI's reference box, so let the UI query it.
+     This box is a FIXED 1000x600 at EVERY desktop viewport, while the overlay
+     chrome above it sized itself in `vh`: a 1080p monitor therefore asked for
+     730px of start-menu content in a 598px frame, `.overlay-menu` centred that
+     column so it overflowed BOTH ways, and `overflow: hidden` ate 66px off each
+     end (title clipped in half, HALL OF FAME unclickable). `container-type: size`
+     lets the overlays scale from the FRAME instead of the monitor — see the
+     `@container frame (min-width: 900px)` block at the end of style.css.
+     `contain: size` is a no-op here: the box is already independent of content. */
+  container-type: size;
+  container-name: frame;
+
 }

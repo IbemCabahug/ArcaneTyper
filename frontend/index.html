@@ -98,30 +98,33 @@
           style="position: absolute; top: 20px; right: 20px; z-index: 10; pointer-events: auto;">
           <div class="difficulty-selector"
             style="margin-bottom: 0; background: rgba(0, 0, 0, 0.6); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255, 215, 0, 0.2);">
-            <label for="dictionary-select" style="font-size: 0.8rem;">Spellbook:</label>
+            <label for="dictionary-select">Spellbook:</label>
             <select id="dictionary-select">
               <option value="classic" selected>Classic (English)</option>
               <option value="coding">Incantation (Coding)</option>
             </select>
           </div>
         </div>
-        <div
-          style="display: flex; flex-direction: column; align-items: center; gap: clamp(5px, 1vh, 15px); width: 100%; position: relative; z-index: 50; pointer-events: none;">
+        <!-- AT-M11: the menu column's vertical rhythm is owned by CSS
+             (.menu-column) — the inline `gap` that used to live here could only
+             be reached with `!important`, which is why every mobile override
+             needed one, and why a short frame could not be compacted at all. -->
+        <div class="menu-column">
           <h1>ARCANE<span class="highlight">TYPER</span></h1>
           <p class="subtitle">Enchanted Library Edition - v2.3.2</p>
           <div style="text-align: center; margin-bottom: 5px;">
             <h2 id="menu-mage-name"
-              style="color: #fff; font-size: 1.5rem; margin: 0; text-shadow: 0 0 10px rgba(255,255,255,0.5);">Anonymous
+              style="color: #fff; margin: 0; text-shadow: 0 0 10px rgba(255,255,255,0.5);">Anonymous
               Mage</h2>
             <p id="menu-mage-title"
-              style="color: #ffd700; font-size: 0.9rem; font-style: italic; margin: 0; letter-spacing: 2px;">No Title
+              style="color: #ffd700; font-style: italic; margin: 0; letter-spacing: 2px;">No Title
               Equipped</p>
           </div>
-          <div class="stats-overview" style="display: flex; flex-direction: column; gap: 8px;">
+          <div class="stats-overview">
             <div
-              style="display: flex; gap: 15px; justify-content: center; align-items: center; font-size: 1.1rem; color: #b892b0;">
+              style="display: flex; justify-content: center; align-items: center; color: #b892b0;">
               <p>Level <span id="menu-player-level"
-                  style="color: #ffd700; font-weight: bold; font-size: 1.3rem;">1</span></p>
+                  style="color: #ffd700; font-weight: bold;">1</span></p>
               <div
                 style="width: 150px; height: 10px; background: rgba(0,0,0,0.5); border: 1px solid #b892b0; border-radius: 5px; overflow: hidden; position: relative;"
                 title="XP to next level">
@@ -130,14 +133,14 @@
                 </div>
               </div>
             </div>
-            <div style="display: flex; gap: 15px; justify-content: center; font-size: 0.9rem;">
+            <div style="display: flex; justify-content: center;">
               <p>Mastery Score: <span id="menu-best-score">0</span></p>
               <p>Max WPM: <span id="menu-best-wpm">0</span></p>
               <p>Best Streak: <span id="menu-best-streak">0</span></p>
             </div>
           </div>
           <div class="selectors-container"
-            style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; pointer-events: auto;">
+            style="display: flex; flex-wrap: wrap; justify-content: center; pointer-events: auto;">
             <div class="difficulty-selector" style="margin-bottom: 0;">
               <label for="difficulty-select">Challenge:</label>
               <select id="difficulty-select">
@@ -158,7 +161,7 @@
 
           </div>
           <div class="button-group"
-            style="display: flex; flex-direction: column; gap: clamp(8px, 1.5vh, 15px); width: 100%; max-width: 300px;">
+            style="display: flex; flex-direction: column; width: 100%; max-width: 300px;">
             <button id="start-btn" class="primary-btn">ARCANE DEFENSE (SURVIVAL)</button>
             <button id="practice-btn" class="primary-btn"
               style="background: linear-gradient(45deg, #1e0b2b, #4a2c68); border-color: #b892b0;">THE SCRIBE'S TRIAL
@@ -168,7 +171,7 @@
               WORKSHOP (UPGRADES)</button>
             <button id="open-leaderboard-btn" class="primary-btn">HALL OF
               FAME</button>
-            <div style="font-size: 0.75rem; color: #b892b0; opacity: 0.8; text-align: center; pointer-events: none; margin-top: 5px; font-family: 'Outfit', monospace; letter-spacing: 0.5px;">Press <span style="color: #ffd700; font-weight: bold; border: 1px solid rgba(255, 215, 0, 0.4); padding: 1px 5px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);">Enter</span> to begin instantly</div>
+            <div class="menu-hint" style="color: #b892b0; opacity: 0.8; text-align: center; pointer-events: none; font-family: 'Outfit', monospace; letter-spacing: 0.5px;">Press <span style="color: #ffd700; font-weight: bold; border: 1px solid rgba(255, 215, 0, 0.4); padding: 1px 5px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);">Enter</span> to begin instantly</div>
           </div>
         </div>
 
@@ -365,69 +368,58 @@
       <!-- DUEL LOBBY MENU                                         -->
       <!-- ═══════════════════════════════════════════════════════ -->
       <div id="duel-lobby-menu" class="overlay-menu hidden">
-        <h2
-          style="color: #29b6f6; text-shadow: 0 0 20px rgba(41,182,246,0.6); font-size: clamp(2rem, 5vh, 3.5rem); letter-spacing: 5px; margin-bottom: 0.5rem;">
-          ⚔️ THE ARENA</h2>
-        <p
-          style="color: #b892b0; font-size: clamp(0.7rem, 2vh, 1rem); letter-spacing: 4px; margin-bottom: 2rem; text-shadow: 0 0 10px rgba(184,146,176,0.4);">
-          CHALLENGE ANOTHER MAGE IN REAL-TIME</p>
+        <h2 class="arena-lobby-title">
+          <svg class="arena-lobby-sigil" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <circle cx="16" cy="16" r="10.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.55"></circle>
+            <path d="M5 16A11 11 0 0 1 16 5M16 27A11 11 0 0 1 27 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"></path>
+            <path d="M16 10L18 14L22 16L18 18L16 22L14 18L10 16L14 14Z" fill="currentColor"></path>
+            <circle cx="26" cy="11" r="1.4" fill="currentColor"></circle>
+          </svg>
+          <span>THE ARENA</span>
+        </h2>
+        <p class="arena-lobby-subtitle">CHALLENGE ANOTHER MAGE IN REAL-TIME</p>
 
-        <!-- AT-F13: no nested blur on this card — the panel itself is the one
-             opaque background layer now (see .overlay-menu in style.css). -->
-        <div id="duel-lobby-idle"
-          style="display: flex; flex-direction: column; align-items: center; gap: 1.5rem; width: 100%; max-width: 400px; background: rgba(10, 5, 20, 0.82); padding: clamp(20px, 4vh, 40px); border-radius: 15px; border: 1px solid rgba(41, 182, 246, 0.3); box-shadow: 0 0 30px rgba(41, 182, 246, 0.2);">
+        <div id="duel-lobby-class-info" class="arena-lobby-class-info">
+          <div class="arena-lobby-class-line">
+            <span class="arena-lobby-class-label">BOUND DISCIPLINE</span>
+            <strong id="duel-lobby-class-name">Novice</strong>
+          </div>
+          <div class="arena-lobby-active-line">
+            <span class="arena-lobby-pvp-only">PVP ACTIVE ONLY</span>
+            <strong id="duel-lobby-active-name">Arcane Surge</strong>
+            <span id="duel-lobby-active-cost" class="arena-lobby-active-cost">50 MANA</span>
+          </div>
+          <p id="duel-lobby-active-effect" class="arena-lobby-active-effect">Your next won claim deals +50% damage.</p>
+        </div>
 
-          <div style="width: 100%; text-align: center;">
-            <p style="color: #29b6f6; font-size: 0.8rem; letter-spacing: 2px; margin-bottom: 10px; font-weight: bold;">
-              HOST A DUEL</p>
-            <button id="duel-create-btn" class="primary-btn"
-              style="width: 100%; font-size: 1.1rem; padding: 12px; border-color: #29b6f6; background: linear-gradient(45deg, #0b1a2b, #1a3a5c); box-shadow: 0 0 15px rgba(41,182,246,0.4);">CREATE
-              ROOM</button>
+        <div id="duel-lobby-idle" class="arena-lobby-card arena-lobby-idle">
+          <div class="arena-lobby-section arena-lobby-section-host">
+            <p class="arena-lobby-label">HOST A DUEL</p>
+            <button id="duel-create-btn" class="primary-btn arena-lobby-action arena-lobby-create">CREATE ROOM</button>
           </div>
 
-          <div
-            style="width: 100%; height: 1px; background: linear-gradient(90deg, transparent, rgba(41, 182, 246, 0.5), transparent); margin: 5px 0;">
-          </div>
+          <div class="arena-lobby-divider" aria-hidden="true"></div>
 
-          <div style="width: 100%; text-align: center;">
-            <p style="color: #d500f9; font-size: 0.8rem; letter-spacing: 2px; margin-bottom: 10px; font-weight: bold;">
-              JOIN A DUEL</p>
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; width: 100%;">
-              <input id="duel-room-input" type="text" placeholder="ENTER CODE" maxlength="6"
-                style="width: 100%; background: rgba(0,0,0,0.6); border: 1px solid #d500f9; color: #fff; border-radius: 6px; padding: 12px; font-family: inherit; font-size: 1.1rem; letter-spacing: 5px; text-transform: uppercase; text-align: center; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); outline: none; transition: box-shadow 0.3s;"
-                onfocus="this.style.boxShadow='0 0 15px rgba(213,0,249,0.5), inset 0 0 10px rgba(0,0,0,0.8)'"
-                onblur="this.style.boxShadow='inset 0 0 10px rgba(0,0,0,0.8)'" />
-              <button id="duel-join-btn" class="primary-btn"
-                style="width: 100%; border-color: #d500f9; background: linear-gradient(45deg, #1b0a2a, #3a155c); padding: 10px 20px; font-size: 1rem; box-shadow: 0 0 15px rgba(213,0,249,0.3);">JOIN
-                ROOM</button>
+          <div class="arena-lobby-section arena-lobby-section-join">
+            <p class="arena-lobby-label">JOIN A DUEL</p>
+            <div class="arena-lobby-join-fields">
+              <input id="duel-room-input" class="arena-lobby-input" type="text" placeholder="ENTER CODE" maxlength="6" autocomplete="off" />
+              <button id="duel-join-btn" class="primary-btn arena-lobby-action arena-lobby-join">JOIN ROOM</button>
             </div>
           </div>
         </div>
 
-        <!-- Waiting state (shown after creating) -->
-        <div id="duel-lobby-waiting"
-          style="display: none; flex-direction: column; align-items: center; gap: 1.5rem; background: rgba(10, 5, 20, 0.82); padding: clamp(30px, 5vh, 50px); border-radius: 15px; border: 1px solid rgba(41, 182, 246, 0.5); box-shadow: 0 0 40px rgba(41, 182, 246, 0.2); position: relative; overflow: hidden;">
-          <!-- Spinning magic circle behind code (AT-F13: promoted layers, see
-               .arena-ring in style.css — they used to spin inside a blurred card) -->
+        <div id="duel-lobby-waiting" class="arena-lobby-card arena-lobby-waiting">
           <div class="arena-ring fast"></div>
           <div class="arena-ring slow"></div>
-
-          <p style="color: #b892b0; font-size: 1rem; letter-spacing: 4px; z-index: 2;">YOUR ROOM CODE</p>
-          <p id="duel-room-code-display"
-            style="font-size: 4rem; font-weight: 900; color: #fff; text-shadow: 0 0 30px rgba(41,182,246,1), 0 0 10px #fff; letter-spacing: 12px; z-index: 2; margin: 10px 0;">
-          </p>
-          <p
-            style="color: #29b6f6; font-size: 1rem; animation: pulseOpacity 1.5s infinite; z-index: 2; letter-spacing: 2px;">
-            Awaiting challenger...</p>
-          <p id="duel-error-msg" style="color: #ff4b4b; font-size: 0.9rem; min-height: 1rem; z-index: 2;"></p>
+          <p class="arena-lobby-label arena-lobby-room-label">YOUR ROOM CODE</p>
+          <p id="duel-room-code-display" class="arena-room-code"></p>
+          <p class="arena-lobby-waiting-copy">Awaiting challenger...</p>
+          <p id="duel-error-msg" class="arena-lobby-error"></p>
         </div>
 
-        <p id="duel-lobby-error"
-          style="color: #ff4b4b; font-size: 0.9rem; font-weight: bold; min-height: 1rem; margin-top: 1rem; text-shadow: 0 0 10px rgba(255, 75, 75, 0.5);">
-        </p>
-        <button id="duel-lobby-close-btn" class="primary-btn"
-          style="margin-top: 1rem; background: transparent; border-color: var(--text-muted); color: var(--text-muted); font-size: 0.9rem; padding: 8px 25px;">RETURN
-          TO LIBRARY</button>
+        <p id="duel-lobby-error" class="arena-lobby-error"></p>
+        <button id="duel-lobby-close-btn" class="primary-btn arena-lobby-return">RETURN TO LIBRARY</button>
       </div>
 
       <!-- ═══════════════════════════════════════════════════════ -->
@@ -441,6 +433,8 @@
           </div>
           <div class="sb-hp"><div class="sb-hp-fill" id="sb-hp-fill-a"></div></div>
           <div class="sb-hpval"><span id="sb-hpval-a">100</span> HP</div>
+           <div class="sb-streak"><span class="sb-streak-label">STREAK</span> <strong id="sb-streak-a">0</strong><span class="sb-streak-pips" id="sb-streak-pips-a" aria-hidden="true"></span></div>
+
           <!-- AT-F10: the armed class active. Text is written by DuelRace for
                BOTH mages, so a skill you must respect is never a surprise. -->
           <div class="sb-buff hidden" id="sb-buff-a"></div>
@@ -456,6 +450,8 @@
             <span class="sb-name" id="sb-name-b">—</span>
             <span class="sb-wins"><span id="sb-wins-b">0</span> ✦</span>
           </div>
+           <div class="sb-streak"><span class="sb-streak-label">STREAK</span> <strong id="sb-streak-b">0</strong><span class="sb-streak-pips" id="sb-streak-pips-b" aria-hidden="true"></span></div>
+
           <div class="sb-hp"><div class="sb-hp-fill" id="sb-hp-fill-b"></div></div>
           <div class="sb-hpval"><span id="sb-hpval-b">100</span> HP</div>
           <!-- AT-F10: see #sb-buff-a. -->
@@ -469,46 +465,31 @@
       <div id="duel-result-menu" class="overlay-menu hidden">
         <!-- AT-F13: card blur removed — the canvas behind is stopped at KO, so the
              blur bought nothing but a re-rasterise of the whole card on fade-in. -->
-        <div
-          style="background: radial-gradient(circle at center, rgba(30,15,50,0.94) 0%, rgba(10,5,20,0.97) 100%); padding: clamp(30px, 5vh, 50px) clamp(40px, 6vw, 80px); border-radius: 20px; border: 2px solid rgba(41,182,246,0.4); box-shadow: 0 0 50px rgba(41,182,246,0.2), inset 0 0 30px rgba(41,182,246,0.1); text-align: center; display: flex; flex-direction: column; align-items: center;">
-          <h2 id="duel-result-title"
-            style="font-size: clamp(2.5rem, 6vh, 4rem); margin-bottom: 0.5rem; text-shadow: 0 0 30px currentColor; letter-spacing: 8px;">
+        <div class="duel-result-card">
+          <h2 id="duel-result-title" class="duel-result-title">
             VICTORY!</h2>
-          <p id="duel-result-subtitle"
-            style="color: #b892b0; font-size: clamp(0.9rem, 2vh, 1.2rem); letter-spacing: 5px; margin-bottom: 2rem; text-transform: uppercase;">
+          <p id="duel-result-subtitle" class="duel-result-subtitle">
             You have vanquished your foe!</p>
 
-          <div
-            style="display: flex; gap: clamp(1rem, 4vw, 4rem); margin-bottom: 2.5rem; align-items: center; background: rgba(0,0,0,0.4); padding: clamp(15px, 3vh, 30px) clamp(20px, 4vw, 50px); border-radius: 15px; border: 1px solid rgba(255,255,255,0.05);">
-            <div style="text-align: center; min-width: 100px;">
-              <p
-                style="color: #29b6f6; font-size: 0.85rem; letter-spacing: 3px; margin-bottom: 10px; font-weight: bold;">
-                YOU</p>
-              <p id="duel-res-my-score"
-                style="font-size: clamp(2rem, 5vh, 3rem); font-weight: 900; color: #ffd700; text-shadow: 0 0 20px rgba(255,215,0,0.5);">
+          <div class="duel-result-scoreboard">
+            <div class="duel-result-score duel-result-score-local">
+              <p class="duel-result-label">YOU</p>
+              <p id="duel-res-my-score" class="duel-result-number">
                 0</p>
             </div>
 
-            <div
-              style="text-align: center; color: #b892b0; font-size: clamp(1.5rem, 4vh, 2rem); font-weight: bold; text-shadow: 0 0 10px rgba(184,146,176,0.5); opacity: 0.7;">
-              VS
-            </div>
+            <div class="duel-result-versus">VS</div>
 
-            <div style="text-align: center; min-width: 100px;">
-              <p
-                style="color: #d500f9; font-size: 0.85rem; letter-spacing: 3px; margin-bottom: 10px; font-weight: bold;">
-                OPPONENT</p>
-              <p id="duel-res-opp-score"
-                style="font-size: clamp(2rem, 5vh, 3rem); font-weight: 900; color: #ff4b4b; text-shadow: 0 0 20px rgba(255,75,75,0.5);">
+            <div class="duel-result-score duel-result-score-opponent">
+              <p class="duel-result-label">OPPONENT</p>
+              <p id="duel-res-opp-score" class="duel-result-number">
                 0</p>
             </div>
           </div>
 
-          <div style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;">
-            <button id="duel-rematch-btn" class="primary-btn"
-              style="border-color: #29b6f6; background: linear-gradient(45deg, #0b1a2b, #1a3a5c); font-size: 1.1rem; padding: 12px 30px; box-shadow: 0 0 20px rgba(41,182,246,0.4);">REMATCH</button>
-            <button id="duel-result-close-btn" class="primary-btn"
-              style="background: transparent; border-color: #b892b0; color: #b892b0; font-size: 1.1rem; padding: 12px 30px;">RETURN</button>
+          <div class="duel-result-actions">
+            <button id="duel-rematch-btn" class="primary-btn duel-result-rematch">REMATCH</button>
+            <button id="duel-result-close-btn" class="primary-btn duel-result-return">RETURN TO LIBRARY</button>
           </div>
         </div>
       </div>

@@ -1,7 +1,7 @@
 /**
  * Regression guard for AT-F10 — per-class arena actives. Owner sign-off
- * 2026-09-23: Arcane Surge / Cinder Brand / Glacial Ward / **Mana Echo** (the
- * proposed 0.85x duration version was replaced — see below).
+ * 2026-09-23: Arcane Surge / Cinder Brand / Glacial Ward / **Time Stop** (the
+ * proposed 0.85x duration version and Mana Echo loop were replaced).
  *
  * What this locks in:
  *   1. the roster is still the ONE table: every class declares exactly one
@@ -22,8 +22,9 @@
  *      spent it;
  *   5. behaviour, against the REAL DuelRace with stubbed transport/DOM: the cast
  *      costs mana, arms exactly once, doubles/halves damage exactly as the
- *      roster says, refunds Mana Echo, survives a dead heat unspent, is honoured
- *      when the CHALLENGER is the caster, and refuses an unknown skill id.
+ *      roster says, starts a host-authoritative 3-second Time Stop, survives a
+ *      dead heat unspent, is honoured when the CHALLENGER is the caster, and
+ *      refuses an unknown skill id.
  * Run:  node scripts/verify-class-actives.mjs
  */
 
@@ -95,22 +96,23 @@ check(
     ALL.map((a) => `${a.title} ${a.cost}`).join(', ')
 );
 check(
-    'the actives are two damage buffs, one ward and one mana loop',
+    'the actives are two damage buffs, one ward and one time stop',
     ALL.filter((a) => a.kind === 'damage').length === 2 &&
         ALL.filter((a) => a.kind === 'mitigation').length === 1 &&
-        ALL.filter((a) => a.kind === 'mana_refund').length === 1,
+        ALL.filter((a) => a.kind === 'time_stop').length === 1,
     ALL.map((a) => `${a.className}=${a.kind}`).join(' ')
 );
 check(
-    'the ward belongs to the Cryomancer and the mana loop to the Chronomancer',
+    'the ward belongs to Cryomancer and Time Stop to Chronomancer',
     MAGE_CLASSES.find((c) => c.id === 'Cryomancer')?.active.kind === 'mitigation' &&
-        MAGE_CLASSES.find((c) => c.id === 'Chronomancer')?.active.kind === 'mana_refund'
+        MAGE_CLASSES.find((c) => c.id === 'Chronomancer')?.active.kind === 'time_stop'
 );
 check(
-    'Mana Echo (owner decision) is the Chronomancer active, not a duration trick',
-    mageActiveById('mana-echo')?.title === 'Mana Echo' &&
-        mageActiveById('mana-echo')?.value === 60 &&
-        mageActiveById('temporal-stutter') === null
+    'Time Stop is the Chronomancer active, with a 100-mana, 3-second contract',
+    mageActiveById('time-stop')?.title === 'Time Stop' &&
+        mageActiveById('time-stop')?.cost === 100 &&
+        mageActiveById('time-stop')?.value === 3000 &&
+        mageActiveById('mana-echo') === null
 );
 check(
     'the lookups normalise: no class can hand the cast path an undefined active',
@@ -171,7 +173,6 @@ check(
 check(
     'mana is only ever spent through Stats',
     methodBody('cast').includes('this.game.stats.useMana(skill.cost)') &&
-        methodBody('_applyResult').includes('refundMana?.(skill.value)') &&
         !/stats\.mana\s*=/.test(raceSrc)
 );
 
@@ -183,9 +184,10 @@ check(
         methodBody('_onCast').includes('const skill = mageActiveById(p.skill);')
 );
 check(
-    'one buff per player: re-arming is refused on both sides',
+    'one active per player: re-arming is refused on both sides',
     methodBody('cast').includes('if (this.buffs[this.mine]) {') &&
-        methodBody('_onCast').includes('if (!skill || this.buffs[this.theirs]) return;')
+        methodBody('_onCast').includes('if (!skill) return;') &&
+        methodBody('_onCast').includes('if (this.buffs[this.theirs]) return;')
 );
 check(
     'only _resolve() spends a buff',
@@ -196,8 +198,10 @@ check(
 );
 check(
     'the winner of a word spends their buff, the loser keeps a waiting ward',
-    resolveBody.includes("if (winnerBuff && winnerBuff.kind !== 'mitigation') this.buffs[winner] = null;") &&
-        resolveBody.includes("if (loserBuff && loserBuff.kind === 'mitigation') this.buffs[loser] = null;")
+    resolveBody.includes("if (winnerBuff && winnerBuff.kind !== 'mitigation') {") &&
+        resolveBody.includes('this.buffs[winner] = null;') &&
+        resolveBody.includes("if (loserBuff && loserBuff.kind === 'mitigation') {") &&
+        resolveBody.includes('this.buffs[loser] = null;')
 );
 check(
     'the resolve frame carries dmgRaw + amp + ward + the surviving armed map',
@@ -208,8 +212,12 @@ check(
     'the armed map also rides the heartbeat and is adopted by the guest',
     methodBody('_snapshot').includes('armed: { A: this.buffs.A, B: this.buffs.B },') &&
         methodBody('_onState').includes('this._adoptBuffs(p);') &&
-        methodBody('_applyResult').includes('this._adoptBuffs(r);') &&
-        methodBody('_adoptBuffs').includes('if (!p || !p.armed) return;')
+        methodBody('_applyResult').includes('this._adoptAuras(r);') &&
+        methodBody('_applyResult').includes('this._adoptTimeStop(r);') &&
+        methodBody('_snapshot').includes('auras: { A: this.game.duelAuras.A, B: this.game.duelAuras.B },') &&
+        methodBody('_snapshot').includes('timeStopUntil: this.timeStopUntil,') &&
+        raceSrc.includes("case 'time_stop': this._onTimeStop(p); break;") &&
+        methodBody('_activateTimeStop').includes("this.duel.broadcastRace('time_stop'")
 );
 check(
     'the cast is announced as its own frame, in both directions',
@@ -260,7 +268,7 @@ check(
 check(
     'cast() reports "handled" for its own refusals, so the seal never lies',
     methodBody('cast').includes('if (this.over || !this.game.stats) return false;') &&
-        count(methodBody('cast'), 'return true;') === 3
+        count(methodBody('cast'), 'return true;') >= 4
 );
 check(
     "both mages' actives are visible — one chip per side, for player AND opponent",
@@ -275,7 +283,10 @@ check(
 );
 check(
     'the Discipline is published with the other presence identity fields',
-    count(duelSrc, 'mage_class: this.mageClass') === 2 &&
+    duelSrc.includes('_presencePayload()') &&
+        ['player_name: this.playerName', 'in_match: this.inMatch', 'character: this.character', 'wand: this.wandColor', 'mage_class: this.mageClass']
+            .every((field) => duelSrc.includes(field)) &&
+        count(duelSrc, 'this.channel.track(this._presencePayload())') === 3 &&
         duelSrc.includes('setCharacter(character, wandColor, mageClass)') &&
         count(mainSrc, 'game.stats.wandColor, game.stats.mageClass);') === 2
 );
@@ -371,7 +382,7 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
 {
     const { game, duel, race } = buildRace(true, 'Novice');
     check('the chip names the skill and its cost before anything is cast',
-        els['sb-buff-a'].textContent === 'Arcane Surge · 50' && !els['sb-buff-a'].classList.contains('hidden'),
+        els['sb-buff-a'].textContent === 'PVP ACTIVE · Arcane Surge · 50' && !els['sb-buff-a'].classList.contains('hidden'),
         els['sb-buff-a'].textContent);
     check('the opponent chip stays quiet when presence carried no class (harness)',
         els['sb-buff-b'].textContent === '' && els['sb-buff-b'].classList.contains('hidden'),
@@ -389,7 +400,7 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
         casts.length === 1 && casts[0].idx === 1 && casts[0].skill === 'arcane-surge' && !('mana' in casts[0]),
         JSON.stringify(casts));
     check('the armed chip lights up for BOTH mages',
-        els['sb-buff-a'].textContent === 'ARCANE SURGE ★' &&
+        els['sb-buff-a'].textContent === 'PVP ACTIVE · ARCANE SURGE ★' &&
             els['sb-buff-a'].classList.contains('sb-buff-armed') &&
             floats(game).includes('ARCANE SURGE ARMED!'));
     check('re-arming while armed is refused without spending',
@@ -408,7 +419,7 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
             res.armed.A === null,
         JSON.stringify(res));
     check('the chip falls back to "available" once the buff is spent',
-        els['sb-buff-a'].textContent === 'Arcane Surge · 50' &&
+        els['sb-buff-a'].textContent === 'PVP ACTIVE · Arcane Surge · 50' &&
             !els['sb-buff-a'].classList.contains('sb-buff-armed'));
     race.stop();
 }
@@ -449,21 +460,22 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
     race.stop();
 }
 
-// (d) Chronomancer — Mana Echo (the owner's decision): refunds on a won claim.
+// (d) Chronomancer — Time Stop: a 100-mana, host-authoritative 3-second freeze.
 {
     const { game, duel, race } = buildRace(true, 'Chronomancer');
-    check('Mana Echo costs 60 mana', race.cast() === true && game.stats.mana === 40,
+    const before = Date.now();
+    check('Time Stop costs the full 100 mana', race.cast() === true && game.stats.mana === 0,
         `mana=${game.stats.mana}`);
-    race._onTyped();
-    await sleep(650);
-    const res = duel.sent.find((m) => m.type === 'result');
-    check('a won claim with Mana Echo deals NO bonus damage', res.dmg === 6 && res.dmgRaw === 6,
-        JSON.stringify(res));
-    check('the refund lands in the winner\'s own pool and fills it', game.stats.mana === 100,
-        `mana=${game.stats.mana}`);
-    check('the refund is announced and the buff is spent',
-        floats(game).includes('+60 MANA') && race.buffs.A === null && res.amp === 'mana-echo',
-        JSON.stringify(floats(game)));
+    check('the host starts a 3-second shared freeze without arming a damage buff',
+        race.timeStopUntil >= before + 2900 && race.timeStopUntil <= Date.now() + 3000 &&
+            race.buffs.A === null && race.game.duelTimeStopUntil === race.timeStopUntil,
+        `until=${race.timeStopUntil}`);
+    check('the host announces the freeze with an absolute deadline',
+        duel.sent.some((m) => m.type === 'time_stop' && m.skill === 'time-stop' && m.until === race.timeStopUntil),
+        JSON.stringify(duel.sent));
+    check('the caster receives a violet time-stop aura',
+        race.game.duelAuras.A === 'time-stop' && floats(game).includes('TIME STOP!'),
+        JSON.stringify(race.game.duelAuras));
     race.stop();
 }
 
@@ -482,7 +494,7 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
         res.winner === null && res.armed.A === 'arcane-surge' && race.buffs.A === 'arcane-surge',
         JSON.stringify(res.armed));
     check('the chip is still lit for the next word',
-        els['sb-buff-a'].textContent === 'ARCANE SURGE ★');
+        els['sb-buff-a'].textContent === 'PVP ACTIVE · ARCANE SURGE ★');
     race.stop();
 }
 
@@ -491,7 +503,7 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
     const { game, duel, race } = buildRace(true, 'Novice');
     race._onRace({ ...GUEST, skill: 'cinder-brand' });
     check('the host records the challenger\'s buff and announces it to both sides',
-        race.buffs.B === 'cinder-brand' && els['sb-buff-b'].textContent === 'CINDER BRAND ★' &&
+        race.buffs.B === 'cinder-brand' && els['sb-buff-b'].textContent === 'PVP ACTIVE · CINDER BRAND ★' &&
             floats(game).includes('CINDER BRAND ARMED!'),
         JSON.stringify(race.buffs));
     race._onRace(guestClaim(480));           // they win the word, we never claim
@@ -545,15 +557,37 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
     const { race } = buildRace(false, 'Novice');
     race._onRace({
         raceType: 'state', hpA: 100, hpB: 100, winsA: 0, winsB: 0,
-        timeLeft: 100, overtime: false, armed: { A: 'mana-echo', B: null }
+        timeLeft: 100, overtime: false, armed: { A: 'time-stop', B: null },
+        auras: { A: 'time-stop', B: null }, timeStopUntil: 0, timeStopSlot: null
     });
     check('the guest adopts the host\'s armed map from a state frame',
-        race.buffs.A === 'mana-echo' && els['sb-buff-a'].textContent === 'MANA ECHO ★',
+        race.buffs.A === 'time-stop' && els['sb-buff-a'].textContent === 'PVP ACTIVE · TIME STOP ★',
         JSON.stringify(race.buffs));
     race.stop();
 }
 
-// (k) a duel leaves no trace: labels, chips and Tab all handed back.
+// (k) the endless combo aura is mirrored to the opponent without a HUD number.
+{
+    const { game, duel, race } = buildRace(true, 'Novice');
+    race.phase = 'word';
+    race._onCombo(27);
+    const progress = duel.sent.find((m) => m.type === 'combo');
+    check('a local combo updates the Arena slot and sends bounded progress',
+        race.duelCombos.A === 27 && game.duelCombos.A === 27 && progress &&
+            progress.combo === 27 && progress.idx === race.idx,
+        JSON.stringify({ combo: race.duelCombos.A, progress }));
+    race._onRace({ raceType: 'combo', idx: race.idx, combo: 41, player_key: 'key-guest' });
+    check('the opponent combo frame updates the opponent slot only',
+        race.duelCombos.B === 41 && race.duelCombos.A === 27,
+        JSON.stringify(race.duelCombos));
+    const state = race._snapshot({});
+    check('the heartbeat and result snapshot carry both combo values',
+        state.combos.A === 27 && state.combos.B === 41,
+        JSON.stringify(state.combos));
+    race.stop();
+}
+
+// (l) a duel leaves no trace: labels, chips and Tab all handed back.
 {
     const { game, race } = buildRace(true, 'Novice');
     race.cast();

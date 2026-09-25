@@ -102,6 +102,14 @@ export class DuelRace {
         this._leaveFloatTimer = null;
         this._clockTimer = null;
         this._stateTimer = null;
+        this._deferredIssueTimer = null;
+        this._timeStopTimer = null;
+        this._frozenMs = 0;
+        this._freezeStartedAt = null;
+        // Host-authoritative Time Stop deadline. The wall-clock deadline is
+        // carried in race frames so a late guest starts from the same instant.
+        this.timeStopUntil = 0;
+        this.timeStopSlot = null;
     }
 
     $(id) { return document.getElementById(id); }
@@ -131,6 +139,19 @@ export class DuelRace {
         // AT-F10: both Disciplines — ours from stats, theirs from the presence the
         // duel already tracks — then label the cast surfaces and repaint the
         // chips (the first _render above predates both).
+        this.timeStopUntil = 0;
+        this.timeStopSlot = null;
+        this._frozenMs = 0;
+        this._freezeStartedAt = null;
+        this.duelCombos = { A: 0, B: 0 };
+        this._lastComboSentAt = 0;
+        this.game.duelCombos = this.duelCombos;
+        this._pendingTimeStop = null;
+        this.game.duelAuras = this.game.duelAuras || { A: null, B: null };
+        this.game.duelAuras.A = null;
+        this.game.duelAuras.B = null;
+        this.game.duelTimeStopUntil = 0;
+        this.game.duelTimeStopSlot = null;
         this.classes[this.mine] = this.game.stats?.mageClass || null;
         this.classes[this.theirs] = oppPresence?.mage_class || null;
         this._labelCastSurfaces();
@@ -140,6 +161,7 @@ export class DuelRace {
         this.game.onRaceWordExpired = () => this._onLocalExpiry();
         this.game.onRaceTyped = () => this._onTyped();
         this.game.onRaceMistake = () => this._onMistake();
+        this.game.onDuelCombo = (combo) => this._onCombo(combo);
         this.game.onDuelCast = () => this.cast(); // AT-F10: Tab/Enter in the arena
 
         // Transport + presence — overrides the pre-match handlers
@@ -162,17 +184,29 @@ export class DuelRace {
         clearTimeout(this._watchdog);
         clearTimeout(this._leaveTimer);
         clearTimeout(this._leaveFloatTimer);
+        clearTimeout(this._deferredIssueTimer);
         clearInterval(this._clockTimer);
         clearInterval(this._stateTimer);
         this.game.onRaceWordExpired = null;
         this.game.onRaceTyped = null;
         this.game.onRaceMistake = null;
+        this.game.onDuelCombo = null;
         this.game.onDuelCast = null;   // AT-F10: Tab is the ultimate again
+        clearTimeout(this._timeStopTimer);
+        this._timeStopTimer = null;
         // AT-F10: disarm both slots, blank both chips and hand the input
         // surfaces back to their own wording — a duel must leave no trace in the
         // Survival HUD (the same contract the score bar follows).
         this.buffs = { A: null, B: null };
         this.classes = { A: null, B: null };
+        this.timeStopUntil = 0;
+        this.timeStopSlot = null;
+        this.duelCombos = { A: 0, B: 0 };
+        this._lastComboSentAt = 0;
+        this.game.duelCombos = this.duelCombos;
+        this.game.duelAuras = { A: null, B: null };
+        this.game.duelTimeStopUntil = 0;
+        this.game.duelTimeStopSlot = null;
         this._restoreCastSurfaces();
         this._renderBuff('a', 'A');
         this._renderBuff('b', 'B');
@@ -199,6 +233,10 @@ export class DuelRace {
             // result, so a chip that missed/lost a `cast` frame converges within
             // a second instead of staying wrong for the whole match.
             armed: { A: this.buffs.A, B: this.buffs.B },
+            auras: { A: this.game.duelAuras.A, B: this.game.duelAuras.B },
+            timeStopUntil: this.timeStopUntil,
+            timeStopSlot: this.timeStopSlot,
+            combos: { A: this.duelCombos.A, B: this.duelCombos.B },
             hpA: this.hp.A, hpB: this.hp.B,
             winsA: this.wins.A, winsB: this.wins.B,
             timeLeft: this.timeLeft, overtime: this.overtime
@@ -207,7 +245,7 @@ export class DuelRace {
 
     // ── host: clock & heartbeat ──────────────────────────────────────────
     _tickClock() {
-        if (this.over || this.overtime) return; // overtime parks clock at 0:00
+        if (this.over || this.overtime || Date.now() < this.timeStopUntil) return;
         this.timeLeft = Math.max(0, this.timeLeft - 1);
         if (this.timeLeft === 0) {
             if (this.hp.A === this.hp.B) {
@@ -229,6 +267,11 @@ export class DuelRace {
     // ── host: word loop ──────────────────────────────────────────────────
     _issueNext() {
         if (this.over || this.phase === 'word') return;
+        if (Date.now() < this.timeStopUntil) {
+            clearTimeout(this._deferredIssueTimer);
+            this._deferredIssueTimer = setTimeout(() => this._issueNext(), this.timeStopUntil - Date.now() + 25);
+            return;
+        }
         this.idx++;
         const text = this.game.dictionary.getWordForDifficulty('normal');
         const x = 100 + Math.random() * Math.max(this.game.canvas.width - 200, 1);
@@ -265,6 +308,13 @@ export class DuelRace {
         this._windowTimer = setTimeout(() => {
             this._windowTimer = null;
             if (this.over || this.phase !== 'word') return;
+            if (Date.now() < this.timeStopUntil) {
+                this._windowTimer = setTimeout(() => {
+                    this._windowTimer = null;
+                    this._armWindow();
+                }, this.timeStopUntil - Date.now() + CLAIM_WINDOW_MS);
+                return;
+            }
             this.myResolved = true;
             this.oppResolved = true;
             this._resolve();
@@ -287,8 +337,16 @@ export class DuelRace {
         if (this.over || this.phase !== 'word' || !this.isHost) return;
         if (this.myResolved && this.oppResolved) return;
         clearTimeout(this._graceTimer);
+        if (this.phase === 'word' && Date.now() < this.timeStopUntil) {
+            this._watchdog = setTimeout(() => this._onLocalExpiry(), this.timeStopUntil - Date.now() + 25);
+            return;
+        }
         this._graceTimer = setTimeout(() => {
             if (this.over || this.phase !== 'word') return;
+            if (Date.now() < this.timeStopUntil) {
+                this._graceTimer = setTimeout(() => this._onLocalExpiry(), this.timeStopUntil - Date.now() + CLAIM_GRACE_MS);
+                return;
+            }
             this.myResolved = true;
             this.oppResolved = true;
             this._resolve();
@@ -314,9 +372,8 @@ export class DuelRace {
         const loser = winner ? (winner === 'A' ? 'B' : 'A') : null;
 
         // AT-F10: the winner is decided FIRST, and only then may an active edit
-        // the outcome. Nothing here reads or writes a measured duration — the
-        // arbiter's own input stays untouched (this is why Chronomancer's
-        // original 0.85x version was replaced by Mana Echo).
+        // the outcome. Nothing here reads or writes a measured duration; the
+        // arbiter's own input stays untouched.
         const dmgRaw = winner ? this.currentText.length * DMG_PER_CHAR : 0;
         let dmg = dmgRaw;
         let amp = null;    // the winning skill that shaped this strike
@@ -331,10 +388,8 @@ export class DuelRace {
             dmg = Math.round(dmg * loserBuff.value);
             ward = loserBuff.id;
         }
-        // Mana Echo moves the WINNER's own pool instead of the damage, so it is
-        // flagged here (the frame is what makes both sides agree it fired) and
-        // paid out on the winner's client in _applyResult.
-        if (winnerBuff && winnerBuff.kind === 'mana_refund') amp = winnerBuff.id;
+        // Active effects are resolved only after the word winner is known.
+        // The frame tells both clients which strike/ward actually shaped it.
 
         // Spent = the buff actually did something. A dead heat or a double
         // forfeit has no winner, so nothing is spent and both mages stay armed:
@@ -342,13 +397,27 @@ export class DuelRace {
         // A ward is only spent when it had damage to absorb; a Cryomancer who
         // WINS the word keeps it for the next loss.
         if (winner) {
-            if (winnerBuff && winnerBuff.kind !== 'mitigation') this.buffs[winner] = null;
-            if (loserBuff && loserBuff.kind === 'mitigation') this.buffs[loser] = null;
+            if (winnerBuff && winnerBuff.kind !== 'mitigation') {
+                this.buffs[winner] = null;
+                this.game.duelAuras[winner] = null;
+            }
+            if (loserBuff && loserBuff.kind === 'mitigation') {
+                this.buffs[loser] = null;
+                this.game.duelAuras[loser] = null;
+            }
         }
 
         if (winner) {
             this.hp[loser] = Math.max(0, this.hp[loser] - dmg);
             this.wins[winner]++;
+            // A lost race breaks the loser's endless combo exactly like a
+            // mistake breaks the normal typing streak. The host resets the
+            // shared slot before the result frame is broadcast.
+            this.duelCombos[loser] = 0;
+            if (loser === this.mine && this.game.stats) {
+                this.game.stats.combo = 0;
+                this.game.stats.updateHUD?.();
+            }
         }
 
         let matchOver = false;
@@ -363,6 +432,10 @@ export class DuelRace {
         const r = {
             idx: this.idx, winner, dmg, dmgRaw, amp, ward,
             armed: { A: this.buffs.A, B: this.buffs.B },
+            auras: { A: this.game.duelAuras.A, B: this.game.duelAuras.B },
+            timeStopUntil: this.timeStopUntil,
+            timeStopSlot: this.timeStopSlot,
+            combos: { A: this.duelCombos.A, B: this.duelCombos.B },
             hpA: this.hp.A, hpB: this.hp.B,
             winsA: this.wins.A, winsB: this.wins.B,
             timeLeft: this.timeLeft, overtime: this.overtime,
@@ -387,6 +460,13 @@ export class DuelRace {
         this.timeLeft = r.timeLeft;
         this.overtime = !!r.overtime;
         this._adoptBuffs(r);
+        this._adoptAuras(r);
+        this._adoptCombos(r);
+        this._adoptTimeStop(r);
+        if (r.winner === this.theirs && this.game.stats) {
+            this.game.stats.combo = 0;
+            this.game.stats.updateHUD?.();
+        }
         this._render();
 
         if (r.winner === this.mine) {
@@ -397,12 +477,6 @@ export class DuelRace {
                 // The skill line rides above the damage line it explains.
                 const skill = mageActiveById(r.amp);
                 if (skill) this._floatAtSlot(this.theirs, `${skill.title.toUpperCase()}!`, '#ff9800', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
-                // The refund belongs to the mage who won the claim, so only the
-                // winner's own client pays it — into the pool they cast from.
-                if (skill && skill.kind === 'mana_refund') {
-                    const got = this.game.stats?.refundMana?.(skill.value) || 0;
-                    this._floatAtSlot(this.mine, `+${got} MANA`, '#29b6f6', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
-                }
             }
         } else if (r.winner === this.theirs) {
             // Their strike landed on OUR mage.
@@ -454,6 +528,30 @@ export class DuelRace {
         }
     }
 
+    _onCombo(combo) {
+        if (this.over || this.phase !== 'word') return;
+        const value = Math.max(0, Math.min(9999, Math.floor(Number(combo) || 0)));
+        this.duelCombos[this.mine] = value;
+        this.game.duelCombos = this.duelCombos;
+        // The other client only needs the visual aura to be responsive. A
+        // bounded progress frame keeps the effect live without turning every
+        // keystroke into an unbounded realtime broadcast; state/results heal a
+        // missed or throttled frame within the existing 1 Hz contract.
+        const now = Date.now();
+        if (now - this._lastComboSentAt >= 100) {
+            this._lastComboSentAt = now;
+            this.duel.broadcastRace('combo', { idx: this.idx, combo: value });
+        }
+    }
+
+    _onComboFrame(p) {
+        if (!p || (p.player_key && p.player_key === this.duel.presenceKey)) return;
+        if (p.idx !== this.idx || this.phase !== 'word') return;
+        const value = Math.max(0, Math.min(9999, Math.floor(Number(p.combo) || 0)));
+        this.duelCombos[this.theirs] = value;
+        this.game.duelCombos = this.duelCombos;
+    }
+
     _onMistake() {
         if (this.over || this.phase !== 'word' || this.myResolved || this.myDecided) return;
         // AT-F9: one mistake forfeits the current word to your opponent.
@@ -489,14 +587,28 @@ export class DuelRace {
             this.game.audio?.playErrorSound?.();
             return true;
         }
-        // The cost comes out of OUR OWN pool: mana is local-only state, and the
-        // same is true of the refund Mana Echo pays back in _applyResult.
+        if (skill.kind === 'time_stop' && (this.phase !== 'word' || this.timeStopUntil > Date.now() || this._pendingTimeStop === this.mine)) {
+            const message = this.phase !== 'word' ? 'NO ACTIVE WORD' : 'TIME ALREADY STOPPED';
+            this._floatAtSlot(this.mine, message, '#c084fc', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
+            this.game.audio?.playErrorSound?.();
+            return true;
+        }
         if (!this.game.stats.useMana(skill.cost)) {
             this._floatAtSlot(this.mine, 'NOT ENOUGH MANA', '#ff9800', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
             this.game.audio?.playErrorSound?.();
             return true;
         }
+        if (skill.kind === 'time_stop') {
+            this._pendingTimeStop = this.mine;
+            this.game.audio?.playMagicSpark?.();
+            this._floatAtSlot(this.mine, `${skill.title.toUpperCase()}!`, '#c084fc', BUFF_FLOAT_SIZE);
+            this.duel.broadcastRace('cast', { idx: this.idx, skill: skill.id });
+            if (this.isHost) this._activateTimeStop(this.mine, skill.value, true);
+            this._render();
+            return true;
+        }
         this.buffs[this.mine] = skill.id;
+        this.game.duelAuras[this.mine] = skill.id;
         this.game.audio?.playMagicSpark?.();
         this._floatAtSlot(this.mine, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.mine), BUFF_FLOAT_SIZE);
         // One frame, host-authoritative. A buff has to survive a word we never
@@ -514,12 +626,68 @@ export class DuelRace {
      * refused here exactly as `cast()` refuses it locally — one buff per player,
      * and only the host's map is authoritative.
      */
+    _activateTimeStop(slot, duration = 3000, broadcast = false) {
+        if (this.over || Date.now() < this.timeStopUntil) return false;
+        const until = Date.now() + Math.max(0, duration);
+        this.timeStopUntil = until;
+        this.timeStopSlot = slot;
+        this.game.duelTimeStopUntil = until;
+        this.game.duelTimeStopSlot = slot;
+        this.game.duelAuras[slot] = 'time-stop';
+        this._pendingTimeStop = null;
+        if (broadcast) {
+            this.duel.broadcastRace('time_stop', { until, slot, skill: 'time-stop' });
+        }
+        clearTimeout(this._timeStopTimer);
+        this._timeStopTimer = setTimeout(() => {
+            if (this.timeStopUntil !== until) return;
+            this.timeStopUntil = 0;
+            this.timeStopSlot = null;
+            this.game.duelTimeStopUntil = 0;
+            this.game.duelTimeStopSlot = null;
+            this.game.duelAuras[slot] = null;
+            this._render();
+        }, Math.max(0, until - Date.now()) + 25);
+        return true;
+    }
+
+    _onTimeStop(p) {
+        if (this.isHost || this.over || !p || p.skill !== 'time-stop') return;
+        const until = Number(p.until);
+        if (!Number.isFinite(until) || until <= Date.now()) return;
+        const slot = p.slot === 'A' || p.slot === 'B' ? p.slot : this.theirs;
+        this.timeStopUntil = until;
+        this.timeStopSlot = slot;
+        this.game.duelTimeStopUntil = until;
+        this.game.duelTimeStopSlot = this.timeStopSlot;
+        this.game.duelAuras[this.timeStopSlot] = 'time-stop';
+        this._pendingTimeStop = null;
+        this._floatAtSlot(this.timeStopSlot, 'TIME STOP!', '#c084fc', BUFF_FLOAT_SIZE);
+        clearTimeout(this._timeStopTimer);
+        this._timeStopTimer = setTimeout(() => {
+            if (this.timeStopUntil !== until) return;
+            this.timeStopUntil = 0;
+            this.timeStopSlot = null;
+            this.game.duelTimeStopUntil = 0;
+            this.game.duelTimeStopSlot = null;
+            this.game.duelAuras[slot] = null;
+            this._render();
+        }, Math.max(0, until - Date.now()) + 25);
+    }
+
     _onCast(p) {
         if (!this.isHost || this.over) return;
         if (p.player_key && p.player_key === this.duel.presenceKey) return; // never self-echo
         const skill = mageActiveById(p.skill);
-        if (!skill || this.buffs[this.theirs]) return;
+        if (!skill) return;
+        if (skill.kind === 'time_stop') {
+            if (this.phase !== 'word' || Date.now() < this.timeStopUntil || !this._activateTimeStop(this.theirs, skill.value, true)) return;
+            this._render();
+            return;
+        }
+        if (this.buffs[this.theirs]) return;
         this.buffs[this.theirs] = skill.id;
+        this.game.duelAuras[this.theirs] = skill.id;
         this._floatAtSlot(this.theirs, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.theirs), BUFF_FLOAT_SIZE);
         this._render();
     }
@@ -572,7 +740,9 @@ export class DuelRace {
             return;
         }
         el.classList.remove('hidden');
-        el.textContent = armedId ? `${skill.title.toUpperCase()} ★` : `${skill.title} · ${skill.cost}`;
+        el.textContent = armedId
+            ? `PVP ACTIVE · ${skill.title.toUpperCase()} ★`
+            : `PVP ACTIVE · ${skill.title} · ${skill.cost}`;
         el.classList.toggle('sb-buff-armed', !!armedId);
     }
 
@@ -586,6 +756,27 @@ export class DuelRace {
     _adoptBuffs(p) {
         if (!p || !p.armed) return;
         this.buffs = { A: p.armed.A || null, B: p.armed.B || null };
+    }
+
+    _adoptAuras(p) {
+        if (!p || !p.auras) return;
+        this.game.duelAuras.A = p.auras.A || null;
+        this.game.duelAuras.B = p.auras.B || null;
+    }
+
+    _adoptCombos(p) {
+        if (!p || !p.combos) return;
+        this.duelCombos.A = Math.max(0, Math.floor(Number(p.combos.A) || 0));
+        this.duelCombos.B = Math.max(0, Math.floor(Number(p.combos.B) || 0));
+        this.game.duelCombos = this.duelCombos;
+    }
+
+    _adoptTimeStop(p) {
+        if (!p || typeof p.timeStopUntil !== 'number') return;
+        this.timeStopUntil = p.timeStopUntil;
+        this.timeStopSlot = p.timeStopSlot || null;
+        this.game.duelTimeStopUntil = p.timeStopUntil;
+        this.game.duelTimeStopSlot = this.timeStopSlot;
     }
 
     // ── transport ────────────────────────────────────────────────────────
@@ -606,6 +797,8 @@ export class DuelRace {
         switch (p.raceType) {
             case 'issue': if (!this.isHost) this._onIssue(p); break;
             case 'cast': this._onCast(p); break;
+            case 'combo': this._onComboFrame(p); break;
+            case 'time_stop': this._onTimeStop(p); break;
             case 'claim': if (this.isHost) this._onClaim(p); break;
             case 'taken': this._onTaken(p); break;
             case 'state': if (!this.isHost) this._onState(p); break;
@@ -660,6 +853,9 @@ export class DuelRace {
         if (typeof p.timeLeft === 'number') this.timeLeft = p.timeLeft;
         this.overtime = !!p.overtime;
         this._adoptBuffs(p);
+        this._adoptAuras(p);
+        this._adoptCombos(p);
+        this._adoptTimeStop(p);
         this._render();
     }
 
@@ -694,6 +890,16 @@ export class DuelRace {
         if (this.over || this._leaveTimer) return;
         this._leaveTimer = setTimeout(() => {
             this._leaveTimer = null;
+            // A background tab can cause Supabase to emit leave/join around
+            // visibility changes. Before forfeiting, trust the settled presence
+            // state rather than the raw leave event; the owner-approved grace
+            // remains five seconds for a genuinely absent opponent.
+            if (this._opponentIsPresent()) {
+                clearTimeout(this._leaveFloatTimer);
+                this._leaveFloatTimer = null;
+                this._float('OPPONENT RECONNECTED', '#4caf50', 26);
+                return;
+            }
             this._endMatch(this.mine, 'disconnect');
         }, DISCONNECT_GRACE_MS);
         // Delay the on-canvas warning: a clean forfeit's match_over normally
@@ -710,7 +916,17 @@ export class DuelRace {
             clearTimeout(this._leaveTimer);
             clearTimeout(this._leaveFloatTimer);
             this._leaveTimer = null;
+            this._leaveFloatTimer = null;
             this._float('OPPONENT RECONNECTED', '#4caf50', 26);
+        }
+    }
+
+    _opponentIsPresent() {
+        try {
+            const state = this.duel.channel?.presenceState?.() || {};
+            return Object.keys(state).some((key) => key !== this.duel.presenceKey);
+        } catch (err) {
+            return false;
         }
     }
 

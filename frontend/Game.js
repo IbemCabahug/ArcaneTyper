@@ -15,6 +15,7 @@ import { CombatSystem } from './game/CombatSystem.js';
 import { MeteorRenderer } from './MeteorRenderer.js';
 import { CharacterRenderer } from './game/CharacterRenderer.js';
 import { otherSlot, slotX, teamColorFor } from './game/ArenaTeams.js';
+import { drawCasterSigil, drawTimeStopSeal } from './game/ArenaSigils.js';
 
 export class Game {
     constructor(canvasId) {
@@ -45,6 +46,13 @@ export class Game {
         this.animationFrameId = null;
 
         this.playerAnimTimer = 0;
+
+        // AT-F17: Arena-only active effects. Auras are keyed to the fixed team
+        // slots (A/B), never to "self", so both clients draw the same caster.
+        this.duelAuras = { A: null, B: null };
+        this.duelCombos = { A: 0, B: 0 };
+        this.duelTimeStopUntil = 0;
+        this.duelTimeStopSlot = null;
 
         // Screen shake
         this.shakeTimer = 0;
@@ -254,6 +262,10 @@ export class Game {
         this.precognitionUsed = false;
 
         this.blindTimer = 0; // Tracks active Blind spell duration
+        this.duelAuras = { A: null, B: null };
+        this.duelCombos = { A: 0, B: 0 };
+        this.duelTimeStopUntil = 0;
+        this.duelTimeStopSlot = null;
 
         this.stats.reset();
         const waveDisplay = document.getElementById('wave-display');
@@ -334,13 +346,20 @@ export class Game {
         // requestAnimationFrame chain and permanently froze the page.
         // Errors are now contained: the failing subsystem is skipped for
         // that frame, the error is surfaced on-screen, and play continues.
-        try {
-            this.update(dt);
-        } catch (err) {
-            this._reportError(err, 'update');
+        // AT-F17: Chronomancer's Time Stop freezes the shared arena simulation,
+        // but never the input path. Skip update() entirely so collision/expiry
+        // checks cannot resolve the word while the world is stopped.
+        const frozen = this.gameMode === 'duel' && Date.now() < this.duelTimeStopUntil;
+
+        if (!frozen) {
+            try {
+                this.update(dt);
+            } catch (err) {
+                this._reportError(err, 'update');
+            }
         }
         try {
-            this.draw();
+            this.draw(frozen);
         } catch (err) {
             this._reportError(err, 'draw');
         }
@@ -706,7 +725,7 @@ export class Game {
         }
     }
 
-    draw() {
+    draw(frozen = false) {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         // --- Screen shake offset ---
@@ -800,8 +819,12 @@ export class Game {
             const selfSlot = this.duelSide;            // 'A' host | 'B' challenger
             const oppSlot = otherSlot(selfSlot);
             const opp = this.duelOpponent || {};
+            this._drawDuelAuras(frozen);
+            const selfStats = this.duelAuras[selfSlot]
+                ? { ...this.stats, arenaSkillActive: true }
+                : this.stats;
             this._drawTeamMage(
-                slotX(this.canvas, selfSlot), animProgress, this.stats,
+                slotX(this.canvas, selfSlot), animProgress, selfStats,
                 teamColorFor(selfSlot), 'YOU'
             );
             const oppStats = {
@@ -810,7 +833,8 @@ export class Game {
                 // opponent plays as whichever Forge skin their presence
                 // advertised (unknown/missing → the Archmage).
                 selectedCharacter: opp.character || this.stats.selectedCharacter,
-                combo: 0,
+                combo: this.duelCombos[oppSlot] || 0,
+                arenaSkillActive: !!this.duelAuras[oppSlot],
                 wandColor: opp.wand || this.stats.wandColor,
                 hasSkill: () => false
             };
@@ -886,6 +910,39 @@ export class Game {
         }
 
         this.ctx.restore(); // Restore from screen shake translate
+    }
+
+    _drawDuelAuras(frozen = false) {
+        if (this.gameMode !== 'duel') return;
+        const now = Date.now();
+        const scale = Math.min(1.2, Math.max(0.82, this.canvas.height / 750));
+        const baseRadius = Math.round(154 * scale);
+        const y = this.canvas.height - 53;
+        const timeStopActive = frozen && this.duelTimeStopSlot;
+        const remaining = this.duelTimeStopUntil - now;
+
+        // The Chronomancer's primary effect is a shared, centered canvas seal.
+        // Its final outer arc is driven by the host's absolute deadline, so it
+        // visibly counts down to the same expiry on both clients.
+        if (timeStopActive && remaining > 0) {
+            drawTimeStopSeal(this.ctx, this.canvas.width, this.canvas.height, remaining, now);
+        }
+
+        for (const slot of ['A', 'B']) {
+            const skillId = this.duelAuras[slot];
+            if (!skillId) continue;
+            const radius = baseRadius + (skillId === 'time-stop' ? 18 : 0);
+            const breathe = 1 + Math.sin(now / (skillId === 'time-stop' ? 220 : 420)) * .035;
+            drawCasterSigil(
+                this.ctx,
+                skillId,
+                slotX(this.canvas, slot),
+                y,
+                Math.round(radius * breathe),
+                now,
+                skillId === 'time-stop' ? .86 : .72
+            );
+        }
     }
 
     _getComboVignette() {

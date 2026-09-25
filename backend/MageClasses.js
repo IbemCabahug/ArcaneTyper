@@ -24,8 +24,8 @@
  * @property {string} id     stable skill id — the ONLY thing sent over the wire
  * @property {string} title  display name (HUD chip, cast float, docs)
  * @property {number} cost   mana spent by the caster (`Stats.useMana`)
- * @property {'damage'|'mitigation'|'mana_refund'} kind what the buff changes
- * @property {number} value  damage/mitigation multiplier, or mana refunded
+ * @property {'damage'|'mitigation'|'time_stop'} kind what the active changes
+ * @property {number} value damage/mitigation multiplier, or freeze duration in ms
  * @property {string} effect the owner-facing sentence (docs + guard fingerprint)
  */
 
@@ -44,7 +44,7 @@ export const MAGE_CLASSES = [
         title: 'Novice',
         tagline: 'Balanced & Economy',
         color: '#4CAF50',
-        blurb: 'No specialisation — a clean slate, and the balanced active in the Arena. Arena active: Arcane Surge.',
+        blurb: 'No specialisation — a clean slate. PvP-only Arena active: Arcane Surge.',
         active: {
             id: 'arcane-surge',
             title: 'Arcane Surge',
@@ -59,7 +59,7 @@ export const MAGE_CLASSES = [
         title: 'Pyromancer',
         tagline: 'Destruction & Combo',
         color: '#FF5722',
-        blurb: '+20% score from every word (which also feeds XP). Arena active: Cinder Brand.',
+        blurb: '+20% score from every word (which also feeds XP). PvP-only Arena active: Cinder Brand.',
         active: {
             id: 'cinder-brand',
             title: 'Cinder Brand',
@@ -74,7 +74,7 @@ export const MAGE_CLASSES = [
         title: 'Cryomancer',
         tagline: 'Control & Warding',
         color: '#4dd0e1',
-        blurb: 'Words fall slower in Survival — a wider window to read and recover. Arena active: Glacial Ward.',
+        blurb: 'Words fall slower in Survival. PvP-only Arena active: Glacial Ward.',
         active: {
             id: 'glacial-ward',
             title: 'Glacial Ward',
@@ -89,29 +89,24 @@ export const MAGE_CLASSES = [
         title: 'Chronomancer',
         tagline: 'Time & Mana',
         color: '#d500f9',
-        blurb: 'Casting the Nova refunds 50 mana, bending time back in your favour. Arena active: Mana Echo.',
+        blurb: 'Casting the Nova refunds 50 mana. PvP-only Arena active: Time Stop.',
         active: {
-            id: 'mana-echo',
-            title: 'Mana Echo',
-            cost: 60,
-            kind: 'mana_refund',
-            value: 60,
-            // Owner decision 2026-09-23 (AT-F10): the original 0.85x duration
-            // multiplier was dropped — it rewrote the arbiter's OWN input
-            // (DuelRace.resolve takes the lower self-measured duration), which
-            // is the one thing AT-F9's fairness window must never grant. A
-            // mana loop instead, matching this class's shipped Nova refund.
-            effect: 'Your next won claim refunds 60 mana.'
+            id: 'time-stop',
+            title: 'Time Stop',
+            cost: 100,
+            kind: 'time_stop',
+            value: 3000,
+            effect: 'Stops the shared Arena for 3 seconds. You can still type.'
         }
     }
 ];
 
 /**
- * The three ways an active can act. Kept explicit (rather than free-form) so
+ * The four ways an active can act. Kept explicit (rather than free-form) so
  * the host can arbitrate anything the roster declares without a lookup table
  * living anywhere else — see AT-F10's "one roster" rule.
  */
-export const MAGE_ACTIVE_KINDS = ['damage', 'mitigation', 'mana_refund'];
+export const MAGE_ACTIVE_KINDS = ['damage', 'mitigation', 'time_stop'];
 
 /** The class a fresh account (and any unknown/invalid value) resolves to. */
 export const DEFAULT_MAGE_CLASS = 'Novice';

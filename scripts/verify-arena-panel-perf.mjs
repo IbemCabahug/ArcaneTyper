@@ -118,18 +118,26 @@ check(
     menuAlphas.length > 0 && Math.min(...menuAlphas) >= 0.9,
     `alphas: ${menuAlphas.join(', ') || 'none'}`
 );
+const lobbyCardBody = ruleBody(cssSrc, '.arena-lobby-card');
 for (const id of ['id="duel-lobby-idle"', 'id="duel-lobby-waiting"']) {
-    const tagAlphas = backgroundAlphas(tagOf(htmlSrc, id));
+    const cardAlphas = backgroundAlphas(lobbyCardBody);
     check(
-        `${id} stayed solid after losing its nested blur`,
-        tagAlphas.length > 0 && Math.min(...tagAlphas) >= 0.8,
-        `alphas: ${tagAlphas.join(', ') || 'none'}`
+        `${id} uses the solid CSS-owned lobby surface`,
+        tagOf(htmlSrc, id).includes('arena-lobby-card') &&
+            cardAlphas.length > 0 && Math.min(...cardAlphas) >= 0.8 &&
+            !lobbyCardBody.includes('backdrop-filter'),
+        `alphas: ${cardAlphas.join(', ') || 'none'}`
     );
 }
 
 // ── 3. the arena panel animates only compositor-friendly properties ────────
 const panelBody = ruleBody(cssSrc, '#duel-lobby-menu');
 const panelTrans = shorthandProps(panelBody, 'transition');
+check(
+    'the Arena panel uses the amethyst edge',
+    panelBody.includes('border-left: 1px solid rgba(168, 85, 247, 0.72)'),
+    'the Arena frame should use the researched amethyst accent'
+);
 check(
     'the arena panel transitions only opacity and transform',
     panelTrans.length === 2 && panelTrans.every((p) => p === 'opacity' || p === 'transform'),
@@ -152,7 +160,25 @@ check(
 );
 
 
-// ── 4. the spinning rings are their own layers, animated by transform ──────
+check(
+    'the result card is a named, CSS-driven surface',
+    tagOf(htmlSrc, 'class="duel-result-card"').includes('duel-result-card') &&
+        count(htmlSrc, 'class="duel-result-card"') === 1 &&
+        count(cssSrc, '\n.duel-result-card {') === 1
+);
+check(
+    'the result score IDs remain the live score/data-flow contract',
+    count(htmlSrc, 'id="duel-res-my-score"') === 1 &&
+        count(htmlSrc, 'id="duel-res-opp-score"') === 1 &&
+        count(mainSrc, 'duelResMyScore.innerText = raceWins.mine;') === 1 &&
+        count(mainSrc, 'duelResOppScore.innerText = raceWins.theirs;') === 1
+);
+check(
+    'the result surface stays opaque and blur-free',
+    backgroundAlphas(ruleBody(cssSrc, '.duel-result-card')).every((a) => a >= 0.9) &&
+        !ruleBody(cssSrc, '.duel-result-card').includes('backdrop-filter')
+);
+
 const ringBody = ruleBody(cssSrc, '.arena-ring');
 check('the rings are promoted and paint-contained', ringBody.includes('will-change: transform') && ringBody.includes('contain: paint'));
 check(

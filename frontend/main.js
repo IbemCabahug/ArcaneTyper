@@ -114,6 +114,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const duelRoomInput = document.getElementById('duel-room-input');
   const duelRoomCodeDisplay = document.getElementById('duel-room-code-display');
   const duelLobbyError = document.getElementById('duel-lobby-error');
+  const duelLobbyClassName = document.getElementById('duel-lobby-class-name');
+  const duelLobbyActiveName = document.getElementById('duel-lobby-active-name');
+  const duelLobbyActiveCost = document.getElementById('duel-lobby-active-cost');
+  const duelLobbyActiveEffect = document.getElementById('duel-lobby-active-effect');
+  const duelLobbyClassInfo = document.getElementById('duel-lobby-class-info');
   const duelResultTitle = document.getElementById('duel-result-title');
   const duelResultSubtitle = document.getElementById('duel-result-subtitle');
   const duelResMyScore = document.getElementById('duel-res-my-score');
@@ -1060,6 +1065,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   function openDuelLobby() {
     setMenuBehind(true);
 
+    // The Arena active is a class contract, not a Workshop perk. Paint the
+    // bound Discipline before the player creates or joins a room so the PvP-only
+    // ability is never a surprise when the first word appears.
+    const classInfo = mageClassInfo(game.stats?.mageClass);
+    if (duelLobbyClassInfo && classInfo) {
+      duelLobbyClassName.textContent = classInfo.title;
+      duelLobbyActiveName.textContent = classInfo.active.title;
+      duelLobbyActiveCost.textContent = `${classInfo.active.cost} MANA`;
+      duelLobbyActiveEffect.textContent = classInfo.active.effect;
+      duelLobbyClassInfo.style.setProperty('--discipline-accent', classInfo.color);
+    }
+
     // Using a setTimeout allows display: flex to apply before we trigger the CSS transition
     setTimeout(() => {
       duelLobbyMenu.classList.add('active');
@@ -1259,7 +1276,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     duelResOppScore.innerText = raceWins.theirs;
 
     if (isWinner) {
-      duelResultTitle.innerText = '⚔️ VICTORY!';
+      duelResultTitle.innerText = 'VICTORY!';
       duelResultTitle.style.color = '#ffd700';
       duelResultSubtitle.innerText =
         reason === 'disconnect' ? 'Your opponent vanished mid-cast!' :
