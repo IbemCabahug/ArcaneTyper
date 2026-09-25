@@ -109,6 +109,9 @@ export class CombatSystem {
         // gameplay effects below still resolve immediately.
         const isBloodseeker = this.game.stats?.selectedCharacter === 'bloodseeker';
         const isVoidweaver = this.game.stats?.selectedCharacter === 'voidweaver';
+        // The Blood Moon's renderer advances in 100 ms steps, so the stage cap
+        // is derived from the duration rather than hardcoded — the cinematic
+        // has been lengthened before and must not freeze on its last frame.
         this.game.supernovaFx = isBloodseeker
             ? { kind: 'blood-moon', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000 }
             : isVoidweaver

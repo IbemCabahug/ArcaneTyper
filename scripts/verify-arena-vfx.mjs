@@ -508,16 +508,24 @@ check('the blade flight is launch → hover → slash → recall (not one instan
 check('the hover overshoots past the boss and trembles (rocket-like station-keeping)',
     renderer.includes('k = 1 + Math.sin(u * Math.PI) * 0.09;') &&
     renderer.includes('const amp = 1.6 + Math.sin((p - 0.24) * 34) * 1.1;'));
-check('the recall leg is shorter than the hover hold, so blades re-form quickly',
-    (0.60 - 0.24) > (1 - 0.76),
-    `hover=${(0.60 - 0.24).toFixed(2)} recall=${(1 - 0.76).toFixed(2)}`);
+check('the hover is the LONGEST leg, so the pause is the thing you watch',
+    (0.60 - 0.24) > (1 - 0.76) && (0.60 - 0.24) > (0.76 - 0.60) && (0.60 - 0.24) > 0.24,
+    `hover=${(0.60 - 0.24).toFixed(2)} slash=${(0.76 - 0.60).toFixed(2)} recall=${(1 - 0.76).toFixed(2)} launch=0.24`);
 check('the blade brightens while charging, so the pause reads as anticipation',
     renderer.includes("ctx.shadowColor = charging ? '#ff6b88' : '#ff1744';") &&
     renderer.includes("ctx.strokeStyle = charging ? 'rgba(255, 150, 170, 0.98)'"));
-check('the per-word slash is slowed from the original 420ms, and the volley still fits the 1s cinematic',
+check('the per-word slash keeps its four beats, and the volley still fits its cinematic',
     game.includes('_leaseBladeSlash(targetX, targetY, duration = 700)') &&
     game.includes('_leaseBladeVolley(targetX, targetY, duration = 960)'),
-    'both defaults must be > 420ms and the volley must stay under 1000ms');
+    'per-word is 700ms; the volley is 960ms');
+check('the Blood Moon cinematic still outlasts the four-blade volley',
+    combat.includes("kind: 'blood-moon', startedAt: performance.now(), duration: 1000") &&
+    combat.includes("kind: 'void-collapse', startedAt: performance.now(), duration: 1000") &&
+    1000 >= 960,
+    'the cinematic must be >= the volley or blades are stranded mid-air');
+check('the Blood Moon stage count follows its duration, not a fixed 10 steps',
+    game.includes('const stage = Math.min(Math.ceil(fx.duration / 100) - 1, Math.floor(elapsed / 100));'),
+    'a hardcoded cap would freeze the last frame if the cinematic is lengthened');
 check('the Voidweaver streak is a brighter aqua than the wells\' own photon rings',
     voidBody.includes("const hot = combo >= 50 ? '#7cf0ff' : '#4fd8f0';") &&
     voidBody.includes('const warm = combo >= 50 ?') &&

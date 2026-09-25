@@ -1129,10 +1129,11 @@ export class Game {
     }
 
     /**
-     * Supernova leases ALL FOUR blades at once, and the flight is deliberately
-     * shorter than the 1 s Blood Moon cinematic so every blade has landed back
-     * in formation by the time the takeover finishes — the volley reads as
-     * part of the spell, not as four blades abandoned mid-air.
+     * Supernova leases ALL FOUR blades at once. The flight is deliberately
+     * shorter than the Blood Moon cinematic so every blade has landed back in
+     * formation by the time the takeover finishes — a volley that outlived its
+     * own cinematic would leave four blades hanging in mid-air after the spell
+     * finished.
      */
     _leaseBladeVolley(targetX, targetY, duration = 960) {
         if (!this.bladeSlash) this.bladeSlash = { next: 0, leases: [null, null, null, null] };
@@ -1160,7 +1161,10 @@ export class Game {
         const w = this.canvas.width;
         const h = this.canvas.height;
         const lowQ = window.__atLowQuality;
-        const stage = Math.min(9, Math.floor(elapsed / 100));
+        // 100 ms steps, so the stage count follows the cinematic's own duration
+        // rather than a fixed 10 — the Blood Moon now runs 1.8 s to match the
+        // four-blade volley, and a hardcoded cap would freeze the last frame.
+        const stage = Math.min(Math.ceil(fx.duration / 100) - 1, Math.floor(elapsed / 100));
         const local = (elapsed % 100) / 100;
         // The Moon is the source in the upper-right; the sigil below is the
         // ritual's center. Their diagonal relationship makes the takeover read

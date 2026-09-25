@@ -1682,14 +1682,16 @@ export class CharacterRenderer {
             const lean = Math.sign(b.dx) * b.tilt;
 
             // Flight path, in four beats so the strike READS instead of
-            // blinking past. 0→0.24 LAUNCH (fast, eased, like a rocket leaving
-            // a rail), 0.24→0.60 HOVER (it overshoots slightly past the boss,
-            // hangs there trembling with the edge charging, then pulls back —
-            // this is the anticipation that makes the cut land), 0.60→0.76
-            // SLASH (the damage beat), 0.76→1 RECALL. The recall is the
-            // SHORTEST leg on purpose: the hover is the part worth watching, so
-            // the return is a quick snap home and a fast typist still cycles
-            // through all four blades.
+            // blinking past. The hover is the longest leg, because that
+            // suspended moment in front of the boss is the whole point — the
+            // blade arrives, overshoots into station like a rocket reaching
+            // orbit, hangs trembling with its edge charging, then cuts. Launch
+            // is a quick ejection and the recall is the shortest leg, so a fast
+            // typist still cycles 1→2→3→4.
+            //   0→0.24   LAUNCH  (ease-out acceleration off the anchor)
+            //   0.24→0.60 HOVER   (overshoot past the boss, tremble, charge)
+            //   0.60→0.76 SLASH   (the damage beat)
+            //   0.76→1    RECALL  (quick snap home)
             let drawX = bx, drawY = bpy, drawRot = lean, alpha = 1, trailing = false;
             let charging = false;
             const lease = leases && leases[bi];
@@ -1704,7 +1706,7 @@ export class CharacterRenderer {
                         k = 1 - (1 - u) * (1 - u);
                     } else if (p < 0.60) {
                         // Hover: hold station just PAST the boss (k > 1), with
-                        // a small tremble that tightens as the cut approaches.
+                        // a tremble that tightens as the cut approaches.
                         const u = (p - 0.24) / 0.36;
                         k = 1 + Math.sin(u * Math.PI) * 0.09;
                         charging = true;
