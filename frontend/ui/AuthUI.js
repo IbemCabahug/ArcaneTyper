@@ -1,6 +1,5 @@
 import { supabase } from '../../backend/supabaseClient.js';
-import { DEFAULT_MAGE_CLASS, MAGE_CLASSES, normalizeMageClass } from '../../backend/MageClasses.js';
-
+import { DEFAULT_MAGE_CLASS, classesForCharacter, mageClassInfo, normalizeMageClass, normalizeMageClassForCharacter } from '../../backend/MageClasses.js';
 
 export class AuthUI {
     constructor(game, startMenu, profileMenu) {
@@ -68,7 +67,7 @@ export class AuthUI {
     _populateClassOptions() {
         if (!this.ccClass) return;
         this.ccClass.innerHTML = '';
-        MAGE_CLASSES.forEach((cls) => {
+        classesForCharacter('wizard').forEach((cls) => {
             const opt = document.createElement('option');
             opt.value = cls.id;
             opt.textContent = `${cls.title} (${cls.tagline})`;

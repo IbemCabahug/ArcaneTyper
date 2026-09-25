@@ -2461,7 +2461,7 @@ h2 {
 }
 
 .skin-card:hover {
-  transform: translateY(-2px);
+  transform: none;
   background: rgba(255, 255, 255, 0.08) !important;
   box-shadow: 0 6px 15px rgba(0, 0, 0, 0.6);
 }
@@ -2477,8 +2477,27 @@ h2 {
   border-color: rgba(255, 255, 255, 0.25) !important;
 }
 
+/* Unlocked but not equipped: a real, selectable card. It must NOT inherit the
+   locked paint — the two states are told apart by the card's own background,
+   border and label colour, and leaving the shipped "coming soon" plate in
+   place is what made a purchased character read as still dimmed. */
+.skin-card.available {
+  filter: none;
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.skin-card.available:hover {
+  filter: none;
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Equipped: the character's own identity colour owns the border. */
 .skin-card.active {
-  background: rgba(255, 255, 255, 0.06) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
   box-shadow: 0 0 15px rgba(0, 229, 255, 0.15);
 }
 
@@ -2527,6 +2546,37 @@ h2 {
 /* ── Profile Menu Scroll & Responsiveness ── */
 #profile-menu {
   padding: 1.5rem 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  contain: layout paint;
+}
+
+#profile-menu > div {
+  flex: 0 0 auto;
+  margin: 0 auto;
+}
+
+#profile-menu .profile-content {
+  min-width: 0;
+  max-height: 100%;
+  overflow: visible;
+}
+
+#profile-menu #character-skin-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+
+#profile-menu #character-skin-grid .skin-card {
+  min-width: 0;
+  contain: layout paint;
+  isolation: isolate;
 }
 
 #profile-menu::-webkit-scrollbar {
@@ -2544,6 +2594,17 @@ h2 {
 
 #profile-menu::-webkit-scrollbar-thumb:hover {
   background: var(--accent-primary);
+}
+
+@media (max-width: 520px) {
+  #profile-menu #character-skin-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  #profile-menu .skin-card {
+    padding: 4px !important;
+  }
 }
 
 /* Compact layout by default for the 600px container */

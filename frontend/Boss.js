@@ -1,3 +1,11 @@
+/**
+ * Boss HP multiplier. The elemental table below is the boss's identity and is
+ * deliberately NOT rebalanced — every element keeps its own base HP, speed,
+ * colour, aura and title. This only stretches the fight so a per-character
+ * attack identity has room to be felt instead of ending the boss in two words.
+ */
+const BOSS_HP_SCALE = 4;
+
 export class Boss {
     constructor(canvasWidth, canvasHeight, elementType = 'fire', difficultyScale = 1) {
         this.canvasWidth = canvasWidth;
@@ -28,8 +36,12 @@ export class Boss {
         this.auraColor = config.aura;
         this.title = config.title;
 
-        // Scale HP and attack speed based on how many bosses have been defeated
-        this.maxHealth = Math.floor(config.hp * difficultyScale);
+        // Boss HP was raised (see BOSS_HP_SCALE) so a fight lasts long enough
+        // for a per-character attack identity to matter. This multiplies the
+        // WHOLE table uniformly: every element keeps its own base HP, its own
+        // relative toughness, speed, colours, aura and title, so no element's
+        // identity or effects changed — only the length of the fight.
+        this.maxHealth = Math.max(1, Math.floor(config.hp * difficultyScale * BOSS_HP_SCALE));
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth; // Lerped display value for smooth bar
         this.isDead = false;
@@ -85,13 +97,23 @@ export class Boss {
         this.spellTimer += dt;
     }
 
-    takeDamage() {
-        this.health -= 1;
+    /**
+     * Apply boss damage.
+     *
+     * `amount` is optional and defaults to 1 so every existing call site (the
+     * Nova/Supernova bursts and the plain projectile impact) keeps its historic
+     * behaviour. The per-character boss-strike profile in CombatSystem passes an
+     * explicit amount instead of calling this repeatedly.
+     */
+    takeDamage(amount = 1) {
+        const dealt = Number.isFinite(amount) && amount > 0 ? Math.floor(amount) : 1;
+        this.health -= dealt;
         this.flashTimer = 200; // Flash white for 200ms
         if (this.health <= 0) {
             this.health = 0;
             this.isDead = true;
         }
+        return dealt;
     }
 
     shouldAttack() {

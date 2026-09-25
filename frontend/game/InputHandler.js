@@ -153,15 +153,26 @@ export class InputHandler {
                     }
                 }
 
-                // Fire counter-attack projectile at boss
+                // Fire counter-attack projectile at boss. The Bloodseeker does
+                // NOT need one: its netherblade is the strike, so the blade
+                // leaves formation the instant the word is solved and the hit
+                // resolves with the flight instead of on an impact frame. The
+                // owner's correction: the slash must follow the WORD, not a
+                // bullet, otherwise the character is just the Wizard with a
+                // decorative projectile.
                 if (this.game.isBossPhase && this.game.boss && !this.game.boss.isDead && word.isBossAttack) {
-                    const startX = this.game.canvas.width / 2;
-                    const startY = this.game.canvas.height - 40;
-                    const targetXOffset = (Math.random() - 0.5) * 100;
-                    
-                    const colors = word.elementColors.particles;
-                    const projectile = new Projectile(startX, startY, this.game.boss.x + targetXOffset, this.game.boss.y + 20, colors, 'normal');
-                    this.game.projectiles.push(projectile);
+                    if (this.game.stats.selectedCharacter !== 'bloodseeker') {
+                        const startX = this.game.canvas.width / 2;
+                        const startY = this.game.canvas.height - 40;
+                        const targetXOffset = (Math.random() - 0.5) * 100;
+
+                        const colors = word.elementColors.particles;
+                        const projectile = new Projectile(startX, startY, this.game.boss.x + targetXOffset, this.game.boss.y + 20, colors, 'normal', word.text.length);
+                        this.game.projectiles.push(projectile);
+                    } else {
+                        // The blade IS the projectile: hit now, animate the cut.
+                        this.game.combatSystem.strikeBoss(word.text.length);
+                    }
                 }
 
                 // Release targeting immediately so player can type next word

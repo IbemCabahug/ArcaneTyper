@@ -51,8 +51,24 @@ export class Game {
         // slots (A/B), never to "self", so both clients draw the same caster.
         this.duelAuras = { A: null, B: null };
         this.duelCombos = { A: 0, B: 0 };
+        this.duelBuffUntil = { A: 0, B: 0 };
+        this.duelDebuffs = { A: null, B: null };
         this.duelTimeStopUntil = 0;
         this.duelTimeStopSlot = null;
+        this.stats.onBarrierRestored = (combo) => this._onBarrierRestored(combo);
+
+        // Character-specific ultimate cinematics. Bloodseeker's Blood Moon
+        // takeover is a render-time timeline, not a chain of timers.
+        this.supernovaFx = null;
+        this.voidWardUntil = 0;
+
+        // Bloodseeker's four netherblades are a ROTATING STRIKE POOL. Each
+        // solved boss word leases exactly one blade; a blade cannot be leased
+        // again until it has flown out, cut, and been recalled. The cursor
+        // makes that a strict 1→2→3→4 rotation, and a fast typist who outruns
+        // the recall simply takes the next free blade instead of re-firing
+        // one already in the air.
+        this.bladeSlash = { next: 0, leases: [null, null, null, null] };
 
         // Screen shake
         this.shakeTimer = 0;
@@ -150,6 +166,7 @@ export class Game {
         }
         this.difficulty = difficulty;
         this.gameMode = mode;
+        this.stats.gameMode = mode;
         this._runFinalised = false; // fresh run → finalisation armed (AT-L5)
         this.dictionary.setDictionary(dictionaryType);
 
@@ -231,6 +248,9 @@ export class Game {
         this.boss = null;
         this.bossDimensionAlpha = 0;
         this.bossesDefeated = 0;
+        // AT: a dead boss's own meteors unravel with it, so a dead boss can
+        // never score a last hit on the player.
+        this._bossSummonsCleared = false;
 
         // Screen shake
         this.shakeTimer = 0;
@@ -262,10 +282,16 @@ export class Game {
         this.precognitionUsed = false;
 
         this.blindTimer = 0; // Tracks active Blind spell duration
+        this.duelBuffUntil = { A: 0, B: 0 };
+        this.duelDebuffs = { A: null, B: null };
         this.duelAuras = { A: null, B: null };
         this.duelCombos = { A: 0, B: 0 };
         this.duelTimeStopUntil = 0;
         this.duelTimeStopSlot = null;
+        this.supernovaFx = null;
+        this.voidWardUntil = 0;
+        this._bossSummonsCleared = false;
+        this.bladeSlash = { next: 0, leases: [null, null, null, null] };
 
         this.stats.reset();
         const waveDisplay = document.getElementById('wave-display');
@@ -521,6 +547,16 @@ export class Game {
                 this.combatSystem.castBossSpell();
             }
 
+            // AT: when the boss dies, its own summoned meteors unravel with it.
+            // A dead boss must not keep scoring hits — that made the "victory"
+            // a moment where the player could still lose a life. ORDINARY words
+            // are deliberately left alone: they are the score/XP flow and
+            // clearing the whole lane would throw away the reward.
+            if (this.boss.isDead && !this._bossSummonsCleared) {
+                this._bossSummonsCleared = true;
+                this._dissolveBossSummons();
+            }
+
             // Wait for death animation to fully finish before ending phase
             if (this.boss.isFullyDead() && this.words.length === 0 && this.projectiles.length === 0) {
                 this.achievements.onEvent('boss_defeated');
@@ -541,14 +577,27 @@ export class Game {
         const r3 = r2 + rStep;
         const r4 = r3 + rStep;
 
+        const defenseMode = this.stats.getSurvivalDefenseMode();
         let activeRadius = Math.round(30 * barrierScale);
         let hitColor = '#ff4b4b';
 
-        if (this.stats.lives >= 5) { activeRadius = r4; hitColor = '#00e5ff'; }
+        if (defenseMode === 'absorption') {
+            // Voidweaver has one outer event horizon. Its 3/4 charges are a pool,
+            // not separate shrinking collision rings; once exhausted, the ward
+            // collapses to the mage's small body hitbox.
+            activeRadius = this.stats.lives > 0
+                ? (this.stats.hasSkill('life') ? r4 : r3)
+                : activeRadius;
+            hitColor = '#00e5ff';
+        } else if (defenseMode === 'lives') {
+            // Bloodseeker deliberately has no barrier/ward ring. Lives are a
+            // damage pool, while the character body remains the hit target.
+            activeRadius = Math.round(30 * barrierScale);
+            hitColor = '#ff1744';
+        } else if (this.stats.lives >= 5) { activeRadius = r4; hitColor = '#00e5ff'; }
         else if (this.stats.lives === 4) { activeRadius = r3; hitColor = '#ffd700'; }
         else if (this.stats.lives === 3) { activeRadius = r2; hitColor = '#d500f9'; }
         else if (this.stats.lives === 2) { activeRadius = r1; hitColor = '#29b6f6'; }
-        else { activeRadius = Math.round(30 * barrierScale); hitColor = '#ff4b4b'; }
 
         for (let i = this.words.length - 1; i >= 0; i--) {
             const word = this.words[i];
@@ -612,23 +661,50 @@ export class Game {
                         this.targetedWord = null;
                     }
 
-                    this.audio.playShatter();
-                    this.combatSystem.spawnExplosion(word.x, word.y, { particles: [hitColor, '#ffffff'] });
-                    this.combatSystem.triggerShake(5, 200);
-
-                    // Drop combo on taking damage
-                    this.stats.combo = 0;
-                    this.bloodVignetteIntensity = 1.0;
-                    this.stats.updateHUD();
-                    this.floatingTexts.push(new FloatingText("Hits Taken", wizX, wizY - 120, hitColor, 28));
-
-                    const prevLives = this.stats.lives;
-                    const isDead = this.stats.loseLife();
-                    if (prevLives === 2 && this.stats.lives === 1) {
-                        this.triggerBarrierBreakEffect();
-                    }
-                    if (isDead) {
-                        this.triggerGameOver();
+                    // Every falling word is rendered as a meteor. Reaching the
+                    // character is a shield impact, so it consumes the equipped
+                    // character's defense. Only the off-screen path below is
+                    // streak-only for ordinary meteors.
+                    if (word.meteor) {
+                        const defense = this.stats.consumeSurvivalDefense();
+                        // The Voidweaver CAPTURES the meteor at its ward instead
+                        // of shattering it, so the impact treatment is derived
+                        // from the resolved defense mode — not from the word
+                        // alone. Every other mode keeps the damage shatter.
+                        const isVoidAbsorb = defense.mode === 'absorption';
+                        if (isVoidAbsorb) {
+                            this.audio.playVoidAbsorb();
+                            this.combatSystem.spawnVoidAbsorption(wizX, shieldY);
+                        } else {
+                            this.audio.playShatter();
+                            this.combatSystem.spawnExplosion(word.x, word.y, { particles: [hitColor, '#ffffff'] });
+                        }
+                        this.combatSystem.triggerShake(5, 200);
+                        this.stats.combo = 0;
+                        this.bloodVignetteIntensity = 1.0;
+                        this.stats.updateHUD();
+                        const defenseLabel = defense.mode === 'absorption'
+                            ? 'ABSORPTION −1'
+                            : defense.mode === 'lives'
+                                ? 'LIFE LOST'
+                                : 'SHIELD BROKEN';
+                        this.floatingTexts.push(new FloatingText(defenseLabel, wizX, wizY - 120, hitColor, 28));
+                        if (isVoidAbsorb && defense.before > 1) {
+                            this.voidWardUntil = Date.now() + 1500;
+                            this.floatingTexts.push(new FloatingText('SPACE SLOWED', this.canvas.width / 2, this.canvas.height - 150, '#00e5ff', 22));
+                        }
+                        if (defense.mode === 'barriers' && defense.before > 2 && defense.after <= 2) {
+                            this.triggerBarrierBreakEffect();
+                        }
+                        if (defense.depleted) this.triggerGameOver();
+                    } else {
+                        // An ordinary word that reaches the mage is a typing
+                        // failure only: reset the streak, never the barrier/life
+                        // pool. The shatter remains as feedback, not damage.
+                        this.audio.playShatter();
+                        this.stats.combo = 0;
+                        this.stats.updateHUD();
+                        this.floatingTexts.push(new FloatingText("STREAK BROKEN", wizX, wizY - 120, hitColor, 28));
                     }
                 } else if (word.y > this.canvas.height + 150) {
                     // Check if word drifted completely off-screen (missed)
@@ -648,21 +724,42 @@ export class Game {
                         this.targetedWord = null;
                     }
 
-                    // Treat missed words as damage as well (optional, but typical for typing defense games)
-                    this.audio.playShatter();
-                    this.combatSystem.triggerShake(5, 200);
-                    this.stats.combo = 0;
-                    this.bloodVignetteIntensity = 1.0;
-                    this.stats.updateHUD();
-                    this.floatingTexts.push(new FloatingText("Word Missed", wizX, wizY - 120, hitColor, 28));
-
-                    const prevLives = this.stats.lives;
-                    const isDead = this.stats.loseLife();
-                    if (prevLives === 2 && this.stats.lives === 1) {
-                        this.triggerBarrierBreakEffect();
-                    }
-                    if (isDead) {
-                        this.triggerGameOver();
+                    // A word that drifts off-screen is also a missed typing
+                    // failure only. Keep the feedback, but never consume the
+                    // barrier/life pool for an ordinary word. A boss attack is
+                    // the explicit damage source and still consumes a life.
+                    if (word.isBossAttack) {
+                        const defense = this.stats.consumeSurvivalDefense();
+                        const isVoidAbsorb = defense.mode === 'absorption';
+                        if (isVoidAbsorb) {
+                            this.audio.playVoidAbsorb();
+                            this.combatSystem.spawnVoidAbsorption(wizX, shieldY);
+                        } else {
+                            this.audio.playShatter();
+                        }
+                        this.combatSystem.triggerShake(5, 200);
+                        this.stats.combo = 0;
+                        this.bloodVignetteIntensity = 1.0;
+                        this.stats.updateHUD();
+                        const defenseLabel = defense.mode === 'absorption'
+                            ? 'ABSORPTION −1'
+                            : defense.mode === 'lives'
+                                ? 'LIFE LOST'
+                                : 'SHIELD BROKEN';
+                        this.floatingTexts.push(new FloatingText(defenseLabel, wizX, wizY - 120, hitColor, 28));
+                        if (isVoidAbsorb && defense.before > 1) {
+                            this.voidWardUntil = Date.now() + 1500;
+                            this.floatingTexts.push(new FloatingText('SPACE SLOWED', this.canvas.width / 2, this.canvas.height - 150, '#00e5ff', 22));
+                        }
+                        if (defense.mode === 'barriers' && defense.before > 2 && defense.after <= 2) {
+                            this.triggerBarrierBreakEffect();
+                        }
+                        if (defense.depleted) this.triggerGameOver();
+                    } else {
+                        this.audio.playShatter();
+                        this.stats.combo = 0;
+                        this.stats.updateHUD();
+                        this.floatingTexts.push(new FloatingText("STREAK BROKEN", wizX, wizY - 120, hitColor, 28));
                     }
                 }
             }
@@ -715,11 +812,11 @@ export class Game {
             if (proj.isDead) {
                 this.projectiles.splice(i, 1);
 
+                // Each solved boss-attack word is one character-shaped strike.
+                // CombatSystem owns the damage profile AND the impact
+                // presentation, so the per-character identity lives in one place.
                 if (this.isBossPhase && this.boss && !this.boss.isDead) {
-                    this.boss.takeDamage();
-                    this.audio.playExplosion();
-                    this.combatSystem.spawnExplosion(this.boss.x, this.boss.y, { particles: ['#ffd700', '#ffffff', '#ff4b4b'] });
-                    this.combatSystem.triggerShake(7, 250);
+                    this.combatSystem.strikeBoss(proj.wordLength);
                 }
             }
         }
@@ -757,6 +854,11 @@ export class Game {
         // --- Star field ---
         this._drawStars(comboIntensity);
 
+        // Bloodseeker's ready Moon belongs behind the active combatants. Its
+        // glow grows with Supernova mana, but it remains a quiet background
+        // element until the cast cinematic takes over.
+        this._drawReadyBloodMoon();
+
         // --- Pocket Dimension Background ---
         if (this.bossDimensionAlpha > 0) {
             const { base, vig } = this._getPocketDimensionBGs();
@@ -787,18 +889,27 @@ export class Game {
         // AT-F9: arena shields live in the score bar (HP bars) — no survival
         // rings around the mage; they would falsely imply live shield state.
         if (this.gameMode !== 'duel') {
-            const barriers = [
-                { radius: r1, color: '#29b6f6', active: this.stats.lives >= 2 },
-                { radius: r2, color: '#d500f9', active: this.stats.lives >= 3 },
-                { radius: r3, color: '#ffd700', active: this.stats.lives >= 4 },
-                ...(this.stats.hasSkill('life') ? [{ radius: r4, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
-            ];
-
-            barriers.forEach(barrier => {
-                if (barrier.active) {
-                    this._blitBarrier(this._barrierImg('def', barrier.color, barrier.radius, 0), wizX, shieldY);
+            const defenseMode = this.stats.getSurvivalDefenseMode();
+            if (defenseMode === 'absorption') {
+                // One outer Voidweaver event horizon; the 3/4 absorption charges
+                // are represented by the HUD pool, never by stacked rings.
+                if (this.stats.lives > 0) {
+                    const radius = this.stats.hasSkill('life') ? r4 : r3;
+                    this._blitBarrier(this._barrierImg('voidward', '#00e5ff', radius, 0), wizX, shieldY);
                 }
-            });
+            } else if (defenseMode !== 'lives') {
+                const barriers = [
+                    { radius: r1, color: '#29b6f6', active: this.stats.lives >= 2 },
+                    { radius: r2, color: '#d500f9', active: this.stats.lives >= 3 },
+                    { radius: r3, color: '#ffd700', active: this.stats.lives >= 4 },
+                    ...(this.stats.hasSkill('life') ? [{ radius: r4, color: '#00e5ff', active: this.stats.lives >= 5 }] : [])
+                ];
+                barriers.forEach((barrier) => {
+                    if (barrier.active) {
+                        this._blitBarrier(this._barrierImg('def', barrier.color, barrier.radius, 0), wizX, shieldY);
+                    }
+                });
+            }
         }
 
         this.ctx.restore();
@@ -819,10 +930,24 @@ export class Game {
             const selfSlot = this.duelSide;            // 'A' host | 'B' challenger
             const oppSlot = otherSlot(selfSlot);
             const opp = this.duelOpponent || {};
+            const selfCharacter = this.stats.selectedCharacter;
+            const oppCharacter = opp.character || this.stats.selectedCharacter;
+            const selfCombo = this.duelCombos[selfSlot] || 0;
+            const oppCombo = this.duelCombos[oppSlot] || 0;
+            // Streak identity first, active seal second, body last. This keeps
+            // the class focus dominant without deleting the character's aura.
+            CharacterRenderer.drawStreakOverlay(
+                this.ctx, slotX(this.canvas, selfSlot), this.canvas.height - 35,
+                selfCharacter, selfCombo, performance.now(), !!this.duelAuras[selfSlot]
+            );
+            CharacterRenderer.drawStreakOverlay(
+                this.ctx, slotX(this.canvas, oppSlot), this.canvas.height - 35,
+                oppCharacter, oppCombo, performance.now(), !!this.duelAuras[oppSlot]
+            );
             this._drawDuelAuras(frozen);
             const selfStats = this.duelAuras[selfSlot]
-                ? { ...this.stats, arenaSkillActive: true }
-                : this.stats;
+                ? { ...this.stats, arenaSkillActive: true, skipStreakOverlay: true }
+                : { ...this.stats, skipStreakOverlay: true };
             this._drawTeamMage(
                 slotX(this.canvas, selfSlot), animProgress, selfStats,
                 teamColorFor(selfSlot), 'YOU'
@@ -833,8 +958,9 @@ export class Game {
                 // opponent plays as whichever Forge skin their presence
                 // advertised (unknown/missing → the Archmage).
                 selectedCharacter: opp.character || this.stats.selectedCharacter,
-                combo: this.duelCombos[oppSlot] || 0,
+                combo: oppCombo,
                 arenaSkillActive: !!this.duelAuras[oppSlot],
+                skipStreakOverlay: true,
                 wandColor: opp.wand || this.stats.wandColor,
                 hasSkill: () => false
             };
@@ -843,7 +969,14 @@ export class Game {
                 teamColorFor(oppSlot), opp.name || 'Opponent'
             );
         } else {
+            // AT-F15: Survival only. The blade-lease table travels on `stats` so
+            // the renderer can read it; it is transient presentation state and
+            // is never read by gameplay. Cleared on reset() with the rest of
+            // the run state, and stripped again immediately after the draw so
+            // no later code path can mistake it for persistent stats.
+            this.stats.bladeSlash = this.bladeSlash;
             CharacterRenderer.draw(this.ctx, wizX, wizY, this.stats.selectedCharacter, animProgress, this.stats);
+            this.stats.bladeSlash = null;
         }
         this.ctx.restore();
 
@@ -890,6 +1023,10 @@ export class Game {
         // --- Floating Texts ---
         this.floatingTexts.forEach(ft => ft.draw(this.ctx));
 
+        // --- Character Supernova cinematics (presentation only) ---
+        this._drawBloodMoonSupernova();
+        this._drawVoidCollapseSupernova();
+
         // --- Blind Overlay ---
         if (this.blindTimer > 0) {
             this.ctx.save();
@@ -908,8 +1045,411 @@ export class Game {
                 this.ctx.restore();
             }
         }
-
         this.ctx.restore(); // Restore from screen shake translate
+    }
+    /**
+     * Bloodseeker's ready Moon is a background charge indicator. It is always
+     * behind the mage/words, its glow rises continuously with the Supernova
+     * mana bar, and it disappears during the active cinematic.
+     */
+    _drawReadyBloodMoon() {
+        if (this.gameMode === 'duel' || this.stats.selectedCharacter !== 'bloodseeker') return;
+        if (this.supernovaFx) return;
+
+        const readiness = Math.max(0, Math.min(1, this.stats.mana / 100));
+        // A faint dormant Moon is always present in Bloodseeker's background;
+        // it brightens continuously as the 100-mana Supernova bar fills.
+        const x = this.canvas.width * 0.82;
+        const y = this.canvas.height * 0.18;
+        const radius = Math.min(this.canvas.width, this.canvas.height) * (0.055 + readiness * 0.020);
+        const ctx = this.ctx;
+        const pulse = 0.96 + Math.sin(performance.now() / 1200) * 0.04;
+        const backgroundAlpha = 0.18 + readiness * 0.24;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(pulse, pulse);
+        const halo = ctx.createRadialGradient(0, 0, radius * 0.25, 0, 0, radius * 2.8);
+        halo.addColorStop(0, `rgba(255, 164, 158, ${backgroundAlpha * 0.78})`);
+        halo.addColorStop(0.35, `rgba(255, 23, 68, ${backgroundAlpha * 0.42})`);
+        halo.addColorStop(1, 'rgba(80, 0, 18, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 2.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = `rgba(255, 179, 173, ${0.18 + readiness * 0.42})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 65, 88, ${0.16 + readiness * 0.38})`;
+        ctx.lineWidth = 1 + readiness;
+        ctx.stroke();
+
+        // Offset shadow preserves the eclipse silhouette without making the
+        // ready state as bright or large as the Supernova takeover Moon.
+        ctx.fillStyle = `rgba(48, 0, 14, ${0.20 + readiness * 0.28})`;
+        ctx.beginPath();
+        ctx.arc(radius * 0.30, -radius * 0.10, radius * 0.90, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+
+
+    /**
+     * Lease the next free netherblade to slash the boss. The cursor makes this
+     * a strict 1→2→3→4 rotation; a blade still in the air is skipped rather
+     * than re-fired, which is what lets a very fast typist use all four
+     * without any single blade striking twice.
+     *
+     * @param {number} targetX boss x
+     * @param {number} targetY boss y
+     * @param {number} duration flight + slash + recall time in ms
+     * @returns {number} the leased blade index, or -1 if all four are in flight
+     */
+    _leaseBladeSlash(targetX, targetY, duration = 700) {
+        if (!this.bladeSlash) this.bladeSlash = { next: 0, leases: [null, null, null, null] };
+        const { leases } = this.bladeSlash;
+        const now = performance.now();
+
+        for (let i = 0; i < 4; i++) {
+            const active = leases[i];
+            if (active && now - active.startedAt >= active.duration) leases[i] = null;
+        }
+        for (let n = 0; n < 4; n++) {
+            const idx = (this.bladeSlash.next + n) % 4;
+            if (!leases[idx]) {
+                leases[idx] = { startedAt: now, duration, targetX, targetY };
+                this.bladeSlash.next = (idx + 1) % 4;
+                return idx;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Supernova leases ALL FOUR blades at once, and the flight is deliberately
+     * shorter than the 1 s Blood Moon cinematic so every blade has landed back
+     * in formation by the time the takeover finishes — the volley reads as
+     * part of the spell, not as four blades abandoned mid-air.
+     */
+    _leaseBladeVolley(targetX, targetY, duration = 960) {
+        if (!this.bladeSlash) this.bladeSlash = { next: 0, leases: [null, null, null, null] };
+        const now = performance.now();
+        for (let i = 0; i < 4; i++) {
+            this.bladeSlash.leases[i] = { startedAt: now, duration, targetX, targetY };
+        }
+        this.bladeSlash.next = 0;
+    }
+
+    /**
+     * Bloodseeker's Supernova is a 1 second, 100 ms-stepped cinematic. The
+     * world is already resolved by CombatSystem; this only paints presentation
+     * state, so tab throttling cannot alter damage, word clears, or boss hits.
+     */
+    _drawBloodMoonSupernova() {
+        const fx = this.supernovaFx;
+        if (!fx || fx.kind !== 'blood-moon') return;
+        const elapsed = performance.now() - fx.startedAt;
+        if (elapsed >= fx.duration) {
+            this.supernovaFx = null;
+            return;
+        }
+
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const lowQ = window.__atLowQuality;
+        const stage = Math.min(9, Math.floor(elapsed / 100));
+        const local = (elapsed % 100) / 100;
+        // The Moon is the source in the upper-right; the sigil below is the
+        // ritual's center. Their diagonal relationship makes the takeover read
+        // as a spell travelling across the canvas, not a generic red flash.
+        const moonX = w * 0.82;
+        const moonY = h * 0.18;
+        const maxRadius = Math.hypot(w, h) * 0.72;
+        const spread = stage < 2
+            ? 0.08 + stage * 0.08 + local * 0.04
+            : stage < 5
+                ? 0.24 + (stage - 2) * 0.18 + local * 0.10
+                : stage < 7
+                    ? 0.78 + (stage - 5) * 0.11
+                    : 1;
+        const fade = stage >= 7 ? Math.max(0, 1 - (elapsed - 700) / 300) : 1;
+        const ctx = this.ctx;
+        ctx.save();
+
+        // The Moon is born in the upper-right. Its red influence then travels
+        // diagonally toward the central Blood-Oath sigil.
+        if (stage < 7) {
+            const fieldRadius = Math.max(1, maxRadius * spread);
+            const field = ctx.createRadialGradient(moonX, moonY, 12, moonX, moonY, fieldRadius);
+            const fieldAlpha = (stage < 2 ? 0.12 + stage * 0.07 : 0.30 + Math.min(0.24, (stage - 2) * 0.06)) * fade;
+            field.addColorStop(0, `rgba(255, 150, 145, ${fieldAlpha * 0.9})`);
+            field.addColorStop(0.45, `rgba(190, 0, 28, ${fieldAlpha * 0.62})`);
+            field.addColorStop(1, 'rgba(58, 0, 12, 0)');
+            ctx.fillStyle = field;
+            ctx.fillRect(0, 0, w, h);
+        } else {
+            ctx.fillStyle = `rgba(110, 0, 20, ${0.16 * fade})`;
+            ctx.fillRect(0, 0, w, h);
+        }
+
+        // Blood moon: pale disc, red corona, and a slow dark crescent. The
+        // crescent is a graphic blood-eclipse cue, not a copied character shot.
+        const moonScale = stage < 2 ? 0.35 + stage * 0.22 + local * 0.08 : 1;
+        const moonR = Math.min(w, h) * 0.105 * moonScale;
+        if (stage <= 7) {
+            const corona = ctx.createRadialGradient(moonX, moonY, moonR * 0.4, moonX, moonY, moonR * 2.8);
+            corona.addColorStop(0, `rgba(255, 220, 205, ${0.7 * fade})`);
+            corona.addColorStop(0.35, `rgba(255, 23, 68, ${0.45 * fade})`);
+            corona.addColorStop(1, 'rgba(80, 0, 18, 0)');
+            ctx.fillStyle = corona;
+            ctx.beginPath();
+            ctx.arc(moonX, moonY, moonR * 2.8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ffb3ad';
+            ctx.beginPath();
+            ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255, 65, 88, ${0.95 * fade})`;
+            ctx.lineWidth = lowQ ? 1.2 : 2.2;
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(48, 0, 14, 0.62)';
+            ctx.beginPath();
+            ctx.arc(moonX + moonR * 0.34, moonY - moonR * 0.12, moonR * 0.92, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Impact frame: a blood-oath triangle and radial spokes punch through
+        // the takeover once, then remain restrained during the recovery frames.
+        if (stage >= 4 && stage <= 6) {
+            const impactAlpha = stage === 4 ? 0.35 + local * 0.45 : 0.8 - local * 0.12;
+            ctx.save();
+            ctx.translate(w / 2, h / 2);
+            ctx.globalAlpha = impactAlpha * fade;
+            ctx.strokeStyle = '#ff6b7a';
+            ctx.lineWidth = lowQ ? 1.2 : 2.4;
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = lowQ ? 0 : 16;
+            ctx.beginPath();
+            ctx.moveTo(0, -92);
+            ctx.lineTo(80, 64);
+            ctx.lineTo(-80, 64);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.rotate(Math.PI / 6);
+            ctx.beginPath();
+            ctx.arc(0, 0, 46, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.rotate(-Math.PI / 3);
+            ctx.beginPath();
+            ctx.arc(0, 0, 68, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Central Blood-Oath sigil: the Moon is the source, while this complete
+        // ritual geometry is what the Moon awakens in the middle of the canvas.
+        if (stage >= 2 && stage <= 6) {
+            const sigilAlpha = (stage === 2 ? 0.20 + local * 0.18 : stage >= 5 ? 0.76 - local * 0.12 : 0.42 + local * 0.14) * fade;
+            ctx.save();
+            ctx.translate(w / 2, h / 2);
+            const sigilSpin = stage * 0.12 + Math.PI / 6;
+            ctx.globalAlpha = sigilAlpha;
+            ctx.strokeStyle = '#ff1744';
+            ctx.lineWidth = lowQ ? 1.1 : 2.2;
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = lowQ ? 0 : 14;
+            ctx.beginPath();
+            ctx.arc(0, 0, 88, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = '#ff8a95';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([7, 6]);
+            ctx.beginPath();
+            ctx.arc(0, 0, 68, -sigilSpin, -sigilSpin + Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.strokeStyle = stage >= 5 ? '#fff0ef' : '#ff6b7a';
+            ctx.lineWidth = lowQ ? 1.2 : 2;
+            ctx.beginPath();
+            ctx.moveTo(0, -58);
+            ctx.lineTo(50, 38);
+            ctx.lineTo(-50, 38);
+            ctx.closePath();
+            ctx.stroke();
+            for (let i = 0; i < 6; i++) {
+                const a = i * Math.PI / 3 + stage * 0.12;
+                ctx.fillStyle = i % 2 ? '#ffffff' : '#ff8a95';
+                ctx.beginPath();
+                ctx.arc(Math.cos(a) * 88, Math.sin(a) * 88, stage >= 5 ? 3 : 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        // Stepped title is readable without covering the arena. It appears on
+        // the impact frame, then holds briefly before the field dissolves.
+        if (stage >= 5 && stage <= 6) {
+            ctx.save();
+            ctx.globalAlpha = fade;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${lowQ ? 24 : 32}px Cinzel, serif`;
+            ctx.fillStyle = '#fff0ef';
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = lowQ ? 0 : 12;
+            ctx.fillText('BLOOD MOON', w / 2, h * 0.68);
+            ctx.font = `bold ${lowQ ? 12 : 15}px Cinzel, serif`;
+            ctx.fillStyle = '#ffb3ad';
+            ctx.fillText('THE HARVEST BEGINS', w / 2, h * 0.68 + 28);
+            ctx.restore();
+        }
+        ctx.restore();
+    }
+
+    /** Voidweaver Supernova: a 100ms-stepped inward collapse, never an outward blast. */
+    _drawVoidCollapseSupernova() {
+        const fx = this.supernovaFx;
+        if (!fx || fx.kind !== 'void-collapse') return;
+        const elapsed = performance.now() - fx.startedAt;
+        if (elapsed >= fx.duration) {
+            this.supernovaFx = null;
+            return;
+        }
+
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const stage = Math.min(9, Math.floor(elapsed / 100));
+        const local = (elapsed % 100) / 100;
+        const cx = w / 2;
+        const cy = h / 2;
+        const lowQ = window.__atLowQuality;
+        const maxRadius = Math.max(w, h) * 0.68;
+        const collapse = stage < 2
+            ? 0.30 - stage * 0.07 - local * 0.025
+            : stage < 5
+                ? 0.16 - (stage - 2) * 0.035 - local * 0.018
+                : stage < 7
+                    ? 0.045 + (stage - 5) * 0.018
+                    : 0.08 + (stage - 7) * 0.05;
+        const release = stage >= 6;
+        const fade = stage >= 7 ? Math.max(0, 1 - (elapsed - 700) / 300) : 1;
+        const ctx = this.ctx;
+        ctx.save();
+
+        // A void field closes around the edges while the center remains the
+        // readable target. It is intentionally translucent, not a blackout.
+        const edge = ctx.createRadialGradient(cx, cy, maxRadius * 0.25, cx, cy, maxRadius);
+        edge.addColorStop(0, 'rgba(7, 0, 24, 0)');
+        edge.addColorStop(0.68, `rgba(8, 0, 28, ${0.20 + Math.min(0.30, stage * 0.04)})`);
+        edge.addColorStop(1, `rgba(0, 0, 8, ${0.68 * fade})`);
+        ctx.fillStyle = edge;
+        ctx.fillRect(0, 0, w, h);
+
+        // The horizon contracts instead of expanding: this is the primary
+        // visual difference from Wizard and Bloodseeker Supernovas.
+        const horizon = Math.max(8, maxRadius * collapse);
+        ctx.strokeStyle = `rgba(0, 229, 255, ${(0.28 + (1 - collapse) * 0.55) * fade})`;
+        ctx.lineWidth = lowQ ? 1.2 : 2.6;
+        if (!lowQ) {
+            ctx.shadowColor = '#7c4dff';
+            ctx.shadowBlur = 16;
+        }
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, horizon, horizon * 0.42, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (stage >= 2 && stage <= 5) {
+            ctx.strokeStyle = `rgba(124, 77, 255, ${(0.42 + local * 0.28) * fade})`;
+            ctx.lineWidth = lowQ ? 1 : 1.8;
+            ctx.setLineDash([12, 9]);
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, horizon * 0.68, horizon * 0.27, Math.PI / 4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Four inward spokes make the collapse direction readable even when
+        // the particle pool is in low-quality mode. The full elliptical
+        // boundary keeps the effect centered instead of feeling like loose
+        // fragments around the singularity.
+        if (stage >= 1 && stage <= 5) {
+            ctx.strokeStyle = `rgba(192, 132, 252, ${0.34 * fade})`;
+            ctx.lineWidth = lowQ ? 1 : 1.4;
+            for (let i = 0; i < 4; i++) {
+                const a = i * Math.PI / 2 + stage * 0.09;
+                ctx.beginPath();
+                ctx.moveTo(cx + Math.cos(a) * horizon * 1.18, cy + Math.sin(a) * horizon * 0.52);
+                ctx.lineTo(cx + Math.cos(a) * horizon * 0.34, cy + Math.sin(a) * horizon * 0.14);
+                ctx.stroke();
+            }
+        }
+
+        if (release) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.globalAlpha = (stage === 6 ? 0.85 : 0.52) * fade;
+            ctx.fillStyle = '#020008';
+            ctx.beginPath();
+            ctx.arc(0, 0, 18 + stage * 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = lowQ ? 1.2 : 2.4;
+            ctx.shadowColor = '#7c4dff';
+            ctx.shadowBlur = lowQ ? 0 : 18;
+            ctx.beginPath();
+            ctx.arc(0, 0, 24 + stage * 8, 0, Math.PI * 2);
+            ctx.stroke();
+            // Lensed release: stretched light leaves the singularity without
+            // becoming a generic radial explosion.
+            for (let i = 0; i < 8; i++) {
+                const a = i * Math.PI / 4 + stage * 0.05;
+                const inner = 24 + stage * 5;
+                const outer = inner + 34 + stage * 7;
+                ctx.strokeStyle = i % 2 ? `rgba(0,229,255,${0.24 * fade})` : `rgba(192,132,252,${0.34 * fade})`;
+                ctx.lineWidth = lowQ ? 0.8 : 1.4;
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner * 0.62);
+                ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer * 0.62);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = `rgba(216,250,255,${0.30 * fade})`;
+            ctx.lineWidth = lowQ ? 0.8 : 1.2;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 30 + stage * 9, (30 + stage * 9) * 0.42, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (stage === 5 || stage === 6) {
+            ctx.save();
+            ctx.globalAlpha = fade;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${lowQ ? 24 : 32}px Cinzel, serif`;
+            ctx.fillStyle = '#e9d5ff';
+            ctx.shadowColor = '#7c4dff';
+            ctx.shadowBlur = lowQ ? 0 : 12;
+            ctx.fillText('SINGULARITY', cx, h * 0.68);
+            ctx.font = `bold ${lowQ ? 12 : 15}px Cinzel, serif`;
+            ctx.fillStyle = '#00e5ff';
+            ctx.fillText('SPACE BENDS INWARD', cx, h * 0.68 + 28);
+            ctx.restore();
+        }
+        ctx.restore();
+    }
+
+    /** Bloodseeker's streak milestone restores a lost layer and announces it. */
+    _onBarrierRestored(combo) {
+        if (this.gameMode === 'duel') return;
+        const x = this.canvas.width / 2;
+        const y = this.canvas.height - 150;
+        this.floatingTexts.push(new FloatingText(`BLOOD OATH +1 LIFE · ${combo}x`, x, y, '#ff8a95', 22));
+        this.combatSystem.spawnBurst(x, y + 20, ['#ff1744', '#ff8a95', '#ffffff']);
     }
 
     _drawDuelAuras(frozen = false) {
@@ -931,6 +1471,9 @@ export class Game {
         for (const slot of ['A', 'B']) {
             const skillId = this.duelAuras[slot];
             if (!skillId) continue;
+            const remaining = this.duelBuffUntil[slot] > now
+                ? this.duelBuffUntil[slot] - now
+                : 0;
             const radius = baseRadius + (skillId === 'time-stop' ? 18 : 0);
             const breathe = 1 + Math.sin(now / (skillId === 'time-stop' ? 220 : 420)) * .035;
             drawCasterSigil(
@@ -940,7 +1483,8 @@ export class Game {
                 y,
                 Math.round(radius * breathe),
                 now,
-                skillId === 'time-stop' ? .86 : .72
+                skillId === 'time-stop' ? .86 : .72,
+                skillId === 'time-stop' ? remaining : this.duelBuffUntil[slot] - now
             );
         }
     }
@@ -1043,9 +1587,38 @@ export class Game {
                 ctx.restore();
             };
 
-            // Wizard Arcane Barrier: Full 360° luminous sphere (clean, smooth energy rings)
-            fullCircle(radius, 3.0, 0.95, 16);
-            fullCircle(radius - 5, 1.2, 0.35, 6);
+            if (kind === 'voidward') {
+                fullCircle(radius, 2.4, 0.95, 16);
+                fullCircle(radius - 8, 1.0, 0.45, 8);
+                // The Voidweaver ward is intentionally a clean circular
+                // event horizon: no radial spokes, so the shield reads as a
+                // calm absorption boundary rather than a cluttered sigil.
+                ctx.restore();
+            } else if (kind === 'bloodward') {
+                fullCircle(radius, 2.4, 0.95, 16);
+                fullCircle(radius - 8, 1.0, 0.45, 8);
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255,23,68,0.9)';
+                ctx.lineWidth = 1.6;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy - radius * 0.48);
+                ctx.lineTo(cx + radius * 0.42, cy + radius * 0.30);
+                ctx.lineTo(cx - radius * 0.42, cy + radius * 0.30);
+                ctx.closePath();
+                ctx.stroke();
+                for (let i = 0; i < 6; i++) {
+                    const a = i * Math.PI / 3;
+                    ctx.fillStyle = i % 2 ? '#ffd0d5' : '#ff1744';
+                    ctx.beginPath();
+                    ctx.arc(cx + Math.cos(a) * radius * 0.72, cy + Math.sin(a) * radius * 0.72, 2.4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            } else {
+                // Wizard Arcane Barrier: Full 360° luminous sphere.
+                fullCircle(radius, 3.0, 0.95, 16);
+                fullCircle(radius - 5, 1.2, 0.35, 6);
+            }
         });
     }
 
@@ -1250,6 +1823,37 @@ export class Game {
         this.audio.playExplosion();
     }
 
+    /**
+     * AT (option A): when the boss dies, every meteor it still owns unravels
+     * with it, so a dead boss can never score a last hit.
+     *
+     * The dissolve is one-shot per boss (`_bossSummonsCleared`) so it cannot
+     * re-fire on later frames, and each meteor gets its own burst so the removal
+     * reads as the boss's magic coming apart rather than words blinking out.
+     * ORDINARY words are deliberately left on the lane: they are the score/XP
+     * flow, and clearing them would throw away the reward at the moment of
+     * victory.
+     */
+    _dissolveBossSummons() {
+        for (let i = this.words.length - 1; i >= 0; i--) {
+            const word = this.words[i];
+            if (!word.isBossAttack || word.dying) continue;
+            word.dying = true;
+            if (word === this.targetedWord) {
+                word.isTargeted = false;
+                this.targetedWord = null;
+            }
+            const palette = (word.elementColors && word.elementColors.particles)
+                || [this.boss && this.boss.color ? this.boss.color : '#ffd700', '#ffffff'];
+            this.combatSystem.spawnBurst(word.x, word.y, palette);
+        }
+
+        // A projectile the dead boss was already answering dies with it.
+        for (const proj of this.projectiles) {
+            proj.isDead = true;
+        }
+    }
+
     spawnBossAttack() {
         const isEpic = Math.random() > 0.5;
         const text = this.dictionary.getRandomWord(isEpic ? 'epic' : 'hard');
@@ -1257,7 +1861,10 @@ export class Game {
         const targetX = this.canvas.width / 2;
         const targetY = this.canvas.height;
 
-        const magicBullet = new Word(text, this.canvas.width, this.canvas.height, this.currentSpeedMultiplier, targetX, targetY, { isBossAttack: true });
+        const voidWardActive = this.stats.selectedCharacter === 'voidweaver' && this.voidWardUntil > Date.now();
+        const magicBullet = new Word(text, this.canvas.width, this.canvas.height,
+            this.currentSpeedMultiplier * (voidWardActive ? 0.85 : 1), targetX, targetY,
+            { isBossAttack: true });
         this.words.push(magicBullet);
     }
 
@@ -1265,6 +1872,7 @@ export class Game {
         this.stats.addScore(1000);
         this.isBossPhase = false;
         this.boss = null;
+        this._bossSummonsCleared = false;
         this.audio.playLevelUp();
         this.bossesDefeated++;
         this.floatingTexts.push(new FloatingText("Level Cleared!", this.canvas.width / 2, this.canvas.height / 2, "#ffd700", 48));

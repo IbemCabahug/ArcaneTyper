@@ -1,7 +1,8 @@
 /**
  * Regression guard for AT-F10 — per-class arena actives. Owner sign-off
  * 2026-09-23: Arcane Surge / Cinder Brand / Glacial Ward / **Time Stop** (the
- * proposed 0.85x duration version and Mana Echo loop were replaced).
+ * proposed 0.85x duration version and Mana Echo loop were replaced), plus
+ * **Blood Pact** for Hemomancer and the new Voidweaver/Bloodseeker families.
  *
  * What this locks in:
  *   1. the roster is still the ONE table: every class declares exactly one
@@ -22,9 +23,10 @@
  *      spent it;
  *   5. behaviour, against the REAL DuelRace with stubbed transport/DOM: the cast
  *      costs mana, arms exactly once, doubles/halves damage exactly as the
- *      roster says, starts a host-authoritative 3-second Time Stop, survives a
- *      dead heat unspent, is honoured when the CHALLENGER is the caster, and
- *      refuses an unknown skill id.
+ *      roster says, starts a host-authoritative 3-second Time Stop, resolves
+ *      Blood Pact healing with its streak bonus and HP cap, survives a dead heat
+ *      unspent, is honoured when the CHALLENGER is the caster, and refuses an
+ *      unknown skill id.
  * Run:  node scripts/verify-class-actives.mjs
  */
 
@@ -77,7 +79,7 @@ check(
         typeof a.title === 'string' && a.title.length > 0 &&
         Number.isInteger(a.cost) && a.cost > 0 &&
         MAGE_ACTIVE_KINDS.includes(a.kind) &&
-        typeof a.value === 'number' && a.value > 0 &&
+        typeof a.value === 'number' && (a.kind === 'mitigation' ? a.value >= 0 : a.value > 0) &&
         typeof a.effect === 'string' && a.effect.length > 0
     ),
     ALL.map((a) => `${a.className}:${a.kind}`).join(' ')
@@ -96,16 +98,28 @@ check(
     ALL.map((a) => `${a.title} ${a.cost}`).join(', ')
 );
 check(
-    'the actives are two damage buffs, one ward and one time stop',
+    'the ten active roles remain distinct and character-scoped',
     ALL.filter((a) => a.kind === 'damage').length === 2 &&
-        ALL.filter((a) => a.kind === 'mitigation').length === 1 &&
-        ALL.filter((a) => a.kind === 'time_stop').length === 1,
+        ALL.filter((a) => a.kind === 'combo_damage').length === 1 &&
+        ALL.filter((a) => a.kind === 'mitigation').length === 2 &&
+        ALL.filter((a) => a.kind === 'opponent_weaken').length === 1 &&
+        ALL.filter((a) => a.kind === 'time_stop').length === 1 &&
+        ALL.filter((a) => a.kind === 'lifesteal').length === 1 &&
+        ALL.filter((a) => a.kind === 'execution').length === 1 &&
+        ALL.filter((a) => a.kind === 'self_sacrifice').length === 1,
     ALL.map((a) => `${a.className}=${a.kind}`).join(' ')
 );
+check('Blood Pact belongs to Hemomancer, while Bloodseeker is only a character',
+    ALL.find((a) => a.className === 'Hemomancer')?.id === 'blood-pact' &&
+        !ALL.some((a) => a.className === 'Bloodseeker') &&
+        mageActiveById('blood-pact')?.title === 'Blood Pact');
 check(
-    'the ward belongs to Cryomancer and Time Stop to Chronomancer',
-    MAGE_CLASSES.find((c) => c.id === 'Cryomancer')?.active.kind === 'mitigation' &&
-        MAGE_CLASSES.find((c) => c.id === 'Chronomancer')?.active.kind === 'time_stop'
+    'the new active families carry their intended costs and effects',
+    mageActiveById('crushing-gravity')?.kind === 'combo_damage' &&
+        mageActiveById('event-horizon')?.value === 0 &&
+        mageActiveById('rift-tether')?.value === 0.75 &&
+        mageActiveById('final-cut')?.value === 1.5 &&
+        mageActiveById('bloodletting')?.value === 5
 );
 check(
     'Time Stop is the Chronomancer active, with a 100-mana, 3-second contract',
@@ -114,8 +128,7 @@ check(
         mageActiveById('time-stop')?.value === 3000 &&
         mageActiveById('mana-echo') === null
 );
-check(
-    'the lookups normalise: no class can hand the cast path an undefined active',
+check('the lookups normalise: no class can hand the cast path an undefined active',
     activeForClass('nope')?.id === activeForClass('Novice')?.id &&
         activeForClass(null)?.id === activeForClass('Novice')?.id &&
         mageActiveById('orbital-nuke') === null
@@ -132,10 +145,14 @@ const strayTitles = codeFiles.filter((p) => {
     return ALL.some((a) => src.includes(`'${a.title}'`) || src.includes(`"${a.title}"`));
 });
 check('no skill title is hard-coded outside the roster', strayTitles.length === 0, strayTitles.join(', '));
-check(
-    'the arena resolves actives through the roster module, not a local table',
-    raceSrc.includes("import { activeForClass, mageActiveById } from '../../backend/MageClasses.js';") &&
-        count(raceSrc, 'activeForClass(') >= 3 && count(raceSrc, 'mageActiveById(') >= 4
+check('an unknown opponent class presence remains unknown until the wire supplies one',
+    raceSrc.includes("this.classes[this.theirs] = oppPresence?.mage_class") &&
+        raceSrc.includes("? normalizeMageClassForCharacter") &&
+        raceSrc.includes(': null;'));
+check('the arena resolves actives through the roster module, not a local table',
+    raceSrc.includes("import { activeForClass, mageActiveById, normalizeMageClassForCharacter } from '../../backend/MageClasses.js';") &&
+        count(raceSrc, 'activeForClass(') >= 3 && count(raceSrc, 'mageActiveById(') >= 4 &&
+        count(raceSrc, 'normalizeMageClassForCharacter(') >= 1
 );
 
 // ── 3. no active may touch the arbiter, the words, or the opponent's pool ──
@@ -153,10 +170,12 @@ check(
     'actives must edit the outcome, never the input that decides it'
 );
 check(
-    'every indexed HP read/write lives in the single arbitration path',
-    count(raceSrc, 'this.hp[') === 3 && count(resolveBody, 'this.hp[') === 3 &&
-        count(raceSrc, 'this.hp[loser] = Math.max(0, this.hp[loser] - dmg);') === 1,
-    `${count(resolveBody, 'this.hp[')} of ${count(raceSrc, 'this.hp[')}`
+    'HP writes are centralized in resolve, except explicit Bloodruner self-cost casts',
+    count(raceSrc, 'this.hp[') === 15 && count(resolveBody, 'this.hp[') === 9 &&
+        count(raceSrc, 'this.hp[loser] = Math.max(0, this.hp[loser] - dmg);') === 1 &&
+        count(methodBody('cast'), 'this.hp[this.mine] = Math.max(1') === 1 &&
+        count(methodBody('_onCast'), 'this.hp[this.theirs] = Math.max(1') === 1,
+    `${count(resolveBody, 'this.hp[')} resolve / ${count(raceSrc, 'this.hp[')} total`
 );
 for (const name of ['cast', '_onCast', '_applyResult']) {
     const body = methodBody(name);
@@ -190,18 +209,16 @@ check(
         methodBody('_onCast').includes('if (this.buffs[this.theirs]) return;')
 );
 check(
-    'only _resolve() spends a buff',
-    count(raceSrc, 'this.buffs[winner] = null') === 1 &&
-        count(raceSrc, 'this.buffs[loser] = null') === 1 &&
-        resolveBody.includes('this.buffs[winner] = null') &&
-        resolveBody.includes('this.buffs[loser] = null')
+    'only _resolve() spends a buff, through the shared active cleanup helper',
+    count(raceSrc, 'this.buffs[winner] = null') === 0 &&
+        count(raceSrc, 'this.buffs[loser] = null') === 0 &&
+        resolveBody.includes('this._clearActive(winner);') &&
+        resolveBody.includes('this._clearActive(loser);')
 );
 check(
-    'the winner of a word spends their buff, the loser keeps a waiting ward',
+    'the winner spends offensive/execution/sacrifice/lifesteal; wards and sacrificed losers also clear',
     resolveBody.includes("if (winnerBuff && winnerBuff.kind !== 'mitigation') {") &&
-        resolveBody.includes('this.buffs[winner] = null;') &&
-        resolveBody.includes("if (loserBuff && loserBuff.kind === 'mitigation') {") &&
-        resolveBody.includes('this.buffs[loser] = null;')
+        resolveBody.includes("if (loserBuff && (loserBuff.kind === 'mitigation' || loserBuff.kind === 'self_sacrifice')) {")
 );
 check(
     'the resolve frame carries dmgRaw + amp + ward + the surviving armed map',
@@ -480,7 +497,167 @@ const guestClaim = (dur) => ({ raceType: 'claim', idx: 1, dur, player_key: 'key-
 }
 
 
-// (e) a word nobody wins spends NOTHING — both mages stay armed.
+// (e) Singulist — Crushing Gravity: combo-scaling offense.
+{
+    const { game, duel, race } = buildRace(true, 'Singulist');
+    race.duelCombos.A = 40;
+    check('Crushing Gravity costs 60 mana and arms for its 3-second window',
+        race.cast() === true && game.stats.mana === 40 && race.buffs.A === 'crushing-gravity' &&
+            race.buffUntil.A > Date.now() + 2500, JSON.stringify(race.buffUntil));
+    race._onTyped();
+    await sleep(650);
+    const res = duel.sent.find((m) => m.type === 'result');
+    check('Crushing Gravity adds the capped live-combo bonus (6 -> 11)',
+        race.hp.B === 89 && res.dmg === 11 && res.amp === 'crushing-gravity',
+        JSON.stringify({ hpB: race.hp.B, dmg: res.dmg, amp: res.amp }));
+    race.stop();
+}
+
+// (f) Nullwarden — Event Horizon: one complete damage denial.
+{
+    const { duel, race } = buildRace(true, 'Nullwarden');
+    race._onRace({ ...GUEST, skill: 'event-horizon' });
+    race._onTyped();                   // the host wins against the warded challenger
+    await sleep(650);
+    const res = duel.sent.find((m) => m.type === 'result');
+    check('Event Horizon nullifies the next incoming word and is spent',
+        race.hp.B === 100 && res.dmg === 0 && res.ward === 'event-horizon' && res.armed.B === null,
+        JSON.stringify({ hpB: race.hp.B, dmg: res.dmg, ward: res.ward }));
+    race.stop();
+}
+
+// (g) Riftbinder — Rift Tether: a next-word opponent debuff.
+{
+    const { duel, race } = buildRace(true, 'Riftbinder');
+    race.cast();
+    race._onTyped();
+    await sleep(650);
+    const first = duel.sent.find((m) => m.type === 'result');
+    check('Rift Tether is spent when the Riftbinder wins and binds the opponent',
+        first.debuffs?.B?.id === 'rift-tether' && first.armed.A === null,
+        JSON.stringify({ debuffs: first.debuffs, armed: first.armed }));
+    race.phase = 'word';
+    race.myResolved = false;
+    race.myDecided = false;
+    race.myClaim = null;
+    race.myForfeited = false;
+    race.oppResolved = false;
+    race.oppClaim = null;
+    clearTimeout(race._pauseTimer);
+    race._onRace(guestClaim(480));
+    await sleep(650);
+    const second = duel.sent.filter((m) => m.type === 'result').at(-1);
+    check('the opponent’s next winning word is reduced by Rift Tether',
+        second.dmg === 5 && second.ward === 'rift-tether',
+        JSON.stringify({ dmg: second.dmg, ward: second.ward, debuffs: race.debuffs, resultCount: duel.sent.filter((m) => m.type === 'result').length }));
+    race.stop();
+}
+
+// (h) Reaper — Final Cut: missing-HP scaling keeps the lethal threat.
+{
+    const { duel, race } = buildRace(true, 'Reaper');
+    race.hp.B = 10;
+    race.cast();
+    race._onTyped();
+    await sleep(650);
+    const res = duel.sent.find((m) => m.type === 'result');
+    check('Final Cut can finish a low-HP mage with a lethal one-word result',
+        race.hp.B === 0 && res.dmg === 13 && res.matchOver === true && res.amp === 'final-cut',
+        JSON.stringify({ hpB: race.hp.B, dmg: res.dmg, matchOver: res.matchOver }));
+    race.stop();
+}
+
+// (i) Bloodruner — Bloodletting: host-resolved self-cost and damage.
+{
+    const { game, duel, race } = buildRace(true, 'Bloodruner');
+    check('Bloodletting costs 60 mana and pays 5 HP on cast',
+        race.cast() === true && game.stats.mana === 40 && race.hp.A === 95 && race.buffs.A === 'bloodletting',
+        JSON.stringify({ mana: game.stats.mana, hpA: race.hp.A, buff: race.buffs.A }));
+    check('the host publishes its own Bloodletting HP cost immediately',
+        duel.sent.some((m) => m.type === 'state' && m.hpA === 95 && m.hpB === 100),
+        JSON.stringify(duel.sent.filter((m) => m.type === 'state').at(-1)));
+    race._onTyped();
+    await sleep(650);
+    const res = duel.sent.find((m) => m.type === 'result');
+    check('Bloodletting spends on the next won word and keeps its self-cost',
+        res.dmg === 10 && res.amp === 'bloodletting' && race.hp.A === 95 && res.armed.A === null,
+        JSON.stringify({ dmg: res.dmg, amp: res.amp, hpA: race.hp.A, armed: res.armed }));
+    race.stop();
+}
+
+// (j) a challenger Bloodletting cast never mutates its own local HP.
+{
+    const { game, duel, race } = buildRace(false, 'Bloodruner');
+    const beforeHp = race.hp.B;
+    check('a challenger Bloodletting cast is local mana/arm only, never local HP damage',
+        race.cast() === true && game.stats.mana === 40 && race.hp.B === beforeHp && race.buffs.B === 'bloodletting',
+        JSON.stringify({ mana: game.stats.mana, hpB: race.hp.B, buff: race.buffs.B }));
+    check('the challenger announces only the skill id and index, not a client HP cost',
+        duel.sent.filter((m) => m.type === 'cast').length === 1 &&
+            !('hp' in duel.sent.find((m) => m.type === 'cast')),
+        JSON.stringify(duel.sent.filter((m) => m.type === 'cast')));
+    race.stop();
+}
+
+// (k) every temporary active expires without resolving a word.
+{
+    const { game, race } = buildRace(true, 'Singulist');
+    race._armActive('A', activeForClass('Singulist'), 1);
+    await sleep(50);
+    check('a timed class active fades when its window closes',
+        race.buffs.A === null && game.duelAuras.A === null && game.duelBuffUntil.A === 0,
+        JSON.stringify({ buff: race.buffs.A, aura: game.duelAuras.A, until: game.duelBuffUntil.A }));
+    race.stop();
+}
+
+// (k) Blood Pact: Hemomancer — the host heals from final damage.
+{
+    const { duel, game, race } = buildRace(true, 'Hemomancer');
+    race.hp.A = 88;
+    race.duelCombos.A = 20;
+    check('Blood Pact costs 60 mana for the host Bloodseeker', race.cast() === true && game.stats.mana === 40,
+        `mana=${game.stats.mana}`);
+    race._onTyped();
+    await sleep(650);
+    const res = duel.sent.find((m) => m.type === 'result');
+    check('the host Blood Pact heals 25% plus the streak bonus and is spent',
+        race.hp.A === 91 && res.heal === 3 && res.healSlot === 'A' && res.armed.A === null,
+        JSON.stringify({ hpA: race.hp.A, heal: res.heal, healSlot: res.healSlot, armed: res.armed }));
+    race.stop();
+}
+
+// (e) Bloodseeker — Blood Pact: the host resolves the challenger's cast.
+{
+    const { duel, race } = buildRace(true, 'Novice');
+    race.hp.B = 90;
+    race.duelCombos.B = 40;
+    race._onRace({ ...GUEST, skill: 'blood-pact' });
+    race._onRace(guestClaim(480));
+    await sleep(650);
+    const res = duel.sent.find((m) => m.type === 'result');
+    check('Blood Pact spends the challenger active and heals 25% plus the capped streak bonus',
+        race.hp.B === 94 && res.heal === 4 && res.healSlot === 'B' && res.armed.B === null,
+        JSON.stringify({ hpB: race.hp.B, heal: res.heal, healSlot: res.healSlot, armed: res.armed }));
+    check('the healing result is visible to the mirrored client path',
+        floats(race.game).includes('BLOOD PACT +4 HP'), JSON.stringify(floats(race.game)));
+    race.stop();
+}
+
+// (f) Blood Pact cannot overheal a full HP pool.
+{
+    const { duel, race } = buildRace(true, 'Novice');
+    race.duelCombos.B = 200;
+    race._onRace({ ...GUEST, skill: 'blood-pact' });
+    race._onRace(guestClaim(480));
+    await sleep(650);
+    const res = duel.sent.find((m) => m.type === 'result');
+    check('Blood Pact reports zero healing when the winner is already at full HP',
+        race.hp.B === 100 && res.heal === 0 && res.healSlot === 'B',
+        JSON.stringify({ hpB: race.hp.B, heal: res.heal }));
+    race.stop();
+}
+
+// (g) a word nobody wins spends NOTHING — both mages stay armed.
 {
     const { game, duel, race } = buildRace(true, 'Novice');
     race.cast();

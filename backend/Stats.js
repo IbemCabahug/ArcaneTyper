@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { dbHealth, isMissingColumnError, isNetworkError, describeError } from './dbHealth.js';
 import { syncQueue } from './syncQueue.js';
-import { DEFAULT_MAGE_CLASS, normalizeMageClass } from './MageClasses.js';
+import { DEFAULT_MAGE_CLASS, normalizeMageClass, normalizeMageClassForCharacter, isMageClassForCharacter } from './MageClasses.js';
 import { DEFAULT_CHARACTER, isCharacter, normalizeCharacter, characterInfo } from './Characters.js';
 
 /** localStorage keys that belong to ONE mage account (purged on logout). */
@@ -73,6 +73,7 @@ export class Stats {
         this.mana = 0;
         this.maxMana = 100;
         this.startTime = null;
+        this.gameMode = 'classic';
 
         this.lives = 4; // 3 barriers + 1 final hit on wizard
 
@@ -112,6 +113,7 @@ export class Stats {
         if (storedChar && storedChar !== this.selectedCharacter) {
             localStorage.setItem('typerMaster_selectedCharacter', this.selectedCharacter);
         }
+        this.mageClass = normalizeMageClassForCharacter(this.mageClass, this.selectedCharacter);
         // AT-F16: which Forge characters this account owns. Validated against the
         // roster on load (a hand-edited/corrupt list degrades to the default,
         // exactly like `mageClass`) — the default character is always owned.
@@ -232,8 +234,8 @@ export class Stats {
 
         this.startTime = Date.now();
 
-        // Passive: Extra Barrier
-        this.lives = this.hasSkill('life') ? 5 : 4;
+        // Character-specific Survival capacity. Arena HP is unrelated.
+        this.lives = this.getSurvivalMaxLives();
 
         this._keystrokeTimestamps = [];
         this.updateHUD();
@@ -249,6 +251,16 @@ export class Stats {
             if (this.achievements) this.achievements.onEvent('combo_update', { combo: this.combo });
             // Record timestamp for rolling window calculation
             this._keystrokeTimestamps.push(Date.now());
+
+            // Bloodseeker's Blood Oath restores one lost life at every
+            // 25-combo milestone, up to the character's Survival capacity.
+            const maxLives = this.getSurvivalMaxLives();
+            if (this.gameMode !== 'duel' && this.selectedCharacter === 'bloodseeker' &&
+                this.combo > 0 && this.combo % 25 === 0 && this.lives < maxLives) {
+                this.lives++;
+                this.updateLivesDisplay();
+                if (typeof this.onBarrierRestored === 'function') this.onBarrierRestored(this.combo);
+            }
 
             // Play milestone jingle when hitting a multiplier cut-off (10, 20, 30, 40, 50, and every 25 thereafter: 75, 100, 125, 150...)
             if (this.combo === 10 || this.combo === 20 || this.combo === 30 || this.combo === 40 || this.combo === 50 || (this.combo > 50 && this.combo % 25 === 0)) {
@@ -304,6 +316,32 @@ export class Stats {
             this.mana = Math.min(this.maxMana, this.mana + wordLength * 2);
         }
     }
+    /**
+     * Survival defense capacity. The Arena owns its own 100 HP separately.
+     * Voidweaver uses three absorption charges (four with Life); Bloodseeker
+     * uses three lives (four with Life); the Wizard keeps its historic 3+1
+     * barrier/final-life split.
+     */
+    getSurvivalMaxLives() {
+        if (this.selectedCharacter === 'voidweaver' || this.selectedCharacter === 'bloodseeker') {
+            return this.hasSkill('life') ? 4 : 3;
+        }
+        return this.hasSkill('life') ? 5 : 4;
+    }
+
+    getSurvivalDefenseMode() {
+        if (this.selectedCharacter === 'voidweaver') return 'absorption';
+        if (this.selectedCharacter === 'bloodseeker') return 'lives';
+        return 'barriers';
+    }
+
+    getSurvivalDefenseColor() {
+        if (this.selectedCharacter === 'voidweaver') return '#00e5ff';
+        if (this.selectedCharacter === 'bloodseeker') return '#ff1744';
+        return '';
+    }
+
+
 
     useMana(amount) {
         if (this.mana >= amount) {
@@ -331,6 +369,26 @@ export class Stats {
         this.lives--;
         this.updateLivesDisplay();
         return this.lives <= 0;
+    }
+
+    /**
+     * Consume exactly one boss-damage defense charge for the equipped
+     * character. This is deliberately separate from the legacy loseLife()
+     * path: Wizard shields, Voidweaver absorptions, and Bloodseeker lives have
+     * different display semantics even though they share the integer pool.
+     */
+    consumeSurvivalDefense() {
+        const mode = this.getSurvivalDefenseMode();
+        const before = this.lives;
+        this.lives = Math.max(0, this.lives - 1);
+        this.updateLivesDisplay();
+        return {
+            mode,
+            before,
+            after: this.lives,
+            consumed: before > this.lives,
+            depleted: this.lives === 0
+        };
     }
 
     getWPM() {
@@ -418,7 +476,13 @@ export class Stats {
     updateLivesDisplay() {
         if (!this.livesContainer) return;
 
-        const expectedBarriers = this.hasSkill('life') ? 4 : 3;
+        const expectedBarriers = this.getSurvivalMaxLives();
+        const mode = this.getSurvivalDefenseMode();
+        const defenseColor = this.getSurvivalDefenseColor();
+        const label = typeof this.livesContainer.closest === 'function'
+            ? this.livesContainer.closest('.stat-box')?.querySelector('.label')
+            : null;
+        if (label) label.textContent = mode === 'absorption' ? 'ABSORPTION' : mode === 'lives' ? 'LIVES' : 'BARRIERS';
         while (this.livesContainer.children.length < expectedBarriers) {
             const dot = document.createElement('span');
             dot.className = 'barrier';
@@ -430,21 +494,34 @@ export class Stats {
 
         const hearts = this.livesContainer.querySelectorAll('.barrier');
         hearts.forEach((heart, index) => {
-            const isActive = index < (this.lives - 1);
+            const isActive = mode === 'barriers'
+                ? index < (this.lives - 1)
+                : index < this.lives;
 
             if (!isActive) {
                 heart.classList.add('lost');
                 heart.style.backgroundColor = 'transparent';
-                heart.style.color = '';
+                heart.style.color = defenseColor || '';
                 heart.style.boxShadow = 'none';
-                heart.style.border = '1px solid rgba(255,255,255,0.15)';
+                heart.style.border = `1px solid ${defenseColor || 'rgba(255,255,255,0.15)'}`;
             } else {
                 heart.classList.remove('lost');
-                // Default Wizard: clear inline styles so style.css nth-child classes govern
-                heart.style.backgroundColor = '';
-                heart.style.color = '';
-                heart.style.boxShadow = '';
-                heart.style.border = '';
+                if (defenseColor) {
+                    // Voidweaver absorption and Bloodseeker lives each use one
+                    // stable character color instead of the Wizard's per-ring
+                    // barrier palette.
+                    heart.style.backgroundColor = defenseColor;
+                    heart.style.color = defenseColor;
+                    heart.style.boxShadow = `0 0 10px ${defenseColor}`;
+                    heart.style.border = `1px solid ${defenseColor}`;
+                } else {
+                    // Default Wizard: clear inline styles so style.css nth-child
+                    // classes govern the historic barrier palette.
+                    heart.style.backgroundColor = '';
+                    heart.style.color = '';
+                    heart.style.boxShadow = '';
+                    heart.style.border = '';
+                }
             }
         });
     }
@@ -547,9 +624,9 @@ export class Stats {
      * @returns {boolean} true when the class actually changed
      */
     setMageClass(className) {
-        const next = normalizeMageClass(className);
-        if (next === this.mageClass) return false;
-        this.mageClass = next;
+        const chosen = normalizeMageClass(className);
+        if (!isMageClassForCharacter(chosen, this.selectedCharacter) || chosen === this.mageClass) return false;
+        this.mageClass = chosen;
         this.saveProgression();
         return true;
     }
@@ -859,7 +936,8 @@ export class Stats {
         if (profile.username) this.mageName = profile.username;
         if (profile.unlocked_skills) this.unlockedSkills = profile.unlocked_skills;
         if (profile.wand_color) this.wandColor = profile.wand_color;
-        if (profile.mage_class) this.mageClass = normalizeMageClass(profile.mage_class);
+        this.mageClass = normalizeMageClassForCharacter(this.mageClass, this.selectedCharacter);
+        if (profile.mage_class) this.mageClass = normalizeMageClassForCharacter(profile.mage_class, this.selectedCharacter);
         if (profile.best_score && profile.best_score > this.bestScore) this.bestScore = profile.best_score;
         if (profile.best_wpm && profile.best_wpm > this.bestWPM) this.bestWPM = profile.best_wpm;
 
@@ -869,8 +947,9 @@ export class Stats {
         // upsert a half-applied identity.
         this._writeLocalProgression();
 
-        // Calculate dynamic properties
-        this.lives = this.hasSkill('life') ? 5 : 4;
+        // Character-specific defense capacity is authoritative after the
+        // selected character and Workshop skills have been loaded.
+        this.lives = this.getSurvivalMaxLives();
         this.maxMana = this.hasSkill('mana') ? 120 : 100;
         this.combo = this.hasSkill('combo') ? 10 : 0;
     }
@@ -909,6 +988,7 @@ export class Stats {
         const id = normalizeCharacter(characterId);
         if (!this.isCharacterUnlocked(id) || id === this.selectedCharacter) return false;
         this.selectedCharacter = id;
+        this.mageClass = normalizeMageClassForCharacter(this.mageClass, id);
         localStorage.setItem('typerMaster_selectedCharacter', id);
         this.saveProgression();
         return true;

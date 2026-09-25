@@ -942,6 +942,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       card.classList.toggle('locked', !owned);
       card.classList.toggle('active', equipped);
+      card.classList.toggle('available', owned && !equipped);
+      // Markup carries neutral border colors. Repaint the complete selection
+      // state so the previous character's glow cannot survive a re-render —
+      // and so an UNLOCKED-but-unpicked card is not still wearing the "coming
+      // soon" paint it shipped with. The cards carry their own inline
+      // background/status colour (dark plate + grey label when locked, lit
+      // plate + gold label once owned), and the Forge is the only writer, so
+      // both must be reset here or a purchased character stays visually dim
+      // forever. Border alone was not enough: ownership changes three of them.
+      card.style.borderColor = equipped ? info.color : owned ? 'rgba(255, 255, 255, 0.28)' : 'rgba(255, 255, 255, 0.10)';
+      card.style.background = owned
+        ? (equipped ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255, 255, 255, 0.035)')
+        : 'rgba(0, 0, 0, 0.35)';
+      card.style.removeProperty('box-shadow');
       card.style.cursor = owned ? 'pointer' : 'not-allowed';
       card.title = owned
         ? (equipped ? `${info.title} — equipped` : `Equip ${info.title}`)
@@ -951,6 +965,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         status.innerText = equipped ? 'Equipped'
           : owned ? 'Unlocked'
             : `FORGE ${info.unlockPrice.toLocaleString()} XP`;
+        // A grey "Unlocked" label read as still-locked, so ownership state is
+        // carried by the label colour too, not only by its text.
+        status.style.color = owned ? '#ffd700' : '#64748b';
       }
     });
   }
@@ -979,6 +996,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (game.stats.setSelectedCharacter(id)) {
+        profileUI.refreshClassSelection?.();
         MagicalToast.show(`${info.title} equipped.`);
         updateForgeUI();
       }

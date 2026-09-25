@@ -1,5 +1,5 @@
 import { MagicalToast } from './MagicalToast.js';
-import { DEFAULT_MAGE_CLASS, MAGE_CLASSES, mageClassInfo } from '../../backend/MageClasses.js';
+import { DEFAULT_MAGE_CLASS, classesForCharacter, mageClassInfo, normalizeMageClassForCharacter } from '../../backend/MageClasses.js';
 
 export class ProfileUI {
     constructor(game) {
@@ -41,24 +41,29 @@ export class ProfileUI {
         if (!this.mageClassSelect) return;
 
         const select = this.mageClassSelect;
-        select.innerHTML = '';
-        MAGE_CLASSES.forEach((cls) => {
-            const opt = document.createElement('option');
-            opt.value = cls.id;
-            opt.textContent = cls.title;
-            opt.style.background = 'var(--bg-deep)';
-            opt.style.textShadow = 'none';
-            select.appendChild(opt);
-        });
-        select.value = this.game.stats.mageClass || DEFAULT_MAGE_CLASS;
-        this.applyClassAccent();
+        this.refreshClassSelection = () => {
+            select.innerHTML = '';
+            classesForCharacter(this.game.stats.selectedCharacter).forEach((cls) => {
+                const opt = document.createElement('option');
+                opt.value = cls.id;
+                opt.textContent = cls.title;
+                opt.style.background = 'var(--bg-deep)';
+                opt.style.textShadow = 'none';
+                select.appendChild(opt);
+            });
+            if (!classesForCharacter(this.game.stats.selectedCharacter).some((c) => c.id === this.game.stats.mageClass)) {
+                this.game.stats.setMageClass(DEFAULT_MAGE_CLASS);
+            }
+            select.value = this.game.stats.mageClass;
+            this.applyClassAccent();
+        };
 
+        this.refreshClassSelection();
         select.addEventListener('change', () => {
             const chosen = select.value;
             const changed = this.game.stats.setMageClass(chosen);
-            const info = mageClassInfo(chosen);
+            const info = mageClassInfo(this.game.stats.mageClass);
             this.applyClassAccent();
-
             if (changed) {
                 MagicalToast.show(
                     `Discipline bound: <span style="color:${info.color}; font-weight:bold;">${info.title}</span>` +
@@ -111,7 +116,7 @@ export class ProfileUI {
 
         // AT-L8: re-read the class from Stats whenever the profile opens, since a
         // cloud profile load can change it after the constructor ran.
-        this.applyClassAccent();
+        this.refreshClassSelection?.();
 
     }
 

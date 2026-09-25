@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { MAGE_CLASSES, DEFAULT_MAGE_CLASS, isMageClass, normalizeMageClass, mageClassInfo } from '../backend/MageClasses.js';
+import { MAGE_CLASSES, DEFAULT_MAGE_CLASS, isMageClass, normalizeMageClass, mageClassInfo, classesForCharacter, isMageClassForCharacter, normalizeMageClassForCharacter } from '../backend/MageClasses.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8').replace(/\r\n/g, '\n');
@@ -66,9 +66,28 @@ const RECORDED_TREE = {
 // ── 1. the roster module (real import, real behaviour) ─────────────────────
 const ids = MAGE_CLASSES.map((c) => c.id);
 check(
-    'the roster holds the owner\'s four Disciplines, in order',
-    JSON.stringify(ids) === JSON.stringify(['Novice', 'Pyromancer', 'Cryomancer', 'Chronomancer']),
+    'the roster holds three character families with one shared Novice',
+    ids.length === 10 && ids.filter((id) => id === 'Novice').length === 1 &&
+        ['wizard', 'voidweaver', 'bloodseeker'].every((character) => classesForCharacter(character).length === 4),
     ids.join(', ')
+);
+check('the character families expose Novice plus three unique Disciplines',
+    JSON.stringify(classesForCharacter('wizard').map((c) => c.id)) === JSON.stringify(['Novice', 'Pyromancer', 'Cryomancer', 'Chronomancer']) &&
+        JSON.stringify(classesForCharacter('voidweaver').map((c) => c.id)) === JSON.stringify(['Novice', 'Singulist', 'Nullwarden', 'Riftbinder']) &&
+        JSON.stringify(classesForCharacter('bloodseeker').map((c) => c.id)) === JSON.stringify(['Novice', 'Hemomancer', 'Reaper', 'Bloodruner']));
+check('every Discipline is assigned to at least one character and active',
+    MAGE_CLASSES.every((c) => c.characters?.length > 0 && c.active));
+check('an incompatible class falls back to the character Novice',
+    normalizeMageClassForCharacter('Pyromancer', 'voidweaver') === 'Novice' &&
+        normalizeMageClassForCharacter('Reaper', 'wizard') === 'Novice' &&
+        isMageClassForCharacter('Hemomancer', 'bloodseeker'));
+check('the retired Bloodseeker Discipline migrates to Hemomancer on a Bloodseeker character',
+    normalizeMageClassForCharacter('Bloodseeker', 'bloodseeker') === 'Hemomancer' &&
+        normalizeMageClassForCharacter('Bloodseeker', 'wizard') === 'Novice');
+check(
+    'the new class families keep their shared Novice, unique actives and characters',
+    MAGE_CLASSES.filter((c) => c.characters.includes('voidweaver')).map((c) => c.active.id).join('|') === 'arcane-surge|crushing-gravity|event-horizon|rift-tether' &&
+        MAGE_CLASSES.filter((c) => c.characters.includes('bloodseeker')).map((c) => c.active.id).join('|') === 'arcane-surge|blood-pact|final-cut|bloodletting'
 );
 check(
     'every roster record is complete (title, tagline, colour, blurb)',
@@ -112,23 +131,23 @@ check('mageClassInfo never returns undefined', mageClassInfo('nope').id === DEFA
 check(
     'AuthUI builds the registration options by iterating the roster',
     authSrc.includes("from '../../backend/MageClasses.js'") &&
-        authSrc.includes('MAGE_CLASSES.forEach') && authSrc.includes('appendChild')
+        authSrc.includes("classesForCharacter('wizard').forEach") && authSrc.includes('appendChild')
 );
 check(
     'the profile picker finally has a change listener (the AT-L8 root cause)',
     profileSrc.includes("from '../../backend/MageClasses.js'") &&
-        profileSrc.includes('MAGE_CLASSES.forEach') &&
+        profileSrc.includes('classesForCharacter(this.game.stats.selectedCharacter).forEach') &&
         /addEventListener\('change'/.test(profileSrc) &&
         profileSrc.includes('setMageClass(')
 );
 check(
     'a rejected/duplicate pick does not toast (setMageClass returns a boolean)',
-    statsSrc.includes('if (next === this.mageClass) return false;') && statsSrc.includes('return true;')
+    statsSrc.includes('if (!isMageClassForCharacter(chosen, this.selectedCharacter) || chosen === this.mageClass) return false;') && statsSrc.includes('return true;')
 );
 check(
     'Stats validates on load and on save, against the roster',
-    count(statsSrc, 'normalizeMageClass(') >= 3 && count(statsSrc, 'DEFAULT_MAGE_CLASS') >= 2,
-    `${count(statsSrc, 'normalizeMageClass(')} normalise call(s)`
+    count(statsSrc, 'normalizeMageClassForCharacter(') >= 3 && count(statsSrc, 'DEFAULT_MAGE_CLASS') >= 2,
+    `${count(statsSrc, 'normalizeMageClassForCharacter(')} normalise-for-character call(s)`
 );
 check(
     'the class a picker shows is re-read after a cloud load',
@@ -136,8 +155,10 @@ check(
 );
 
 // ── 3. the Workshop tree matches the roster and the recorded node baseline ──
+const WORKSHOP_DISCIPLINES = MAGE_CLASSES.filter((c) => c.workshop !== false);
+const WORKSHOP_BRANCH_COUNT = WORKSHOP_DISCIPLINES.length;
 const branchChunks = htmlSrc.split('<div class="talent-branch"').slice(1);
-check('the tree has one branch per Discipline', branchChunks.length === MAGE_CLASSES.length, `${branchChunks.length} branch(es)`);
+check('the tree has one branch per Workshop Discipline', branchChunks.length === WORKSHOP_BRANCH_COUNT, `${branchChunks.length} branch(es) for ${WORKSHOP_BRANCH_COUNT} Workshop Discipline(s)`);
 
 const tree = {};
 for (const chunk of branchChunks) {
@@ -146,7 +167,7 @@ for (const chunk of branchChunks) {
     if (cls) tree[cls] = Object.fromEntries(nodes.map((m) => [m[1], Number(m[2])]));
 }
 check('every branch names a canonical class', Object.keys(tree).every(isMageClass), Object.keys(tree).join(', '));
-check('each branch head is an element for buildTalentTree() to fill', count(htmlSrc, 'class="talent-branch-head"') === MAGE_CLASSES.length);
+check('each branch head is an element for buildTalentTree() to fill', count(htmlSrc, 'class="talent-branch-head"') === WORKSHOP_BRANCH_COUNT);
 check(
     'every branch holds three nodes',
     Object.values(tree).every((nodes) => Object.keys(nodes).length === 3),
@@ -159,7 +180,7 @@ const fingerprint = (map) => Object.values(map).flatMap((nodes) => Object.entrie
 const recorded = fingerprint(RECORDED_TREE);
 const found = fingerprint(tree);
 check(
-    'the 12 recorded node ids survive at their recorded XP cost',
+    'the four Workshop branches preserve the recorded node ids and costs',
     recorded === found,
     recorded === found ? '' : `recorded ${recorded.split('|').length} pairs vs found ${found.split('|').length}`
 );

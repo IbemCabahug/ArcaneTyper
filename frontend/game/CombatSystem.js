@@ -55,7 +55,8 @@ export class CombatSystem {
         }
         const hasDestructibleWords = this.game.words.some(w => !w.dying && !w.isBossAttack);
         const hasBoss = this.game.isBossPhase && this.game.boss && !this.game.boss.isDead;
-        const canHeal = this.game.stats.hasSkill('burst') && this.game.stats.lives < (this.game.stats.hasSkill('life') ? 5 : 4);
+        const maxDefense = this.game.stats.getSurvivalMaxLives();
+        const canHeal = this.game.stats.hasSkill('burst') && this.game.stats.lives < maxDefense;
 
         if (!hasDestructibleWords && !hasBoss && !canHeal) {
             this.game.audio.playErrorSound();
@@ -67,9 +68,11 @@ export class CombatSystem {
 
         if (!this.game.stats.useMana(100)) return;
 
-        // Mana Overflow Skill: Ultimate restores 1 Barrier
+        // Mana Overflow Skill: Ultimate restores one character-specific defense
+        // charge. Voidweaver calls these absorption charges; Bloodseeker calls
+        // them lives; the Wizard keeps its historic barrier/final-life split.
         if (this.game.stats.hasSkill('burst')) {
-            const maxAllowedLives = this.game.stats.hasSkill('life') ? 5 : 4;
+            const maxAllowedLives = this.game.stats.getSurvivalMaxLives();
             if (this.game.stats.lives < maxAllowedLives) {
                 this.game.stats.lives++;
                 this.game.stats.updateLivesDisplay();
@@ -99,17 +102,34 @@ export class CombatSystem {
         const ch = this.game.canvas.height;
         const cx = cw / 2;
         const cy = ch / 2;
+        const palette = this._supernovaPalette();
 
-        // Flash screen brilliant celestial cyan/gold
-        this.game.ctx.fillStyle = 'rgba(0, 229, 255, 0.9)';
-        this.game.ctx.fillRect(0, 0, cw, ch);
+        // The shared meteor-shatter language remains the foundation of every
+        // Supernova. Character cinematics then add a distinct staged identity;
+        // gameplay effects below still resolve immediately.
+        const isBloodseeker = this.game.stats?.selectedCharacter === 'bloodseeker';
+        const isVoidweaver = this.game.stats?.selectedCharacter === 'voidweaver';
+        this.game.supernovaFx = isBloodseeker
+            ? { kind: 'blood-moon', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000 }
+            : isVoidweaver
+                ? { kind: 'void-collapse', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000 }
+                : null;
+        if (!isBloodseeker && !isVoidweaver) {
+            this.game.ctx.fillStyle = palette.flash;
+            this.game.ctx.fillRect(0, 0, cw, ch);
+        }
+        if (isVoidweaver) {
+            this.spawnVoidImplosion(cx, cy, palette.particles, 3.5);
+        } else {
+            this.spawnExplosion(cx, cy, { particles: palette.particles }, isBloodseeker ? 3.5 : 6.0);
+            this.spawnBurst(cx, cy, palette.particles);
+            this.game.particles.spawn(cx, cy, palette.shockwave);
+        }
 
-        // Massive celestial explosion & shockwave
-        this.spawnExplosion(cx, cy, { particles: ['#00e5ff', '#ffd700', '#ffffff', '#29b6f6', '#d500f9'] }, 6.0);
-        this.game.particles.spawn(cx, cy, 'shockwave_blue');
-
-        // Floating Title
-        this.game.floatingTexts.push(new FloatingText("SUPERNOVA", cx, cy - 40, "#00e5ff", 42));
+        // Floating titles wait for the character-specific impact frame.
+        if (!isBloodseeker && !isVoidweaver) {
+            this.game.floatingTexts.push(new FloatingText("SUPERNOVA", cx, cy - 40, palette.title, 42));
+        }
 
         // Destroy all normal words
         for (let i = this.game.words.length - 1; i >= 0; i--) {
@@ -130,10 +150,177 @@ export class CombatSystem {
 
         // Damage Boss heavily
         if (this.game.isBossPhase && this.game.boss && !this.game.boss.isDead) {
+            // Bloodseeker's Supernova throws ALL FOUR netherblades at the boss as
+            // one volley, timed to finish inside the 1 s Blood Moon cinematic so
+            // the blades are already back in formation when the takeover ends.
+            if (isBloodseeker) {
+                this.game._leaseBladeVolley?.(this.game.boss.x, this.game.boss.y + 20);
+            }
             for (let i = 0; i < 3; i++) {
                 this.game.boss.takeDamage();
             }
         }
+    }
+
+    /**
+     * How much damage the equipped character deals to the boss for one solved
+     * word. This is the character's ATTACK identity against bosses, and each
+     * branch mirrors how that character already fights everywhere else:
+     *
+     *   Wizard       — steady and versatile: a flat arcane bolt that rewards a
+     *                  long word slightly.
+     *   Voidweaver   — scales with the caster's own endless streak, because a
+     *                  streak is what compresses space for this character.
+     *   Bloodseeker  — scales with the BOSS's missing HP, because this
+     *                  character hunts the wounded (same execution fantasy as
+     *                  the Reaper arena Discipline).
+     *
+     * Deterministic and skill-linked by design: damage is a function of the
+     * player's typing performance, never of chance.
+     */
+    bossStrikeDamage(wordLength = 0) {
+        const len = Number.isFinite(wordLength) && wordLength > 0 ? wordLength : 0;
+        const base = 3 + Math.floor(len / 4);
+        const character = this.game?.stats?.selectedCharacter || 'wizard';
+
+        if (character === 'voidweaver') {
+            const combo = this.game?.stats?.combo || 0;
+            const streakBonus = Math.min(5, Math.floor(Math.max(0, combo) / 20));
+            return Math.max(1, 2 + streakBonus);
+        }
+
+        if (character === 'bloodseeker') {
+            const boss = this.game?.boss;
+            const max = boss && boss.maxHealth > 0 ? boss.maxHealth : 1;
+            const missingPct = Math.max(0, Math.min(100, ((max - (boss ? boss.health : max)) / max) * 100));
+            const executeBonus = Math.min(5, Math.floor(missingPct / 20));
+            return Math.max(1, Math.round(base * 1.5) + executeBonus);
+        }
+
+        return base;
+    }
+
+    /**
+     * Resolve one solved word against the boss: character damage profile plus
+     * the matching impact presentation. The boss element is untouched — this
+     * only changes WHO is striking and how hard.
+     */
+    strikeBoss(wordLength = 0) {
+        const boss = this.game?.boss;
+        if (!this.game?.isBossPhase || !boss || boss.isDead) return 0;
+
+        const amount = this.bossStrikeDamage(wordLength);
+        const dealt = boss.takeDamage(amount);
+        const character = this.game.stats?.selectedCharacter || 'wizard';
+
+        if (character === 'voidweaver') {
+            // The boss is briefly crushed inward — the same singularity language
+            // as the Voidweaver Supernova, at per-word scale.
+            this.spawnVoidCrush(boss.x, boss.y + 20);
+            this.game.audio.playVoidAbsorb();
+        } else if (character === 'bloodseeker') {
+            // A crimson carve through the boss, with life drawn back upward.
+            // One netherblade is leased per solved word and flies out to cut the
+            // boss before recalling. The rotation lives in Game._leaseBladeSlash
+            // so a fast typist cycles 1→2→3→4 rather than re-striking one blade.
+            this.game._leaseBladeSlash?.(boss.x, boss.y + 20);
+            this.spawnBurst(boss.x, boss.y + 20, ['#ff1744', '#ff8a95', '#ffffff']);
+            this.spawnReaverArc(boss.x, boss.y + 20);
+            this.game.audio.playShatter();
+        } else {
+            this.spawnExplosion(boss.x, boss.y + 20, { particles: ['#ffd700', '#ffffff', '#ff4b4b'] });
+            this.game.audio.playExplosion();
+        }
+
+        if (dealt > 1) {
+            this.game.floatingTexts.push(new FloatingText(
+                `-${dealt}`,
+                boss.x,
+                boss.y - 10,
+                character === 'voidweaver' ? '#00e5ff' : character === 'bloodseeker' ? '#ff6b7a' : '#ffd700',
+                26
+            ));
+        }
+        this.game.combatSystem?.triggerShake?.(5, 200);
+        return dealt;
+    }
+
+    /**
+     * A per-word singularity centred on the struck boss. Deliberately much
+     * smaller than spawnVoidImplosion (which is a screen-wide Supernova): the
+     * motes start just outside the boss and collapse into it, so each solved
+     * word visibly crushes the target rather than filling the canvas.
+     */
+    spawnVoidCrush(x, y) {
+        const colors = ['#7c4dff', '#00e5ff', '#b388ff', '#ffffff'];
+        const count = window.__atLowQuality ? 10 : 20;
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 16 + Math.random() * 26;
+            const p = this.game.particles.spawn(
+                x + Math.cos(angle) * radius,
+                y + Math.sin(angle) * radius * 0.7,
+                colors[i % colors.length]
+            );
+            if (!p) continue;
+            p.targetX = x;
+            p.targetY = y;
+            p.vx = -Math.sin(angle) * 0.22;
+            p.vy = Math.cos(angle) * 0.14;
+            p.gravity = 0;
+            p.isVoidMote = true;
+            p.isRune = false;
+            p.size = 1.0 + Math.random() * 2.0;
+            p.initialSize = p.size;
+            p.life = 1;
+            p.decay = 0.05 + Math.random() * 0.02;
+        }
+    }
+
+    /** Bloodseeker's upward life-flow drawn out of a struck boss. */
+    spawnReaverArc(x, y) {
+        const colors = ['#ff1744', '#ff8a95'];
+        const count = window.__atLowQuality ? 5 : 10;
+        for (let i = 0; i < count; i++) {
+            const p = this.game.particles.spawn(
+                x + (Math.random() - 0.5) * 46,
+                y + Math.random() * 26,
+                colors[i % colors.length]
+            );
+            if (!p) continue;
+            p.vx = (Math.random() - 0.5) * 0.5;
+            p.vy = -1.1 - Math.random() * 0.9;   // life rising against gravity
+            p.gravity = 0;
+            p.size = 1.2 + Math.random() * 1.8;
+            p.life = 1;
+            p.decay = 0.05;
+        }
+    }
+
+    _supernovaPalette() {
+        const character = this.game?.stats?.selectedCharacter || 'wizard';
+        if (character === 'voidweaver') {
+            return {
+                flash: 'rgba(7, 0, 24, 0.78)',
+                particles: ['#7c4dff', '#00e5ff', '#b388ff', '#ffffff', '#1a0033'],
+                title: '#c084fc',
+                shockwave: 'shockwave_purple'
+            };
+        }
+        if (character === 'bloodseeker') {
+            return {
+                flash: 'rgba(32, 0, 8, 0.78)',
+                particles: ['#ff1744', '#ff8a95', '#ffd0d5', '#ffffff', '#4a0010'],
+                title: '#ff8a95',
+                shockwave: 'shockwave_red'
+            };
+        }
+        return {
+            flash: 'rgba(0, 229, 255, 0.78)',
+            particles: ['#00e5ff', '#ffd700', '#ffffff', '#29b6f6', '#d500f9'],
+            title: '#00e5ff',
+            shockwave: 'shockwave'
+        };
     }
 
     spawnExplosion(x, y, elementColors, bonusMultiplier = 0) {
@@ -167,6 +354,65 @@ export class CombatSystem {
                 p.size = Math.random() * 3 + 1.5;
                 p.decay = Math.random() * 0.02 + 0.01;
             }
+        }
+    }
+
+    /**
+     * A boss meteor is swallowed by the Voidweaver's outer event horizon.
+     * This is a pooled, target-seeking inward burst; it changes presentation
+     * only, while Game.js has already resolved the actual defense charge.
+     */
+    spawnVoidAbsorption(x, y) {
+        const colors = ['#7c4dff', '#00e5ff', '#b388ff', '#ffffff'];
+        const count = window.__atLowQuality ? 10 : 18;
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 18 + Math.random() * 34;
+            const p = this.game.particles.spawn(
+                x + Math.cos(angle) * radius,
+                y + Math.sin(angle) * radius * 0.55,
+                colors[i % colors.length]
+            );
+            if (!p) continue;
+            p.targetX = x;
+            p.targetY = y;
+            p.isVoidMote = true;
+            p.isRune = false;
+            p.gravity = 0;
+            p.vx = -Math.cos(angle) * 0.18;
+            p.vy = -Math.sin(angle) * 0.12;
+            p.size = 1.2 + Math.random() * 2.2;
+            p.initialSize = p.size;
+            p.life = 1;
+            p.decay = 0.028 + Math.random() * 0.018;
+        }
+    }
+
+
+    /**
+     * Spawn a target-seeking vortex for the Voidweaver Supernova. Particles
+     * begin around the center with tangential drift, then are pulled inward;
+     * the target is intentionally fixed so the pool stays allocation-free.
+     */
+    spawnVoidImplosion(cx, cy, colors, strength = 3.5) {
+        const count = window.__atLowQuality ? 34 : 66;
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 28 + Math.random() * Math.min(this.game.canvas.width, this.game.canvas.height) * 0.42;
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const p = this.game.particles.spawn(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius * 0.58, color);
+            if (!p) continue;
+            p.targetX = cx;
+            p.targetY = cy;
+            p.vx = -Math.sin(angle) * (0.35 + strength * 0.05);
+            p.vy = Math.cos(angle) * (0.20 + strength * 0.03);
+            p.gravity = 0;
+            p.isVoidMote = true;
+            p.isRune = false;
+            p.size = 1.2 + Math.random() * 2.6;
+            p.initialSize = p.size;
+            p.life = 1;
+            p.decay = 0.018 + Math.random() * 0.014;
         }
     }
 

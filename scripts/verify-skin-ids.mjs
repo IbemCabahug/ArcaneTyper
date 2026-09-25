@@ -52,6 +52,7 @@ const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '');
 const htmlSrc = read('frontend/index.html');
 const cssSrc = strip(read('frontend/style.css'));
 const statsSrc = strip(read('backend/Stats.js'));
+const mainEarly = read('frontend/main.js');
 const pkgSrc = read('package.json');
 
 let failures = 0;
@@ -102,8 +103,11 @@ check(
     count(htmlSrc, 'id="skin-voidweaver"') === 1 && count(htmlSrc, '>VOIDWEAVER</span>') === 1
 );
 check(
-    'wizard remains the one active, selectable skin',
-    count(htmlSrc, 'class="skin-card active"') === 1 && count(htmlSrc, 'id="skin-wizard"') === 1
+    'the default Wizard card is neutral in markup and selected at runtime',
+    count(htmlSrc, 'class="skin-card active"') === 0 &&
+        count(htmlSrc, 'id="skin-wizard"') === 1 &&
+        mainEarly.includes("card.classList.toggle('active', equipped)") &&
+        mainEarly.includes("card.style.borderColor = equipped ? info.color")
 );
 
 // ── 3. the retired spelling is gone from every game source ────────────────
@@ -357,7 +361,9 @@ check(
 );
 check(
     'the renderers honour the low-quality switch like the wizard does',
-    count(rendererSrc, 'window.__atLowQuality') === 3
+    count(rendererSrc, 'window.__atLowQuality') >= 4 &&
+        rendererSrc.includes('const lowQ = window.__atLowQuality;') &&
+        rendererSrc.includes('lowQ ? 0.72 : 1')
 );
 
 // ── 7. the Forge UI: table prices, the real purchase path, canvases ───────
@@ -572,6 +578,31 @@ check(
     pkgSrc.includes('"verify:skins": "node scripts/verify-skin-ids.mjs"') &&
         pkgSrc.includes('&& npm run verify:skins')
 );
+
+// ── AT-F15: an unlocked-but-unpicked card must not stay visually dimmed ─────
+// The cards ship a "coming soon" paint (dark plate + grey label) as INLINE
+// styles. Ownership changes three things, not one: the `locked` class, the
+// card's background, and the label colour. Repainting only the border left a
+// purchased character looking locked forever, which is the reported bug.
+const forgeBody = (() => {
+    const at = mainSrc.indexOf('function updateForgeUI');
+    if (at < 0) return '';
+    const end = mainSrc.indexOf('\n  }', at);
+    return mainSrc.slice(at, end < 0 ? mainSrc.length : end);
+})();
+check('the Forge repaints every owned-state property, not just the border',
+    forgeBody.includes("card.classList.toggle('available', owned && !equipped)") &&
+    forgeBody.includes('card.style.background = owned') &&
+    forgeBody.includes("status.style.color = owned ? '#ffd700' : '#64748b';"),
+    forgeBody ? '' : 'updateForgeUI not found');
+check('the unlocked-unpicked state has its own CSS, distinct from .locked and .active',
+    cssSrc.includes('.skin-card.available {') &&
+    /\.skin-card\.available\s*\{[^}]*filter: none;/.test(cssSrc) &&
+        /\.skin-card\.available\s*\{[^}]*opacity: 1;/.test(cssSrc) &&
+        /\.skin-card\.available:hover\s*\{[^}]*filter: none;/.test(cssSrc));
+check('the locked paint is unchanged: only an unowned card is desaturated',
+    cssSrc.includes('.skin-card.locked {') &&
+        /\.skin-card\.locked\s*\{[^}]*filter: grayscale/.test(cssSrc));
 
 console.log('');
 if (failures) {

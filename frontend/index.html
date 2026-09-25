@@ -514,7 +514,8 @@
                 style="color: #00e5ff; margin-bottom: 1.5rem; text-align: center; border-bottom: 1px solid rgba(0,229,255,0.3); padding-bottom: 10px;">
                 Mystic Arts (Talent Tree)</h3>
 
-              <!-- AT-L8 / AT-F10: the tree mirrors the four Disciplines.
+              <!-- AT-L8 / AT-F10: the tree mirrors the four Workshop Disciplines.
+                   Bloodseeker is deliberately Arena-only (`workshop: false`).
                    Branch HEADERS are rendered from backend/MageClasses.js by
                    main.js buildTalentTree() (data-class below picks the record).
                    INVARIANT: the tree holds the SAME 12 nodes as before, 3 per
@@ -882,7 +883,7 @@
                 style="background: transparent; border: none; color: #00e5ff; font-size: 1.2rem; margin-top: 5px; font-family: var(--font-family); outline: none; text-align: center; cursor: pointer; text-shadow: 0 0 10px rgba(0, 229, 255, 0.5); font-weight: bold;">
                 <!-- AT-L8: options are BUILT from backend/MageClasses.js by
                      ProfileUI.setupClassSelection (it clears this element first, so
-                     the four options that used to live here were dead markup).
+                     the old four options that lived here were dead markup).
                      Never re-add the roster here — a second list in markup is
                      exactly how the registration picker drifted to
                      Scholar/Pyromancer/Oracle. -->
@@ -895,7 +896,7 @@
               <div id="character-skin-grid" style="display: flex; justify-content: space-around; gap: 8px; margin-top: 5px;">
                 
                 <!-- Wizard Card -->
-                <div class="skin-card active" id="skin-wizard" data-char="wizard" style="cursor: pointer; flex: 1; padding: 6px; border: 1.5px solid var(--accent-primary); border-radius: 6px; background: rgba(255, 255, 255, 0.02); transition: all 0.3s ease; position: relative;">
+                <div class="skin-card" id="skin-wizard" data-char="wizard" style="cursor: pointer; flex: 1; padding: 6px; border: 1.5px solid var(--accent-primary); border-radius: 6px; background: rgba(255, 255, 255, 0.02); transition: all 0.3s ease; position: relative;">
                   <div class="skin-avatar-preview wizard-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
                     <!-- AT-F16: every preview here is painted by CharacterRenderer.draw()
                          — the same call the arena makes for the player and the opponent —

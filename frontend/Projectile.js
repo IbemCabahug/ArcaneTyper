@@ -1,11 +1,14 @@
 export class Projectile {
-    constructor(x, y, targetX, targetY, colors, type = 'normal') {
+    constructor(x, y, targetX, targetY, colors, type = 'normal', wordLength = 0) {
         this.x = x;
         this.y = y;
         this.targetX = targetX;
         this.targetY = targetY;
         this.colors = colors || ['#ffd700', '#ffffff'];
         this.type = type;
+        // Carried so the boss strike can scale with the solved word's length
+        // (the Wizard's steady profile). Defaults to 0 for every other caller.
+        this.wordLength = Number.isFinite(wordLength) && wordLength > 0 ? wordLength : 0;
 
         this.speed = 400; // pixels per second (fast)
         this.radius = 8;

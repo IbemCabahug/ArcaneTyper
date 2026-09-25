@@ -311,6 +311,56 @@ export class AudioController {
         noise.stop(t + duration);
     }
 
+    /**
+     * AT: Voidweaver absorption. A meteor that meets the event horizon is
+     * captured rather than shattered, so it must NOT reuse playShatter(): the
+     * glassy high-passed burst reads as damage. This is a falling sweep (the
+     * meteor being dragged inward) resolving into a short low bloom as the
+     * ward closes over it.
+     */
+    playVoidAbsorb() {
+        this._resumeContext();
+        const t = this.ctx.currentTime;
+
+        // Inward pitch sweep — the object falling toward the well.
+        const osc = this.ctx.createOscillator();
+        const oscGain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(720, t);
+        osc.frequency.exponentialRampToValueAtTime(70, t + 0.34);
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2400, t);
+        filter.frequency.exponentialRampToValueAtTime(220, t + 0.34);
+
+        oscGain.gain.setValueAtTime(0.0001, t);
+        oscGain.gain.exponentialRampToValueAtTime(0.30, t + 0.05);
+        oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.34);
+
+        osc.connect(filter);
+        filter.connect(oscGain);
+        oscGain.connect(this.masterGain);
+
+        // Quiet sub thud on capture, so the absorption has weight without the
+        // damage connotation of playExplosion().
+        const sub = this.ctx.createOscillator();
+        const subGain = this.ctx.createGain();
+        sub.type = 'sine';
+        sub.frequency.setValueAtTime(120, t);
+        sub.frequency.exponentialRampToValueAtTime(45, t + 0.3);
+        subGain.gain.setValueAtTime(0.22, t);
+        subGain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+        sub.connect(subGain);
+        subGain.connect(this.masterGain);
+
+        this._attachCleanup(osc, filter, oscGain, sub, subGain);
+        osc.start(t);
+        osc.stop(t + 0.36);
+        sub.start(t);
+        sub.stop(t + 0.32);
+    }
+
     startBackgroundMusic() {
         this._resumeContext();
         if (this.isPlayingBg) return;

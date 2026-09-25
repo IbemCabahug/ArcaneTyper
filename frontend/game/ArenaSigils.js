@@ -8,7 +8,13 @@ const EFFECTS = {
     'arcane-surge': { color: '#a855f7', accent: '#e9d5ff' },
     'cinder-brand': { color: '#ff6b35', accent: '#ffd166' },
     'glacial-ward': { color: '#4dd0e1', accent: '#c7f9ff' },
-    'time-stop': { color: '#c084fc', accent: '#f3e8ff' }
+    'time-stop': { color: '#c084fc', accent: '#f3e8ff' },
+    'blood-pact': { color: '#ff1744', accent: '#ff9aaa' },
+    'crushing-gravity': { color: '#7c4dff', accent: '#d8ccff' },
+    'event-horizon': { color: '#536dfe', accent: '#c5ceff' },
+    'rift-tether': { color: '#8b5cf6', accent: '#ddd6fe' },
+    'final-cut': { color: '#b00020', accent: '#ffb4ab' },
+    'bloodletting': { color: '#e53935', accent: '#ffcdd2' }
 };
 
 function glow(ctx, color, blur) {
@@ -101,7 +107,64 @@ function drawChronoMark(ctx, r) {
     polygon(ctx, [[-r * .28, -r * .42], [r * .28, -r * .42], [-r * .28, r * .42], [r * .28, r * .42]], '#ffffff', 1.5);
 }
 
-export function drawCasterSigil(ctx, skillId, x, y, radius, now, alpha = 1) {
+function drawBloodMark(ctx, r) {
+    // A restrained blood-oath mark: central wound diamond, two hooked veins,
+    // and upward motes. It reads as a ward without adding a second full aura.
+    polygon(ctx, [[0, -r * .58], [r * .28, 0], [0, r * .58], [-r * .28, 0]], EFFECTS['blood-pact'].accent, 2.2);
+    ctx.beginPath();
+    ctx.moveTo(-r * .48, r * .18);
+    ctx.quadraticCurveTo(-r * .12, r * .02, 0, -r * .34);
+    ctx.quadraticCurveTo(r * .12, r * .02, r * .48, r * .18);
+    ctx.moveTo(-r * .46, r * .18);
+    ctx.quadraticCurveTo(-r * .16, r * .42, 0, r * .62);
+    ctx.quadraticCurveTo(r * .16, r * .42, r * .46, r * .18);
+    ctx.strokeStyle = EFFECTS['blood-pact'].color;
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.arc(i * r * .18, -r * .72, 2.1, 0, Math.PI * 2);
+        ctx.fillStyle = EFFECTS['blood-pact'].accent;
+        ctx.fill();
+    }
+}
+
+function drawVoidMark(ctx, r, skillId) {
+    const effect = EFFECTS[skillId];
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.strokeStyle = effect.accent;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+        const a = (i * Math.PI * 2) / 3;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * r * .18, Math.sin(a) * r * .18);
+        ctx.lineTo(Math.cos(a) * r * .86, Math.sin(a) * r * .86);
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, r * .16, 0, Math.PI * 2);
+    ctx.fillStyle = effect.accent;
+    ctx.fill();
+}
+
+function drawBloodCut(ctx, r) {
+    const effect = EFFECTS['final-cut'];
+    polygon(ctx, [[0, -r * .9], [r * .28, 0], [0, r * .9], [-r * .28, 0]], effect.accent, 2);
+    ctx.beginPath();
+    ctx.moveTo(-r * .62, r * .48);
+    ctx.lineTo(r * .52, -r * .58);
+    ctx.moveTo(r * .2, -r * .58);
+    ctx.lineTo(r * .52, -r * .58);
+    ctx.strokeStyle = effect.color;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+}
+
+export function drawCasterSigil(ctx, skillId, x, y, radius, now, alpha = 1, remainingMs = 3000) {
     const effect = EFFECTS[skillId];
     if (!effect) return;
     ctx.save();
@@ -116,6 +179,9 @@ export function drawCasterSigil(ctx, skillId, x, y, radius, now, alpha = 1) {
     if (skillId === 'arcane-surge') drawNova(ctx, inner);
     else if (skillId === 'cinder-brand') drawPyro(ctx, inner);
     else if (skillId === 'glacial-ward') drawCryo(ctx, inner);
+    else if (skillId === 'blood-pact') drawBloodMark(ctx, inner);
+    else if (skillId === 'final-cut' || skillId === 'bloodletting') drawBloodCut(ctx, inner);
+    else if (skillId === 'crushing-gravity' || skillId === 'event-horizon' || skillId === 'rift-tether') drawVoidMark(ctx, inner, skillId);
     else drawChronoMark(ctx, inner);
     ctx.restore();
     // Final layer: the enclosing circle seals every class sigil.
@@ -131,6 +197,14 @@ export function drawCasterSigil(ctx, skillId, x, y, radius, now, alpha = 1) {
     ctx.strokeStyle = effect.color;
     ctx.lineWidth = 2.2;
     ctx.stroke();
+    if (skillId !== 'time-stop') {
+        const progress = Math.max(0, Math.min(1, remainingMs / 3000));
+        ctx.beginPath();
+        ctx.arc(0, 0, radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        ctx.strokeStyle = effect.accent;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
     ctx.restore();
 }
 

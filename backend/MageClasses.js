@@ -1,9 +1,10 @@
 /**
  * MageClasses.js — the ONE source of truth for mage Disciplines (AT-L8).
  *
- * Owner decision 2026-09-23: four classes — **Novice** (default), **Pyromancer**,
- * **Cryomancer**, **Chronomancer** — used by the registration picker, the Mage
- * Profile picker, the Workshop tree and (AT-F10) the per-class PvP active.
+ * Owner decision 2026-09-25: the class roster is character-scoped. **Novice**
+ * is the shared default; the Wizard family adds Pyromancer / Cryomancer /
+ * Chronomancer, the Voidweaver family adds Singulist / Nullwarden / Riftbinder,
+ * and the Bloodseeker family adds Hemomancer / Reaper / Bloodruner.
  *
  * Why this file exists: the roster used to live in three places that disagreed
  * (registration offered Scholar/Pyromancer/Oracle, the Mage Profile offered
@@ -24,8 +25,9 @@
  * @property {string} id     stable skill id — the ONLY thing sent over the wire
  * @property {string} title  display name (HUD chip, cast float, docs)
  * @property {number} cost   mana spent by the caster (`Stats.useMana`)
- * @property {'damage'|'mitigation'|'time_stop'} kind what the active changes
- * @property {number} value damage/mitigation multiplier, or freeze duration in ms
+ * @property {'damage'|'combo_damage'|'mitigation'|'opponent_weaken'|'time_stop'|'lifesteal'|'execution'|'self_sacrifice'} kind what the active changes
+ * @property {number} value damage/mitigation multiplier, freeze duration in ms,
+ *   or a class-specific scalar (healing percentage, execution base, or self-cost)
  * @property {string} effect the owner-facing sentence (docs + guard fingerprint)
  */
 
@@ -36,6 +38,7 @@
  * @property {string} tagline one-line fantasy role (also the Workshop branch subtitle)
  * @property {string} color   accent used by the Workshop branch + profile label
  * @property {string} blurb   the mechanical promise shown to the player
+ * @property {boolean} [workshop=false] whether the class has a Survival perk branch
  * @property {MageActive} active the PvP active this Discipline casts in the Arena
  */
 export const MAGE_CLASSES = [
@@ -44,6 +47,8 @@ export const MAGE_CLASSES = [
         title: 'Novice',
         tagline: 'Balanced & Economy',
         color: '#4CAF50',
+        workshop: true,
+        characters: ['wizard', 'voidweaver', 'bloodseeker'],
         blurb: 'No specialisation — a clean slate. PvP-only Arena active: Arcane Surge.',
         active: {
             id: 'arcane-surge',
@@ -59,6 +64,8 @@ export const MAGE_CLASSES = [
         title: 'Pyromancer',
         tagline: 'Destruction & Combo',
         color: '#FF5722',
+        workshop: true,
+        characters: ['wizard'],
         blurb: '+20% score from every word (which also feeds XP). PvP-only Arena active: Cinder Brand.',
         active: {
             id: 'cinder-brand',
@@ -74,6 +81,8 @@ export const MAGE_CLASSES = [
         title: 'Cryomancer',
         tagline: 'Control & Warding',
         color: '#4dd0e1',
+        workshop: true,
+        characters: ['wizard'],
         blurb: 'Words fall slower in Survival. PvP-only Arena active: Glacial Ward.',
         active: {
             id: 'glacial-ward',
@@ -89,6 +98,8 @@ export const MAGE_CLASSES = [
         title: 'Chronomancer',
         tagline: 'Time & Mana',
         color: '#d500f9',
+        workshop: true,
+        characters: ['wizard'],
         blurb: 'Casting the Nova refunds 50 mana. PvP-only Arena active: Time Stop.',
         active: {
             id: 'time-stop',
@@ -98,15 +109,118 @@ export const MAGE_CLASSES = [
             value: 3000,
             effect: 'Stops the shared Arena for 3 seconds. You can still type.'
         }
+    },
+    {
+        id: 'Singulist',
+        title: 'Singulist',
+        tagline: 'Gravity & Momentum',
+        color: '#7c4dff',
+        workshop: false,
+        characters: ['voidweaver'],
+        blurb: 'A collapsing point of gravity. PvP-only Arena active: Crushing Gravity.',
+        active: {
+            id: 'crushing-gravity',
+            title: 'Crushing Gravity',
+            cost: 60,
+            kind: 'combo_damage',
+            value: 1.5,
+            effect: 'Your next won claim deals +50% damage, plus +1 per 20 live combo, capped at +4 damage.'
+        }
+    },
+    {
+        id: 'Nullwarden',
+        title: 'Nullwarden',
+        tagline: 'Event Horizon & Denial',
+        color: '#536dfe',
+        workshop: false,
+        characters: ['voidweaver'],
+        blurb: 'A hard boundary against incoming force. PvP-only Arena active: Event Horizon.',
+        active: {
+            id: 'event-horizon',
+            title: 'Event Horizon',
+            cost: 100,
+            kind: 'mitigation',
+            value: 0,
+            effect: 'The next word you LOSE deals no damage to you.'
+        }
+    },
+    {
+        id: 'Riftbinder',
+        title: 'Riftbinder',
+        tagline: 'Space & Binding',
+        color: '#8b5cf6',
+        workshop: false,
+        characters: ['voidweaver'],
+        blurb: 'Binds the opponent to a weakened fold. PvP-only Arena active: Rift Tether.',
+        active: {
+            id: 'rift-tether',
+            title: 'Rift Tether',
+            cost: 60,
+            kind: 'opponent_weaken',
+            value: 0.75,
+            effect: 'Win a word to bind the opponent: their next claim deals only 75% damage.'
+        }
+    },
+    {
+        id: 'Hemomancer',
+        title: 'Hemomancer',
+        tagline: 'Blood & Ruin',
+        color: '#ff1744',
+        workshop: false,
+        characters: ['bloodseeker'],
+        blurb: 'Turns won claims into health. PvP-only Arena active: Blood Pact.',
+        active: {
+            id: 'blood-pact',
+            title: 'Blood Pact',
+            cost: 60,
+            kind: 'lifesteal',
+            value: 0.25,
+            effect: 'Your next won claim heals 25% of its damage, plus a capped streak bonus.'
+        }
+    },
+    {
+        id: 'Reaper',
+        title: 'Reaper',
+        tagline: 'Execution & Ruin',
+        color: '#b00020',
+        workshop: false,
+        characters: ['bloodseeker'],
+        blurb: 'A patient hunter that grows stronger as the opponent weakens. PvP-only Arena active: Final Cut.',
+        active: {
+            id: 'final-cut',
+            title: 'Final Cut',
+            cost: 80,
+            kind: 'execution',
+            value: 1.5,
+            effect: 'Your next won claim deals +50% damage, plus +1 per 20 missing opponent HP, capped at +4 damage.'
+        }
+    },
+    {
+        id: 'Bloodruner',
+        title: 'Bloodruner',
+        tagline: 'Sacrifice & Fury',
+        color: '#e53935',
+        workshop: false,
+        characters: ['bloodseeker'],
+        blurb: 'Writes a dangerous contract into the body. PvP-only Arena active: Bloodletting.',
+        active: {
+            id: 'bloodletting',
+            title: 'Bloodletting',
+            cost: 60,
+            kind: 'self_sacrifice',
+            value: 5,
+            effect: 'Pay 5 HP on cast. Your next won claim gains +4 damage, escalating with your missing HP.'
+        }
     }
 ];
 
-/**
- * The four ways an active can act. Kept explicit (rather than free-form) so
- * the host can arbitrate anything the roster declares without a lookup table
- * living anywhere else — see AT-F10's "one roster" rule.
- */
-export const MAGE_ACTIVE_KINDS = ['damage', 'mitigation', 'time_stop'];
+/** The eight active kinds across ten Disciplines. Kept explicit so the host
+ * arbitrates from the roster rather than a second local effect table. */
+export const MAGE_ACTIVE_KINDS = ['damage', 'combo_damage', 'mitigation', 'opponent_weaken', 'time_stop', 'lifesteal', 'execution', 'self_sacrifice'];
+
+// AT-F14 migration: the old character name was also briefly used as the class
+// id. Preserve the saved Blood Pact choice for existing Bloodseeker profiles.
+const LEGACY_CLASS_ALIASES = { Bloodseeker: 'Hemomancer' };
 
 /** The class a fresh account (and any unknown/invalid value) resolves to. */
 export const DEFAULT_MAGE_CLASS = 'Novice';
@@ -114,6 +228,22 @@ export const DEFAULT_MAGE_CLASS = 'Novice';
 /** True when `id` is one of the canonical class ids. */
 export function isMageClass(id) {
     return MAGE_CLASSES.some((c) => c.id === id);
+}
+
+/** The selectable Disciplines for a character family. Novice is shared. */
+export function classesForCharacter(characterId) {
+    return MAGE_CLASSES.filter((c) => c.characters.includes(characterId));
+}
+
+/** True when `id` is canonical and belongs to this character family. */
+export function isMageClassForCharacter(id, characterId) {
+    return isMageClass(id) && mageClassInfo(id).characters.includes(characterId);
+}
+
+/** Resolve a class against a character, falling back to that character's Novice. */
+export function normalizeMageClassForCharacter(id, characterId) {
+    const mapped = LEGACY_CLASS_ALIASES[id] || id;
+    return isMageClassForCharacter(mapped, characterId) ? mapped : 'Novice';
 }
 
 /**

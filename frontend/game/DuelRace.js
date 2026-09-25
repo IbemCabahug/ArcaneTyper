@@ -31,7 +31,7 @@
  */
 import { FloatingText } from '../FloatingText.js';
 import { otherSlot, teamColorFor } from './ArenaTeams.js';
-import { activeForClass, mageActiveById } from '../../backend/MageClasses.js';
+import { activeForClass, mageActiveById, normalizeMageClassForCharacter } from '../../backend/MageClasses.js';
 
 const START_HP = 100;
 const MATCH_SECONDS = 120;
@@ -47,6 +47,10 @@ const ISSUE_WATCHDOG_MS = 15000;     // host safety: word must resolve by then
 // strike never stacks two labels on the same pixel.
 const BUFF_FLOAT_SIZE = 22;
 const BUFF_FLOAT_LIFT = 34;
+const ACTIVE_WINDOW_MS = 3000;
+const BLOOD_PACT_MAX_HEAL = 15;
+const BLOOD_PACT_STREAK_CAP = 100;
+const BLOOD_PACT_STREAK_DIVISOR = 20;
 
 export class DuelRace {
     constructor({ game, duel, isHost, opponentName, onMatchEnd }) {
@@ -110,6 +114,9 @@ export class DuelRace {
         // carried in race frames so a late guest starts from the same instant.
         this.timeStopUntil = 0;
         this.timeStopSlot = null;
+        this.buffUntil = { A: 0, B: 0 };
+        this._buffTimers = { A: null, B: null };
+        this.debuffs = { A: null, B: null };
     }
 
     $(id) { return document.getElementById(id); }
@@ -147,13 +154,15 @@ export class DuelRace {
         this._lastComboSentAt = 0;
         this.game.duelCombos = this.duelCombos;
         this._pendingTimeStop = null;
-        this.game.duelAuras = this.game.duelAuras || { A: null, B: null };
-        this.game.duelAuras.A = null;
-        this.game.duelAuras.B = null;
-        this.game.duelTimeStopUntil = 0;
-        this.game.duelTimeStopSlot = null;
+        this.game.duelAuras = { A: null, B: null };
+        this.game.duelBuffUntil = { A: 0, B: 0 };
+        this.game.duelDebuffs = { A: null, B: null };
+        this.buffUntil = { A: 0, B: 0 };
+        this.debuffs = { A: null, B: null };
         this.classes[this.mine] = this.game.stats?.mageClass || null;
-        this.classes[this.theirs] = oppPresence?.mage_class || null;
+        this.classes[this.theirs] = oppPresence?.mage_class
+            ? normalizeMageClassForCharacter(oppPresence.mage_class, oppPresence.character || 'wizard')
+            : null;
         this._labelCastSurfaces();
         this._render();
 
@@ -205,6 +214,8 @@ export class DuelRace {
         this._lastComboSentAt = 0;
         this.game.duelCombos = this.duelCombos;
         this.game.duelAuras = { A: null, B: null };
+        this.game.duelBuffUntil = { A: 0, B: 0 };
+        this.game.duelDebuffs = { A: null, B: null };
         this.game.duelTimeStopUntil = 0;
         this.game.duelTimeStopSlot = null;
         this._restoreCastSurfaces();
@@ -232,6 +243,8 @@ export class DuelRace {
             // AT-F10: the armed actives ride every heartbeat as well as every
             // result, so a chip that missed/lost a `cast` frame converges within
             // a second instead of staying wrong for the whole match.
+            buffUntil: { A: this.buffUntil.A, B: this.buffUntil.B },
+            debuffs: { A: this.debuffs.A, B: this.debuffs.B },
             armed: { A: this.buffs.A, B: this.buffs.B },
             auras: { A: this.game.duelAuras.A, B: this.game.duelAuras.B },
             timeStopUntil: this.timeStopUntil,
@@ -369,6 +382,12 @@ export class DuelRace {
         } else if (mineDur != null) winner = this.mine;
         else if (oppDur != null) winner = this.theirs;
 
+        for (const slot of ['A', 'B']) {
+            if (this.debuffs?.[slot]?.until && this.debuffs[slot].until < Date.now()) {
+                this.debuffs[slot] = null;
+                this.game.duelDebuffs[slot] = null;
+            }
+        }
         const loser = winner ? (winner === 'A' ? 'B' : 'A') : null;
 
         // AT-F10: the winner is decided FIRST, and only then may an active edit
@@ -378,15 +397,48 @@ export class DuelRace {
         let dmg = dmgRaw;
         let amp = null;    // the winning skill that shaped this strike
         let ward = null;   // the losing skill that absorbed it
+        let heal = 0;      // Blood Pact healing, resolved by the host
+        let healSlot = null;
         const winnerBuff = winner ? mageActiveById(this.buffs[winner]) : null;
         const loserBuff = winner ? mageActiveById(this.buffs[loser]) : null;
-        if (winnerBuff && winnerBuff.kind === 'damage') {
+        if (winnerBuff && (winnerBuff.kind === 'damage' || winnerBuff.kind === 'combo_damage')) {
             dmg = Math.round(dmg * winnerBuff.value);
+            if (winnerBuff.kind === 'combo_damage') {
+                dmg += Math.min(4, Math.floor(this.duelCombos[winner] / 20));
+            }
             amp = winnerBuff.id;
         }
         if (loserBuff && loserBuff.kind === 'mitigation') {
             dmg = Math.round(dmg * loserBuff.value);
             ward = loserBuff.id;
+        }
+        if (winner && this.debuffs[winner]) {
+            const debuff = this.debuffs[winner];
+            if (debuff.until >= Date.now()) {
+                dmg = Math.round(dmg * debuff.value);
+                ward = debuff.id;
+            }
+            this.debuffs[winner] = null;
+            this.game.duelDebuffs[winner] = null;
+        }
+        if (winnerBuff && winnerBuff.kind === 'execution') {
+            const missing = Math.max(0, START_HP - this.hp[loser]);
+            // Apply execution on top of any already-resolved mitigation rather
+            // than replacing it; a Reaper can finish a low-HP mage, but a ward
+            // still has to matter when one is armed.
+            dmg = Math.round(dmg * winnerBuff.value) + Math.min(4, Math.floor(missing / 20));
+            amp = winnerBuff.id;
+        }
+        if (winnerBuff && winnerBuff.kind === 'self_sacrifice') {
+            const missing = Math.max(0, START_HP - this.hp[winner]);
+            dmg += Math.min(8, 4 + Math.floor(missing / 10));
+            amp = winnerBuff.id;
+        }
+        if (winnerBuff && winnerBuff.kind === 'lifesteal') {
+            const streak = Math.max(0, Math.min(BLOOD_PACT_STREAK_CAP, this.duelCombos[winner] || 0));
+            const streakBonus = Math.floor(streak / BLOOD_PACT_STREAK_DIVISOR);
+            heal = Math.min(BLOOD_PACT_MAX_HEAL, Math.max(0, Math.round(dmg * winnerBuff.value) + streakBonus));
+            healSlot = winner;
         }
         // Active effects are resolved only after the word winner is known.
         // The frame tells both clients which strike/ward actually shaped it.
@@ -398,17 +450,28 @@ export class DuelRace {
         // WINS the word keeps it for the next loss.
         if (winner) {
             if (winnerBuff && winnerBuff.kind !== 'mitigation') {
-                this.buffs[winner] = null;
-                this.game.duelAuras[winner] = null;
+                this._clearActive(winner);
             }
-            if (loserBuff && loserBuff.kind === 'mitigation') {
-                this.buffs[loser] = null;
-                this.game.duelAuras[loser] = null;
+            if (loserBuff && (loserBuff.kind === 'mitigation' || loserBuff.kind === 'self_sacrifice')) {
+                this._clearActive(loser);
+            }
+            if (winnerBuff && winnerBuff.kind === 'opponent_weaken') {
+                this.debuffs[loser] = {
+                    id: winnerBuff.id,
+                    value: winnerBuff.value,
+                    until: Date.now() + ACTIVE_WINDOW_MS
+                };
+                this.game.duelDebuffs[loser] = this.debuffs[loser];
             }
         }
 
         if (winner) {
             this.hp[loser] = Math.max(0, this.hp[loser] - dmg);
+            if (heal > 0 && healSlot) {
+                const before = this.hp[healSlot];
+                this.hp[healSlot] = Math.min(START_HP, this.hp[healSlot] + heal);
+                heal = this.hp[healSlot] - before;
+            }
             this.wins[winner]++;
             // A lost race breaks the loser's endless combo exactly like a
             // mistake breaks the normal typing streak. The host resets the
@@ -431,7 +494,10 @@ export class DuelRace {
 
         const r = {
             idx: this.idx, winner, dmg, dmgRaw, amp, ward,
+            heal, healSlot,
             armed: { A: this.buffs.A, B: this.buffs.B },
+            buffUntil: { A: this.buffUntil.A, B: this.buffUntil.B },
+            debuffs: { A: this.debuffs.A, B: this.debuffs.B },
             auras: { A: this.game.duelAuras.A, B: this.game.duelAuras.B },
             timeStopUntil: this.timeStopUntil,
             timeStopSlot: this.timeStopSlot,
@@ -461,6 +527,7 @@ export class DuelRace {
         this.overtime = !!r.overtime;
         this._adoptBuffs(r);
         this._adoptAuras(r);
+        this._adoptDebuffs(r);
         this._adoptCombos(r);
         this._adoptTimeStop(r);
         if (r.winner === this.theirs && this.game.stats) {
@@ -487,6 +554,9 @@ export class DuelRace {
             }
         } else {
             this._float('WORD LOST', '#b892b0', 30);
+        }
+        if (r.heal > 0 && r.healSlot) {
+            this._floatAtSlot(r.healSlot, `BLOOD PACT +${r.heal} HP`, '#ff6b7a', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
         }
         if (r.winner) this._shake(r.winner === 'A' ? 'b' : 'a');
     }
@@ -593,6 +663,11 @@ export class DuelRace {
             this.game.audio?.playErrorSound?.();
             return true;
         }
+        if (skill.kind === 'self_sacrifice' && this.hp[this.mine] <= skill.value) {
+            this._floatAtSlot(this.mine, 'NOT ENOUGH BLOOD', '#ff4b4b', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
+            this.game.audio?.playErrorSound?.();
+            return true;
+        }
         if (!this.game.stats.useMana(skill.cost)) {
             this._floatAtSlot(this.mine, 'NOT ENOUGH MANA', '#ff9800', BUFF_FLOAT_SIZE, BUFF_FLOAT_LIFT);
             this.game.audio?.playErrorSound?.();
@@ -607,8 +682,13 @@ export class DuelRace {
             this._render();
             return true;
         }
-        this.buffs[this.mine] = skill.id;
-        this.game.duelAuras[this.mine] = skill.id;
+        // HP and the Bloodletting self-cost are host-authoritative. The host
+        // applies its own accepted cost here; a guest never mutates HP locally
+        // and receives the host's authoritative snapshot instead.
+        if (skill.kind === 'self_sacrifice' && this.isHost) {
+            this.hp[this.mine] = Math.max(1, this.hp[this.mine] - skill.value);
+        }
+        this._armActive(this.mine, skill);
         this.game.audio?.playMagicSpark?.();
         this._floatAtSlot(this.mine, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.mine), BUFF_FLOAT_SIZE);
         // One frame, host-authoritative. A buff has to survive a word we never
@@ -616,8 +696,39 @@ export class DuelRace {
         // carry — and announcing it is also what makes it readable to the other
         // mage before it lands.
         this.duel.broadcastRace('cast', { idx: this.idx, skill: skill.id });
+        if (skill.kind === 'self_sacrifice' && this.isHost) this._sendState();
         this._render();
         return true;
+    }
+
+    _armActive(slot, skill, duration = ACTIVE_WINDOW_MS) {
+        const until = Date.now() + duration;
+        this.buffs[slot] = skill.id;
+        this.buffUntil[slot] = until;
+        this.game.duelAuras[slot] = skill.id;
+        this.game.duelBuffUntil[slot] = until;
+        clearTimeout(this._buffTimers[slot]);
+        this._buffTimers[slot] = setTimeout(() => {
+            if (this.buffUntil[slot] !== until || !this.buffs[slot]) return;
+            this.buffs[slot] = null;
+            this.buffUntil[slot] = 0;
+            this.debuffs[slot] = null;
+            this.game.duelBuffUntil[slot] = 0;
+            this.game.duelAuras[slot] = null;
+            this.game.duelDebuffs[slot] = null;
+            this._floatAtSlot(slot, 'ACTIVE FADED', '#b892b0', 18, BUFF_FLOAT_LIFT);
+            this._render();
+        }, duration + 25);
+        return until;
+    }
+
+    _clearActive(slot) {
+        clearTimeout(this._buffTimers[slot]);
+        this._buffTimers[slot] = null;
+        this.buffs[slot] = null;
+        this.buffUntil[slot] = 0;
+        this.game.duelAuras[slot] = null;
+        this.game.duelBuffUntil[slot] = 0;
     }
 
     /**
@@ -686,9 +797,13 @@ export class DuelRace {
             return;
         }
         if (this.buffs[this.theirs]) return;
-        this.buffs[this.theirs] = skill.id;
-        this.game.duelAuras[this.theirs] = skill.id;
+        if (skill.kind === 'self_sacrifice') {
+            if (this.hp[this.theirs] <= skill.value) return;
+            this.hp[this.theirs] = Math.max(1, this.hp[this.theirs] - skill.value);
+        }
+        this._armActive(this.theirs, skill);
         this._floatAtSlot(this.theirs, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.theirs), BUFF_FLOAT_SIZE);
+        if (skill.kind === 'self_sacrifice') this._sendState();
         this._render();
     }
 
@@ -756,12 +871,36 @@ export class DuelRace {
     _adoptBuffs(p) {
         if (!p || !p.armed) return;
         this.buffs = { A: p.armed.A || null, B: p.armed.B || null };
+        if (p.buffUntil) {
+            const now = Date.now();
+            this.buffUntil.A = Number(p.buffUntil.A) || 0;
+            this.buffUntil.B = Number(p.buffUntil.B) || 0;
+            if (this.buffUntil.A && this.buffUntil.A <= now) {
+                this.buffUntil.A = 0;
+                this.buffs.A = null;
+            }
+            if (this.buffUntil.B && this.buffUntil.B <= now) {
+                this.buffUntil.B = 0;
+                this.buffs.B = null;
+            }
+            this.game.duelBuffUntil = this.buffUntil;
+        }
     }
 
     _adoptAuras(p) {
         if (!p || !p.auras) return;
         this.game.duelAuras.A = p.auras.A || null;
         this.game.duelAuras.B = p.auras.B || null;
+    }
+
+    _adoptDebuffs(p) {
+        if (!p || !p.debuffs) return;
+        const now = Date.now();
+        this.debuffs = {
+            A: p.debuffs.A && (!p.debuffs.A.until || p.debuffs.A.until >= now) ? p.debuffs.A : null,
+            B: p.debuffs.B && (!p.debuffs.B.until || p.debuffs.B.until >= now) ? p.debuffs.B : null
+        };
+        this.game.duelDebuffs = this.debuffs;
     }
 
     _adoptCombos(p) {
@@ -854,6 +993,7 @@ export class DuelRace {
         this.overtime = !!p.overtime;
         this._adoptBuffs(p);
         this._adoptAuras(p);
+        this._adoptDebuffs(p);
         this._adoptCombos(p);
         this._adoptTimeStop(p);
         this._render();

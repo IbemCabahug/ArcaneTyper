@@ -32,8 +32,310 @@ export class CharacterRenderer {
      * Main entry point for drawing the selected character.
      * @param {string} characterId a Characters.js id (unknown → the wizard)
      */
+    static drawStreakOverlay(ctx, cx, cy, characterId, combo, now, arenaSkillActive = false) {
+        if (combo < 10) return;
+        const lowQ = window.__atLowQuality;
+        const tier = combo >= 200 ? 5 : combo >= 150 ? 4 : combo >= 100 ? 3 : combo >= 50 ? 2 : combo >= 20 ? 1 : 0;
+        const pulse = 0.5 + 0.5 * Math.sin(now / (combo >= 150 ? 250 : 360));
+        const alpha = (0.30 + tier * 0.07) * (lowQ ? 0.72 : 1) * (arenaSkillActive ? 0.48 : 1);
+        ctx.save();
+        ctx.translate(cx, cy - 8);
+        ctx.globalAlpha = alpha;
+        ctx.lineCap = 'round';
+        if (characterId === 'voidweaver') {
+            CharacterRenderer._drawVoidStreak(ctx, combo, tier, pulse, lowQ, now);
+        } else if (characterId === 'bloodseeker') {
+            CharacterRenderer._drawBloodStreak(ctx, combo, tier, pulse, lowQ, now);
+        }
+        // The Wizard deliberately has NO streak overlay: its combo identity is
+        // already carried by the complete astrological mandala, dials, armillary
+        // and runic pedestal drawn inside drawWizard(). A second open path here
+        // read as a stray unfinished diamond laid over that circle.
+        ctx.restore();
+    }
+
+    static _drawVoidStreak(ctx, combo, tier, pulse, lowQ, now) {
+        // One persistent event horizon, then a restrained sequence of gravity
+        // cues. The state grows brighter and more concentrated instead of
+        // merely stacking unrelated rings.
+        const r = 54 + tier * 10 + pulse * 2;
+        const spin = now * (tier >= 4 ? 0.0012 : 0.00045);
+        const cyan = tier >= 4 ? '#d8faff' : '#00e5ff';
+
+        // Dark center reads as an event horizon, while a bright rim supplies
+        // the classic lensing cue: darkness framed by distorted light.
+        const core = ctx.createRadialGradient(0, 0, 2, 0, 0, r * 0.72);
+        core.addColorStop(0, 'rgba(0,0,4,0.92)');
+        core.addColorStop(0.42, `rgba(124,77,255,${0.12 + tier * 0.025})`);
+        core.addColorStop(0.72, `rgba(0,229,255,${0.10 + tier * 0.018})`);
+        core.addColorStop(1, 'rgba(0,0,8,0)');
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Full boundary remains present from the first streak tier.
+        ctx.strokeStyle = cyan;
+        ctx.lineWidth = tier >= 4 ? 2 : 1.35;
+        if (!lowQ) {
+            ctx.shadowColor = '#7c4dff';
+            ctx.shadowBlur = 6 + tier * 2;
+        }
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Counter-rotating inner orbit and fixed cardinal ticks make the circle
+        // feel engineered rather than like a generic aura.
+        ctx.strokeStyle = `rgba(124,77,255,${0.55 + tier * 0.06})`;
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash([7, 6]);
+        ctx.beginPath();
+        ctx.arc(0, 0, r - 10, spin, spin + Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const ticks = tier >= 3 ? 12 : 8;
+        for (let i = 0; i < ticks; i++) {
+            const a = -spin * 0.7 + i * Math.PI * 2 / ticks;
+            const major = i % 2 === 0;
+            ctx.strokeStyle = major ? cyan : 'rgba(124,77,255,0.8)';
+            ctx.lineWidth = major ? 1.4 : 0.8;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * (r - 4), Math.sin(a) * (r - 4));
+            ctx.lineTo(Math.cos(a) * (r + (major ? 7 : 4)), Math.sin(a) * (r + (major ? 7 : 4)));
+            ctx.stroke();
+        }
+
+        // 20+: two elliptic accretion bands travel in opposite directions.
+        if (tier >= 1) {
+            for (let band = 0; band < 2; band++) {
+                ctx.save();
+                ctx.rotate(band ? -spin * 0.65 : spin * 0.42);
+                ctx.strokeStyle = band ? `rgba(124,77,255,${0.42 + tier * 0.07})` : `rgba(0,229,255,${0.50 + tier * 0.06})`;
+                ctx.lineWidth = band ? 1.1 : 1.7;
+                ctx.setLineDash(band ? [4, 8] : [13, 7]);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, r * 0.78, r * (band ? 0.31 : 0.23), band ? Math.PI / 7 : -Math.PI / 9, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+            }
+        }
+
+        // 50+: complete inward-pointing spokes show space falling toward the
+        // core without leaving detached open curves in the silhouette.
+        if (tier >= 2) {
+            ctx.strokeStyle = `rgba(124,77,255,${0.36 + tier * 0.06})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.58, 0, Math.PI * 2);
+            ctx.stroke();
+            for (let i = 0; i < 12; i++) {
+                const a = i * Math.PI / 6 + spin * 0.4;
+                const inner = r * 0.22;
+                const outer = r * 0.64;
+                ctx.strokeStyle = i % 3 === 0 ? '#d8faff' : (i % 2 === 0 ? '#00e5ff' : '#7c4dff');
+                ctx.lineWidth = i % 3 === 0 ? 1.4 : 0.9;
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a) * outer, Math.sin(a) * outer * 0.72);
+                ctx.lineTo(Math.cos(a) * inner, Math.sin(a) * inner * 0.72);
+                ctx.stroke();
+            }
+        }
+
+        // 100+: complete concentric lens rings keep the geometry balanced and
+        // remove detached crescent fragments from the silhouette.
+        if (tier >= 3) {
+            ctx.strokeStyle = `rgba(124,77,255,${0.38 + tier * 0.06})`;
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.62, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = `rgba(216,250,255,${0.30 + tier * 0.07})`;
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.40, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // 150+: bright photon ring. 200+: an eclipse core, the concentrated
+        // maximum payoff rather than a larger collection of effects.
+        if (tier >= 4) {
+            ctx.strokeStyle = '#d8faff';
+            ctx.lineWidth = tier >= 5 ? 2.2 : 1.5;
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.48, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        if (tier >= 5) {
+            ctx.fillStyle = '#000006';
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.31, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, 2.4 + pulse * 2.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = `rgba(0,229,255,${0.45 + pulse * 0.3})`;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r + 9 + pulse * 4, (r + 9 + pulse * 4) * 0.38, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+    static _drawBloodStreak(ctx, combo, tier, pulse, lowQ, now) {
+        // A persistent oath circle, a moon that develops through every tier,
+        // and upward life-flow. All five visual recommendations share this one
+        // ritual instead of becoming unrelated circles and particle bursts.
+        const r = 56 + tier * 10 + pulse * 2;
+        const spin = now * (tier >= 4 ? 0.0011 : 0.00042);
+        // AT-F15 palette separation. The four netherblades are DARK steel with a
+        // thin `#ff1744` edge, so a streak painted in that same saturated
+        // crimson sat at the same value and hue and read as one red mass — the
+        // weapon appeared to overpower the circle. The streak is therefore moved
+        // into a LIGHTER, pinker blood-rose with a white-hot core, so the two
+        // occupy different value ranges (light aura vs dark blade + hot edge)
+        // and the eye separates them. The blade keeps its own crimson; nothing
+        // about the weapon changed.
+        const crimson = tier >= 4 ? '#ffffff' : '#ffa8b8';
+        const rose = '#ffdde3';
+        const hot = '#ffffff';
+        const moonY = -r * 0.46;
+        const moonR = 11 + tier * 3.2 + pulse * 0.7;
+
+        // Blood Moon phase behind the cowl: crescent → half → gibbous → eclipse.
+        const moon = ctx.createRadialGradient(0, moonY, moonR * 0.35, 0, moonY, moonR * 1.45);
+        moon.addColorStop(0, `rgba(255,235,240,${0.42 + tier * 0.09})`);
+        moon.addColorStop(0.55, `rgba(255,110,140,${0.30 + tier * 0.07})`);
+        moon.addColorStop(1, 'rgba(74,0,16,0)');
+        ctx.fillStyle = moon;
+        ctx.beginPath();
+        ctx.arc(0, moonY, moonR * 1.45, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = tier >= 3 ? hot : rose;
+        ctx.beginPath();
+        ctx.arc(0, moonY, moonR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255,128,149,${0.70 + tier * 0.06})`;
+        ctx.lineWidth = tier >= 4 ? 1.8 : 1.1;
+        ctx.stroke();
+
+        // A dark offset disc increases through the tiers, creating the familiar
+        // blood-eclipse crescent without copying any specific character shot.
+        const shadowX = moonR * (0.18 + tier * 0.10);
+        ctx.fillStyle = `rgba(38,0,10,${0.48 + tier * 0.08})`;
+        ctx.beginPath();
+        ctx.arc(shadowX, moonY - moonR * 0.05, moonR * 0.88, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Full Blood Oath boundary persists for the whole streak. Brighter and
+        // thicker than the first pass: at a pale-but-thin value the circle read
+        // as a faint hairline against the dark arena, so the streak never
+        // registered as the character's power even once the hue was right.
+        ctx.strokeStyle = crimson;
+        ctx.lineWidth = tier >= 4 ? 2.8 : 1.9;
+        if (!lowQ) {
+            ctx.shadowColor = '#ffb3c0';
+            ctx.shadowBlur = 10 + tier * 3;
+        }
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Counter-rotating ritual boundary and six procedural oath glyphs.
+        ctx.strokeStyle = `rgba(255,221,227,${0.62 + tier * 0.07})`;
+        ctx.lineWidth = 1.3;
+        ctx.setLineDash([8, 7]);
+        ctx.beginPath();
+        ctx.arc(0, 0, r - 10, -spin, -spin + Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (let i = 0; i < 6; i++) {
+            const a = spin * 0.55 + i * Math.PI / 3;
+            ctx.save();
+            ctx.translate(Math.cos(a) * (r - 12), Math.sin(a) * (r - 12));
+            ctx.rotate(a + Math.PI / 2);
+            CharacterRenderer._strokeBloodGlyph(ctx, i, tier >= 2);
+            ctx.restore();
+        }
+
+        // The oath triangle is the ritual's centre, not a separate aura.
+        ctx.strokeStyle = tier >= 3 ? '#ffd0d5' : crimson;
+        ctx.lineWidth = tier >= 4 ? 1.8 : 1.2;
+        ctx.beginPath();
+        ctx.moveTo(0, -r * 0.55);
+        ctx.lineTo(r * 0.46, r * 0.34);
+        ctx.lineTo(-r * 0.46, r * 0.34);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(0, r * 0.34, r * 0.48, r * 0.13, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Blood rises from the hem through the oath and into the moon. Motion
+        // opposes the Voidweaver's inward gravity, keeping silhouettes distinct.
+        const drops = tier >= 4 ? 12 : tier >= 2 ? 8 : 5;
+        for (let i = 0; i < drops; i++) {
+            const p = ((now * (0.00075 + tier * 0.00012)) + i / drops) % 1;
+            const x = Math.sin(i * 2.7 + tier) * r * 0.42;
+            const y = r * 0.42 - p * r * 1.25;
+            ctx.fillStyle = i % 3 === 0 ? '#ffffff' : (i % 3 === 1 ? rose : '#ffa8b8');
+            ctx.beginPath();
+            ctx.arc(x, y, (tier >= 3 ? 1.9 : 1.3) * (1 - p * 0.28), 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 100+: complete nested execution rings replace detached crescents so
+        // the blade motif remains a deliberate, centered seal.
+        if (tier >= 3) {
+            ctx.strokeStyle = `rgba(255,168,184,${0.50 + tier * 0.07})`;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.ellipse(0, -r * 0.08, r * 0.42, r * 0.76, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = `rgba(255,235,240,${0.34 + tier * 0.07})`;
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.ellipse(0, -r * 0.08, r * 0.29, r * 0.57, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // 150+: eclipse corona; 200+: concentrated execution core and wide
+        // harvest ring. Maximum tier is brighter, not an extra pile of layers.
+        if (tier >= 4) {
+            ctx.strokeStyle = `rgba(255,221,227,${0.68 + pulse * 0.22})`;
+            ctx.lineWidth = tier >= 5 ? 2.1 : 1.4;
+            ctx.beginPath();
+            ctx.arc(0, moonY, moonR * 1.32, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        if (tier >= 5) {
+            ctx.fillStyle = '#4a0010';
+            ctx.beginPath();
+            ctx.arc(0, 0, 7 + pulse * 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, 2.1 + pulse * 1.7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255,168,184,${0.62 + pulse * 0.3})`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.ellipse(0, r * 0.18, r + 9 + pulse * 4, (r + 9 + pulse * 4) * 0.30, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
     static draw(ctx, x, y, characterId, animProgress, stats, now = performance.now()) {
         ctx.save();
+        if (!stats?.skipStreakOverlay) {
+            CharacterRenderer.drawStreakOverlay(
+                ctx, x, y, normalizeCharacter(characterId), stats?.combo || 0, now,
+                !!stats?.arenaSkillActive
+            );
+        }
         switch (normalizeCharacter(characterId)) {
             case 'voidweaver':
                 CharacterRenderer.drawVoidweaver(ctx, x, y, animProgress, stats, now);
@@ -978,6 +1280,16 @@ export class CharacterRenderer {
         const fast = combo >= 150 ? 1.8 : combo >= 50 ? 1.25 : 1;
         const wellY = vy + 19;
 
+        // AT-F15: the streak palette is brighter and cooler than the wells'
+        // own photon rings, so the event-horizon magic circle reads as the
+        // character's AURA rather than as more black holes. The wells keep
+        // their exact deep cyan/violet + #01010a cores (the owner calls those
+        // perfect); only the surrounding streak layers move to these lighter,
+        // higher-value tints. Separation by VALUE is what stops the four
+        // singularities from swallowing the streak.
+        const hot = combo >= 50 ? '#7cf0ff' : '#4fd8f0';   // bright aqua
+        const warm = combo >= 50 ? '#c4a6ff' : '#9d7cff';  // lit violet
+
         ctx.save();
 
         // --- Layer 0: the singularity (absence, rimmed by light) --------------
@@ -992,7 +1304,10 @@ export class CharacterRenderer {
             ctx.save();
             ctx.rotate((r ? -1 : 1) * now * 0.0009 * fast);
             ctx.beginPath();
-            ctx.arc(0, 0, coreR + 2 + r * 2.6, 0, Math.PI * 1.45);
+            // COMPLETE rings (2π, never a partial arc): an open arc read as an
+            // unfinished circle floating in the cowl rather than as a bounded
+            // event horizon, which is the whole point of the silhouette.
+            ctx.arc(0, 0, coreR + 2 + r * 2.6, 0, Math.PI * 2);
             ctx.strokeStyle = r ? 'rgba(124, 77, 255, 0.6)' : 'rgba(0, 229, 255, 0.9)';
             ctx.lineWidth = r ? 1.0 : 1.4;
             if (!lowQ && combo >= 50) {
@@ -1036,13 +1351,74 @@ export class CharacterRenderer {
             const ang = (m * 2.399) + Math.sin(now / 900 + m) * 0.25;
             const radius = 44 + (coreR - 44) * p;
             ctx.globalAlpha = Math.sin(p * Math.PI) * 0.9;
-            ctx.fillStyle = m % 3 === 0 ? '#ffffff' : (m % 3 === 1 ? '#00e5ff' : '#7c4dff');
+            ctx.fillStyle = m % 3 === 0 ? '#ffffff' : (m % 3 === 1 ? hot : warm);
             ctx.beginPath();
             ctx.arc(cx + Math.cos(ang) * radius * 0.75, coreY + Math.sin(ang) * radius * 0.42,
                 1.4 - p * 0.5, 0, Math.PI * 2);
             ctx.fill();
         }
         ctx.globalAlpha = 1;
+
+        // --- Layer 3.5: FOUR ARMED SINGULARITIES -----------------------------
+        // The caster is not one black hole — it is four, held AROUND itself: two
+        // tight inner wells and two wider outer ones, anchored at FIXED positions
+        // (the owner's call — they are levitating in place, not orbiting, which
+        // keeps the silhouette stable instead of continuously rearranging itself
+        // during a streak). Every well is a COMPLETE photon ring around an
+        // absence and keeps a slow breath so it never looks like a dead decal.
+        const wellArm = [
+            { dx: -21, dy: -7, size: 4.6, tilt: 0.55, phase: 0.0 },
+            { dx: 21, dy: -7, size: 4.6, tilt: 0.55, phase: Math.PI },
+            { dx: -37, dy: 2, size: 6.4, tilt: 0.34, phase: Math.PI / 2 },
+            { dx: 37, dy: 2, size: 6.4, tilt: 0.34, phase: Math.PI * 1.5 }
+        ];
+        const armY = vy - 13;
+        for (const w of wellArm) {
+            const breath = 1 + Math.sin(now / 900 + w.phase) * 0.07;
+            const size = w.size * breath;
+            const wx = cx + w.dx;
+            const wy = armY + w.dy;
+
+            // Drifting specks falling INTO the well (still animated: the wells are
+            // stationary, the matter they pull is not).
+            for (let t = 1; t <= 2; t++) {
+                const drift = ((now * 0.0009 + w.phase * 0.3) + t * 0.5) % 1;
+                const r = (1 + t * 0.5) * (1 - drift);
+                ctx.globalAlpha = 0.3 * drift;
+                ctx.fillStyle = t % 2 ? hot : warm;
+                ctx.beginPath();
+                ctx.arc(wx + Math.cos(w.tilt + t) * size * r, wy + Math.sin(w.tilt + t) * size * r * 0.6,
+                    0.7, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // The well itself: pure absence, rimmed by bent light.
+            ctx.beginPath();
+            ctx.arc(wx, wy, size, 0, Math.PI * 2);
+            ctx.fillStyle = '#01010a';
+            ctx.fill();
+
+            // Photon ring — a complete circle, always.
+            ctx.save();
+            if (!lowQ) {
+                ctx.shadowColor = '#00e5ff';
+                ctx.shadowBlur = 7;
+            }
+            ctx.strokeStyle = w.size > 5 ? 'rgba(124, 77, 255, 0.95)' : 'rgba(0, 229, 255, 0.92)';
+            ctx.lineWidth = w.size > 5 ? 1.2 : 0.9;
+            ctx.beginPath();
+            ctx.arc(wx, wy, size, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+
+            // A tilted accretion sliver gives each well a spin direction.
+            ctx.beginPath();
+            ctx.ellipse(wx, wy, size * 1.7, size * 0.5, w.tilt, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(124, 77, 255, 0.5)';
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+        }
 
         // --- Layer 4: combo tiers ---------------------------------------------
         if (combo >= 150) {
@@ -1052,8 +1428,8 @@ export class CharacterRenderer {
             for (let l = 0; l < 2; l++) {
                 ctx.beginPath();
                 ctx.arc(l ? 2.5 : -2.5, 0, coreR + 6.5, 0, Math.PI * 2);
-                ctx.strokeStyle = l ? 'rgba(0, 229, 255, 0.35)' : 'rgba(124, 77, 255, 0.35)';
-                ctx.lineWidth = 1.0;
+                ctx.strokeStyle = l ? 'rgba(124, 240, 255, 0.55)' : 'rgba(196, 166, 255, 0.55)';
+                ctx.lineWidth = 1.2;
                 ctx.stroke();
             }
             ctx.restore();
@@ -1061,14 +1437,14 @@ export class CharacterRenderer {
             const pulse = (now % 700) / 700;
             ctx.beginPath();
             ctx.ellipse(cx, wellY, 10 + pulse * 34, (10 + pulse * 34) * 0.34, 0, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(0, 229, 255, ${(1 - pulse) * 0.4})`;
-            ctx.lineWidth = 1.4;
+            ctx.strokeStyle = `rgba(124, 240, 255, ${(1 - pulse) * 0.6})`;
+            ctx.lineWidth = 1.6;
             ctx.stroke();
         } else if (combo >= 50) {
             ctx.beginPath();
             ctx.arc(cx, coreY, coreR + 9, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(0, 229, 255, 0.22)';
-            ctx.lineWidth = 0.9;
+            ctx.strokeStyle = 'rgba(124, 240, 255, 0.38)';
+            ctx.lineWidth = 1.1;
             ctx.stroke();
         }
 
@@ -1198,6 +1574,17 @@ export class CharacterRenderer {
         const spin = now * 0.0005 * (combo >= 150 ? 2.0 : combo >= 50 ? 1.4 : 1);
         const sigY = by + 19;
 
+        // AT-F15: the streak palette is deliberately NOT the blade's #ff1744.
+        // Same hue at the same value made the aura and the weapon merge into a
+        // single red mass, so the four netherblades appeared to overpower the
+        // magic circle. The streak is a LIGHTER, pinker blood-rose — higher
+        // value, lower saturation — so the eye reads it as light/aura and the
+        // blade as dark metal. The blade keeps its own deep crimson; that
+        // contrast is the fix, and moving the streak is cheaper (and less
+        // disruptive) than repainting four weapons.
+        const streak = combo >= 50 ? 'rgba(255, 141, 150, 0.95)' : 'rgba(255, 141, 150, 0.62)';
+        const streakHot = '#ffd0d5';
+
         ctx.save();
 
         // --- Layer 0: the rune circle (dashed ring + six riding glyphs) -------
@@ -1206,12 +1593,12 @@ export class CharacterRenderer {
         ctx.rotate(spin);
         ctx.beginPath();
         ctx.arc(0, 0, runeR, 0, Math.PI * 2);
-        ctx.strokeStyle = combo >= 50 ? 'rgba(255, 23, 68, 0.95)' : 'rgba(255, 23, 68, 0.6)';
-        ctx.lineWidth = 1.3;
+        ctx.strokeStyle = streak;
+        ctx.lineWidth = 1.5;
         ctx.setLineDash([4, 3]);
         if (!lowQ && combo >= 50) {
-            ctx.shadowColor = '#ff1744';
-            ctx.shadowBlur = 9;
+            ctx.shadowColor = streakHot;
+            ctx.shadowBlur = 11;
         }
         ctx.stroke();
         ctx.setLineDash([]);
@@ -1231,8 +1618,8 @@ export class CharacterRenderer {
         ctx.lineTo(cx + 13, sigY + 9);
         ctx.lineTo(cx - 13, sigY + 9);
         ctx.closePath();
-        ctx.strokeStyle = 'rgba(255, 23, 68, 0.45)';
-        ctx.lineWidth = 1.1;
+        ctx.strokeStyle = streak;
+        ctx.lineWidth = 1.3;
         ctx.stroke();
         ctx.beginPath();
         ctx.ellipse(cx, sigY + 9, 13, 3.4, 0, 0, Math.PI * 2);
@@ -1249,12 +1636,203 @@ export class CharacterRenderer {
             const dy = (by + 17) - p * 34;
             const dx = cx - 9 + d * 3.6 + Math.sin(now / 260 + d) * 2.4;
             ctx.globalAlpha = Math.max(0, 1 - p) * 0.85;
-            ctx.fillStyle = d % 3 === 0 ? '#ff8a95' : '#ff1744';
+            ctx.fillStyle = d % 3 === 0 ? streakHot : '#ff8d96';
             ctx.beginPath();
             ctx.arc(dx, dy, 1.3, 0, Math.PI * 2);
             ctx.fill();
         }
         ctx.globalAlpha = 1;
+        // --- Layer 3.5: FOUR FLOATING NETHERBLADES -----------------------------
+        // The hunter is surrounded, not armed with a single blade: four blades
+        // hover AROUND him, all point-down (the orientation the held blade had,
+        // so the card promise survives), two riding close and short, two riding
+        // wide and long. Stationary like the Voidweaver's wells (owner's call),
+        // which keeps the silhouette steady during a streak; the life-mote above
+        // each blade still rises, so the harvest never looks frozen.
+        // Sized off the body box (90 tall) using the owner's placement guide:
+        // the inner pair reads ~46% of body height at the cowl, the outer ~63%
+        // sitting wide and low, while the horizontal spread stays where the
+        // guide put it (a hair past the robe on each side).
+        const bladeArm = [
+            // Inner pair: HIGH, at the cowl, riding clear of the robe.
+            { dx: -38, dy: -13, len: 32, tilt: 0.13, phase: 0.0 },
+            { dx: 38, dy: -13, len: 32, tilt: 0.13, phase: Math.PI },
+            // Outer pair: WIDE and LOWER, with the longer blades.
+            { dx: -60, dy: 4, len: 45, tilt: 0.17, phase: Math.PI / 2 },
+            { dx: 60, dy: 4, len: 45, tilt: 0.17, phase: Math.PI * 1.5 }
+        ];
+        const bladeY = by - 12;
+        // AT-F15: a leased blade is out of formation. `stats.bladeSlash.leases[i]`
+        // is the Game-side lease (a blade in flight cannot be leased again, and
+        // the cursor makes the four rotate 1→2→3→4), so the renderer only has to
+        // read progress and lerp the blade to the boss.
+        const leases = (stats && stats.bladeSlash && stats.bladeSlash.leases) || null;
+        for (let bi = 0; bi < bladeArm.length; bi++) {
+            const b = bladeArm[bi];
+            const bx = cx + b.dx;
+            const bpy = bladeY + b.dy;
+            const breath = 1 + Math.sin(now / 1000 + b.phase) * 0.06;
+            // The blades slant INWARD, so their points aim back at the hunter
+            // from both sides instead of lying parallel like a picket fence.
+            // Canvas +theta is clockwise and the tip is drawn below the origin,
+            // so a blade LEFT of centre needs a negative angle to swing its tip
+            // right, and vice versa. Deriving the sign from dx is what keeps the
+            // pair mirrored — a hand-written lean per blade is exactly how one
+            // side silently ends up parallel to (or splaying away from) the other.
+            const lean = Math.sign(b.dx) * b.tilt;
+
+            // Flight path, in four beats so the strike READS instead of
+            // blinking past. 0→0.24 LAUNCH (fast, eased, like a rocket leaving
+            // a rail), 0.24→0.60 HOVER (it overshoots slightly past the boss,
+            // hangs there trembling with the edge charging, then pulls back —
+            // this is the anticipation that makes the cut land), 0.60→0.76
+            // SLASH (the damage beat), 0.76→1 RECALL. The recall is the
+            // SHORTEST leg on purpose: the hover is the part worth watching, so
+            // the return is a quick snap home and a fast typist still cycles
+            // through all four blades.
+            let drawX = bx, drawY = bpy, drawRot = lean, alpha = 1, trailing = false;
+            let charging = false;
+            const lease = leases && leases[bi];
+            if (lease) {
+                const p = (now - lease.startedAt) / lease.duration;
+                if (p >= 0 && p < 1) {
+                    let k;                       // 0 = home, 1 = at the boss
+                    let swing = 0;
+                    if (p < 0.24) {
+                        // Launch: quadratic ease-out reads as acceleration.
+                        const u = p / 0.24;
+                        k = 1 - (1 - u) * (1 - u);
+                    } else if (p < 0.60) {
+                        // Hover: hold station just PAST the boss (k > 1), with
+                        // a small tremble that tightens as the cut approaches.
+                        const u = (p - 0.24) / 0.36;
+                        k = 1 + Math.sin(u * Math.PI) * 0.09;
+                        charging = true;
+                    } else if (p < 0.76) {
+                        k = 1;
+                        swing = (p - 0.60) / 0.16;
+                        trailing = true;
+                    } else {
+                        // Recall: quick smooth float home, blade retracts.
+                        const u = (p - 0.76) / 0.24;
+                        k = 1 - u * u * (3 - 2 * u);
+                        swing = 1 - u;
+                        trailing = true;
+                    }
+                    // Stop short of the boss centre so the blade reads as
+                    // cutting across it rather than passing through.
+                    const aimX = lease.targetX - Math.sign(b.dx) * 18;
+                    const aimY = lease.targetY;
+                    drawX = bx + (aimX - bx) * k;
+                    drawY = bpy + (aimY - bpy) * k;
+                    // Tremble while it hangs: a tight jitter that peaks mid-hover
+                    // and is gone by the cut, so the pause feels like held
+                    // pressure rather than a stall.
+                    if (charging) {
+                        const amp = 1.6 + Math.sin((p - 0.24) * 34) * 1.1;
+                        drawX += Math.sin((p - 0.24) * 51) * amp;
+                        drawY += Math.cos((p - 0.24) * 43) * amp;
+                    }
+                    // A fast diagonal arc across the boss, mirrored per side.
+                    drawRot = lean + Math.sign(b.dx) * swing * 1.5
+                        + (charging ? Math.sin((p - 0.24) * 30) * 0.06 : 0);
+                    // Fully opaque through launch/hover/slash, then a short
+                    // fade on the recall leg so it melts home.
+                    alpha = p < 0.76 ? 1 : Math.max(0, 1 - (p - 0.76) / 0.24);
+                    trailing = p >= 0.60;
+                }
+            }
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(drawX, drawY);
+            ctx.rotate(drawRot);
+
+            // Blade body: dark steel, tapering to a point at the bottom. The width
+            // tracks the length so the long outer pair reads as a real blade
+            // rather than a thin needle next to the short inner pair, and stays
+            // deliberately slender — the guide shows four light blades, not a
+            // wall of red, so the guard/pommel below are kept just as restrained.
+            const bl = b.len * breath;
+            const bw = bl * 0.085;
+            ctx.beginPath();
+            ctx.moveTo(-bw, -bl);
+            ctx.lineTo(bw, -bl);
+            ctx.lineTo(bw * 0.52, bl * 0.62);
+            ctx.lineTo(-bw * 0.52, bl * 0.62);
+            ctx.closePath();
+            ctx.fillStyle = '#0b0206';
+            ctx.fill();
+
+            // Crimson edge — the only bright line on the blade. It BRIGHTENS
+            // through the hover beat so the pause is legibly "charging" rather
+            // than the blade simply sitting still in mid-air.
+            ctx.save();
+            if (!lowQ) {
+                ctx.shadowColor = charging ? '#ff6b88' : '#ff1744';
+                ctx.shadowBlur = charging ? 13 : 7;
+            }
+            ctx.strokeStyle = charging ? 'rgba(255, 150, 170, 0.98)' : 'rgba(255, 23, 68, 0.92)';
+            ctx.lineWidth = charging ? Math.max(1.3, bw * 0.78) : Math.max(0.85, bw * 0.5);
+            ctx.stroke();
+            ctx.restore();
+
+            // Crossguard, so a blade is never just a floating line. Kept narrow
+            // (2.4x the blade) and thin so it reads as a hilt detail rather than
+            // a bar that thickens the silhouette.
+            ctx.fillStyle = '#2b0710';
+            ctx.fillRect(-bw * 1.2, -bl - 1.2, bw * 2.4, 1.2);
+            // Pommel stone, catching the rune light.
+            ctx.fillStyle = '#ff1744';
+            ctx.beginPath();
+            ctx.arc(0, -bl - 2.2, Math.max(0.8, bw * 0.4), 0, Math.PI * 2);
+            ctx.fill();
+
+            // Strike flash: while the blade is cutting, its edge burns white-hot
+            // and a short arc trails behind the tip. This is what makes a
+            // leasing blade read as an ATTACK rather than a blade drifting
+            // across the screen.
+            if (trailing) {
+                ctx.save();
+                if (!lowQ) {
+                    ctx.shadowColor = '#ffd0d5';
+                    ctx.shadowBlur = 12;
+                }
+                ctx.strokeStyle = 'rgba(255, 208, 213, 0.95)';
+                ctx.lineWidth = Math.max(1.1, bw * 0.9);
+                ctx.beginPath();
+                ctx.moveTo(0, -bl * 0.4);
+                ctx.lineTo(0, bl * 0.9);
+                ctx.stroke();
+                ctx.restore();
+
+                // Motion arc, drawn in the blade's own frame so it trails the
+                // swing instead of being a fixed decoration.
+                ctx.save();
+                ctx.globalAlpha = alpha * 0.5;
+                ctx.strokeStyle = 'rgba(255, 141, 150, 0.75)';
+                ctx.lineWidth = 1.1;
+                ctx.beginPath();
+                ctx.arc(0, 0, bl * 1.25, -0.9, 0.9);
+                ctx.stroke();
+                ctx.restore();
+            }
+            ctx.restore();
+
+            // Each blade feeds the upward life-current it is harvesting. This
+            // still animates, so a stationary blade never reads as a dead decal.
+            // It follows the blade's DRAWN position, so a leased blade carries
+            // its mote out to the boss instead of leaving it hanging at home.
+            const rise = (now * 0.0011 + b.phase * 0.3) % 1;
+            ctx.globalAlpha = 0.42 * (1 - rise) * alpha;
+            ctx.fillStyle = streakHot;
+            ctx.beginPath();
+            ctx.arc(drawX, drawY - bl - 5 - rise * 8, 0.85, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+
+
 
         // --- Layer 4: combo tiers ---------------------------------------------
         if (combo >= 150) {
@@ -1263,10 +1841,10 @@ export class CharacterRenderer {
             ctx.translate(cx, by - 26);
             ctx.beginPath();
             ctx.arc(0, 0, 14, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(255, 138, 149, 0.16)';
+            ctx.fillStyle = 'rgba(255, 176, 184, 0.20)';
             ctx.fill();
-            ctx.strokeStyle = 'rgba(255, 138, 149, 0.75)';
-            ctx.lineWidth = 1.2;
+            ctx.strokeStyle = streak;
+            ctx.lineWidth = 1.3;
             ctx.stroke();
             ctx.beginPath();
             ctx.arc(5, -3, 12, 0, Math.PI * 2);
@@ -1277,8 +1855,8 @@ export class CharacterRenderer {
             const pulse = (now % 640) / 640;
             ctx.beginPath();
             ctx.ellipse(cx, sigY + 9, 14 + pulse * 30, (14 + pulse * 30) * 0.28, 0, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(255, 23, 68, ${(1 - pulse) * 0.45})`;
-            ctx.lineWidth = 1.4;
+            ctx.strokeStyle = `rgba(255, 141, 150, ${(1 - pulse) * 0.5})`;
+            ctx.lineWidth = 1.5;
             ctx.stroke();
         }
 
@@ -1294,36 +1872,6 @@ export class CharacterRenderer {
         return RenderCache.bake('char_body_bloodseeker', CharacterRenderer.BODY_W, CharacterRenderer.BODY_H, (ctx) => {
             const x = CharacterRenderer.BODY_ANCHOR_X;
             const y = CharacterRenderer.BODY_ANCHOR_Y;
-
-            // ---- Netherblade: held point-down at the right, behind the shoulder
-            ctx.save();
-            ctx.translate(x + 17, y + 2);
-            ctx.rotate(0.12);
-            ctx.beginPath();
-            ctx.moveTo(-2.2, -26);
-            ctx.lineTo(2.2, -26);
-            ctx.lineTo(1.1, 12);
-            ctx.lineTo(-1.1, 12);
-            ctx.closePath();
-            ctx.fillStyle = '#0b0206';
-            ctx.fill();
-            ctx.save();
-            ctx.shadowColor = '#ff1744';
-            ctx.shadowBlur = 8;
-            ctx.strokeStyle = 'rgba(255, 23, 68, 0.9)';
-            ctx.lineWidth = 0.9;
-            ctx.stroke();
-            ctx.restore();
-            // Crossguard, hilt and pommel stone
-            ctx.fillStyle = '#2b0710';
-            ctx.fillRect(-5.4, -27.5, 10.8, 2.2);
-            ctx.fillStyle = '#12030a';
-            ctx.fillRect(-1.6, -33, 3.2, 6);
-            ctx.fillStyle = '#ff1744';
-            ctx.beginPath();
-            ctx.arc(0, -33.6, 1.5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
 
             // ---- Cloth undershadow
             ctx.fillStyle = '#0a0205';

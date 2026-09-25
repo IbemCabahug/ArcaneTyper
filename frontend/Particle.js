@@ -80,6 +80,7 @@ export class Particle {
         this.isDistortionRing = false;
         this.isGlassShard = false;
         this.isBurst = false;
+        this.isVoidMote = false;
 
         // Setup shockwave properties if indicated
         if (color === 'shockwave' || color === 'shockwave_purple' || color === 'shockwave_red') {
@@ -147,6 +148,17 @@ export class Particle {
         if (this.isShockwave) {
             this.size += this.expansionRate * (dt / 16);
             this.life -= this.decay * (dt / 16);
+        } else if (this.isVoidMote) {
+            const dx = this.targetX - this.x;
+            const dy = this.targetY - this.y;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            const pull = 0.018 + (1 - Math.min(1, distance / 260)) * 0.012;
+            this.vx += (dx / distance) * pull * dt;
+            this.vy += (dy / distance) * pull * dt;
+            this.x += this.vx * dt;
+            this.y += this.vy * dt;
+            this.life -= this.decay * (dt / 16.67);
+            this.size = this.initialSize * this.life;
         } else if (this.isGlassShard) {
             this.x += this.vx * dt;
             this.y += this.vy * dt;
@@ -194,7 +206,19 @@ export class Particle {
         const lifeAlpha = Math.max(0, this.life);
         ctx.globalAlpha = lifeAlpha;
 
-        if (this.isShockwave) {
+        if (this.isVoidMote) {
+            const r = Math.max(0.5, this.size);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, r * 2.2, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.globalAlpha = lifeAlpha * 0.32;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, r * 0.75, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = lifeAlpha;
+            ctx.fill();
+        } else if (this.isShockwave) {
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
             ctx.strokeStyle = this.color;
