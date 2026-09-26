@@ -22,6 +22,7 @@
     "verify:layout": "node scripts/verify-layout-fit.mjs",
     "verify:survival-word-loss": "node scripts/verify-survival-word-loss.mjs",
     "verify:unspoken": "node scripts/verify-unspoken-counter.mjs",
-    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:wpmgate && npm run verify:actives && npm run verify:vfx && npm run verify:unspoken && npm run verify:polish && npm run verify:skins && npm run verify:guests && npm run verify:layout && npm run verify:survival-word-loss"
+    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:wpmgate && npm run verify:actives && npm run verify:vfx && npm run verify:unspoken && npm run verify:polish && npm run verify:skins && npm run verify:guests && npm run verify:layout && npm run verify:survival-word-loss && npm run verify:scribe-dict",
+    "verify:scribe-dict": "node scripts/verify-scribe-dict.mjs"
   }
 }

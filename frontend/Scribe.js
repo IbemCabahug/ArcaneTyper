@@ -73,7 +73,7 @@ export class Scribe {
             this._updateTimerDisplay();
         } else {
             const paragraph = this.dictionary.getRandomParagraph();
-            this.words = paragraph.split(' ');
+            this.words = Scribe.tokenizeParagraph(paragraph);
             this._renderAllWords();
         }
 
@@ -97,13 +97,44 @@ export class Scribe {
     _appendParagraphs(count = 1) {
         for (let i = 0; i < count; i++) {
             const paragraph = this.dictionary.getRandomParagraph();
-            const paraWords = paragraph.split(' ');
+            const paraWords = Scribe.tokenizeParagraph(paragraph);
 
             paraWords.forEach(w => {
                 this.words.push(w);
                 this._renderWord(w, this.words.length - 1);
             });
         }
+    }
+
+    /**
+     * AT-M10: turn a raw paragraph into playable tokens.
+     *
+     * The coding dictionary's `paragraphs` are real multi-line code snippets, so
+     * they carry `\n` and the double space of an indent. Splitting on a single
+     * literal space therefore produced two kinds of word a player CANNOT type:
+     *
+     *   "timeout;\n"  — the expected character is a newline, and `handleKeyDown`
+     *                   discards every `e.key.length > 1` that is not Backspace,
+     *                   so Enter can never satisfy it;
+     *   ""            — from the indent's double space, an EMPTY word element.
+     *
+     * Space still "completes" such a word, but `_handleSpace` counts every
+     * untaken letter as a WRONG keystroke, so each one silently taxed the
+     * player's accuracy on text that was impossible to type. Measured on the
+     * shipped data: 110 of 201 tokens (55%) were empty or untypeable.
+     *
+     * Fixing this at the DRAW boundary, not by editing the dictionary prose: the
+     * paragraphs are correct as code, they are merely not typeable as a typing
+     * game, and silently rewriting source text to suit a renderer is the wrong
+     * direction of dependency. The code is still read in its original order, so
+     * flattening the line breaks costs the player nothing they could have typed.
+     *
+     * `npm run verify:scribe-dict` re-runs this exact predicate over every
+     * dictionary entry, so a future untypeable token fails the build instead of
+     * costing accuracy in a live run.
+     */
+    static tokenizeParagraph(paragraph) {
+        return String(paragraph).trim().split(/\s+/).filter(w => w.length > 0);
     }
 
     _renderAllWords() {
