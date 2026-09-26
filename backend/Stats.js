@@ -1097,9 +1097,17 @@ export class Stats {
             dbHealth.noteSchema('profiles upsert', describeError(error));
             if (includeExtended) {
                 _profileExtendedSupported = false;
-                console.warn('[Stats] profiles is missing progression columns — retrying with ' +
-                    PROFILE_CORE_COLUMNS.join(', ') + '. ' +
-                    'Apply supabase/migrations/20260923_arcanetyper_schema_repair.sql');
+                // Name BOTH migrations, and quote the column the error actually
+                // named. This used to point only at the 2026-09-23 repair, so an
+                // owner whose database had that one but not the later achievement
+                // columns would be told to re-run a script they had already
+                // applied.
+                const missing = /column "?([a-z_]+)"? does not exist/i.exec(describeError(error))?.[1] || 'a progression column';
+                console.warn('[Stats] profiles is missing "' + missing + '" — retrying with ' +
+                    PROFILE_CORE_COLUMNS.join(', ') + '. If it is unlocked_achievements or ' +
+                    'achievement_progress, apply ' +
+                    'supabase/migrations/20260926_achievement_persistence.sql; for the ' +
+                    'others, apply supabase/migrations/20260923_arcanetyper_schema_repair.sql');
                 return this._upsertProfile(payload);
             }
             logProfileError(error);
