@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { MAGE_CLASSES, DEFAULT_MAGE_CLASS, isMageClass, normalizeMageClass, mageClassInfo, classesForCharacter, isMageClassForCharacter, normalizeMageClassForCharacter, DISCIPLINE_SWITCH_COST, disciplineScrollId, scrollCostFor } from '../backend/MageClasses.js';
+import { Stats } from '../backend/Stats.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8').replace(/\r\n/g, '\n');
@@ -48,6 +49,44 @@ function check(name, condition, detail = '') {
     console.log(`${condition ? 'PASS' : 'FAIL'}  ${name}${condition || !detail ? '' : `  (${detail})`}`);
 }
 const count = (src, needle) => src.split(needle).length - 1;
+
+/**
+ * Level for an XP total, as the REAL shipped `Stats` computes it.
+ *
+ * `playerLevel` is a CACHED field (`Stats.js:261`) recomputed by only three
+ * places, so this does not poke the field directly: it seeds localStorage and
+ * constructs a genuine `Stats`, letting the SHIPPED constructor
+ * (`Stats.js:117`) do the arithmetic. That is deliberate — an earlier version
+ * of this helper restated `Math.floor(Math.sqrt(xp/500)) + 1` inline, and a
+ * mutation that changed the real divisor from 500 to 50 sailed straight through
+ * it, because a guard that re-implements what it guards cannot see the thing
+ * it is guarding change. A second one (verify-wpm-sample-gate.mjs) had to be
+ * rewritten for the same reason.
+ */
+function levelFromXp(xp) {
+    const mem = { typerMaster_xp: String(xp) };
+    globalThis.localStorage = {
+        getItem: (k) => (k in mem ? mem[k] : null),
+        setItem: (k, v) => { mem[k] = String(v); },
+        removeItem: (k) => { delete mem[k]; }
+    };
+    globalThis.window = { game: null, addEventListener() { }, removeEventListener() { } };
+    if (!('navigator' in globalThis)) {
+        Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'node' }, configurable: true });
+    }
+    globalThis.document = {
+        getElementById: () => null,
+        querySelector: () => null,
+        addEventListener() { },
+        createElement: () => ({
+            style: {}, classList: { add() { }, remove() { }, toggle() { } },
+            appendChild() { }, addEventListener() { }
+        })
+    };
+    return new Stats(null).playerLevel;
+}
+/** XP at which `level` is first reached. */
+const xpForLevel = (level) => Math.pow(level - 1, 2) * 500;
 
 /** The element body between `marker`'s opening tag and the next `</tag>`. */
 function elementBody(html, marker, tag) {
@@ -481,6 +520,62 @@ check(
     'the pre-rebalance costs are retained so a revert is deliberate',
     PRE_REBALANCE_TREE.Novice.mana === 1000 && PRE_REBALANCE_TREE.Cryomancer.precognition === 25000,
     'PRE_REBALANCE_TREE was edited instead of left as history');
+
+// ── the level curve agrees with the repriced economy ─────────────────────────
+// Added 2026-09-26 after a WRONG claim was written into the register: level 10
+// was recorded as 4,500 XP / ~7 minutes, which came from evaluating 500*(L-1)
+// instead of the shipped formula's 500*(L-1)². The real level 10 is 40,500 XP
+// (~59 min) and the curve is fine. These guards exist so that question is
+// settled by running the real `Stats` rather than by arithmetic in a document.
+//
+// They pin the CURVE and its RELATIONSHIP to the prices guarded above, so a
+// future rebalance that moves the tree 10x cannot silently leave `millionaire`
+// sitting at 7 minutes again.
+const everythingOwned = allNodeCosts.reduce((a, b) => a + b, 0) + 9 * cheapestScroll;
+const levelChecks = [
+    {
+        name: 'the level curve is the canonical quadratic (divisor 500, exponent 2)',
+        pass: levelFromXp(40500) === 10 && levelFromXp(40499) === 9 && levelFromXp(500) === 2,
+        detail: `40,500 XP -> L${levelFromXp(40500)}, 500 XP -> L${levelFromXp(500)} — 500*(L-1) SQUARED, not 500*(L-1)`
+    },
+    {
+        name: 'the level curve starts at 1 and is strictly increasing',
+        pass: levelFromXp(0) === 1 && levelFromXp(100000) > levelFromXp(50000),
+        detail: `L${levelFromXp(0)} at 0 XP`
+    },
+    {
+        // The exact relationship the bad claim got wrong by 9x.
+        name: 'millionaire (level 10) is an hour-scale milestone, not a first-session trip',
+        pass: xpForLevel(10) / MEDIAN_XP_PER_HOUR * 60 >= 45 && xpForLevel(10) / MEDIAN_XP_PER_HOUR * 60 <= 2 * 60,
+        detail: `level 10 = ${xpForLevel(10)} XP = ${nodeMinutes(xpForLevel(10))} min at the median`
+    },
+    {
+        // A 9x-cheaper first scroll would still be an hour; a linear re-read of
+        // the curve would put millionaire at ~7 min and fail this.
+        name: 'the first Discipline scroll sits within one level of millionaire',
+        pass: Math.abs(levelFromXp(cheapestScroll) - 10) <= 1,
+        detail: `cheapest scroll ${cheapestScroll} XP = L${levelFromXp(cheapestScroll)}, millionaire = L10 at ${xpForLevel(10)} XP`
+    },
+    {
+        // The ladder top should be commensurate with the cost of owning everything.
+        name: 'the top of the level ladder matches the cost of owning everything',
+        pass: levelFromXp(everythingOwned) >= 45,
+        detail: `owning everything (${everythingOwned} XP) = L${levelFromXp(everythingOwned)}`
+    },
+];
+for (const c of levelChecks) check(c.name, c.pass, c.detail);
+
+// The formula lives in FOUR places (constructor, addXP, loadFromSupabase, and
+// the getXPProgress bracket). They must agree, or a player sees a level that
+// disagrees with the bar. Counted against comment-stripped source so a note
+// quoting the formula cannot satisfy the check.
+const curveSites = count(statsCode, 'Math.floor(Math.sqrt(');
+check('the level formula is restated consistently across Stats.js (4 sites)',
+    curveSites === 3 && count(statsCode, 'Math.pow(this.playerLevel - 1, 2) * 500') === 1,
+    `found ${curveSites} sqrt level computations and ${count(statsCode, 'Math.pow(this.playerLevel - 1, 2) * 500')} XP-bracket sites; the constructor, addXP, loadFromSupabase and getXPProgress must all use 500`);
+check('the level curve is actually surfaced to the player (not dead state)',
+    count(mainCode, 'stats.playerLevel') >= 1 && count(profileCode, 'playerLevel') >= 1,
+    'it is shown in the Workshop HUD and the Profile level + XP bar');
 
 check(
     'scroll ids are namespaced so they can never collide with a skill id',
