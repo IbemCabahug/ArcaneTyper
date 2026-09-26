@@ -10,9 +10,13 @@ const EFFECTS = {
     'glacial-ward': { color: '#4dd0e1', accent: '#c7f9ff' },
     'time-stop': { color: '#c084fc', accent: '#f3e8ff' },
     'blood-pact': { color: '#ff1744', accent: '#ff9aaa' },
-    'crushing-gravity': { color: '#7c4dff', accent: '#d8ccff' },
+    // Owner decision 2026-09-26: the three Voidweaver actives share ONE colour,
+    // the character's identity colour from backend/Characters.js. The sigil is
+    // told apart by its interior geometry, not by a hue shift. `verify:vfx`
+    // fails if these drift from the roster.
+    'crushing-gravity': { color: '#536dfe', accent: '#d8ccff' },
     'event-horizon': { color: '#536dfe', accent: '#c5ceff' },
-    'rift-tether': { color: '#8b5cf6', accent: '#ddd6fe' },
+    'rift-tether': { color: '#536dfe', accent: '#ddd6fe' },
     'final-cut': { color: '#b00020', accent: '#ffb4ab' },
     'bloodletting': { color: '#e53935', accent: '#ffcdd2' }
 };
@@ -28,14 +32,23 @@ function hexAlpha(hex, alpha) {
  * Character tint for the Novice mark. The Novice active is one shared
  * Discipline, but its sigil is per-character, so a Novice should also wear the
  * identity colour of the body it is painted on:
- *   voidweaver  — #00e5ff  (Characters.js `voidweaver`)
+ *   voidweaver  — #536dfe  (Characters.js `voidweaver`)
  *   bloodseeker — #ff1744  (Characters.js `bloodseeker`)
+ * The Voidweaver accent was #c7f9ff — a pale CYAN left over from the
+ * pre-recolour identity, and the same hex as the Cryomancer's `glacial-ward`
+ * accent, so a Voidweaver and a Wizard shared it. It is now #a5b4fc, a light
+ * indigo unique to this mark. It is deliberately NOT #c5ceff, even though that
+ * is the light tint of #536dfe: the Event Horizon active already wears #c5ceff,
+ * and Novice + Event Horizon share a base colour, so reusing its accent would
+ * leave the two marks identical in every stroke but the interior.
+ * `verify:vfx` asserts that uniqueness, so an accent cannot be quietly shared
+ * across characters again.
  * The wizard branch is untouched: it keeps the Arcane Surge violet, which is
  * the colour the class has always used and the one its Workshop branch wears.
  * `npm run verify:vfx` reads `backend/Characters.js` and fails if these drift.
  */
 const CHARACTER_TINT = {
-    voidweaver: { color: '#00e5ff', accent: '#c7f9ff' },
+    voidweaver: { color: '#536dfe', accent: '#a5b4fc' },
     bloodseeker: { color: '#ff1744', accent: '#ff9aaa' }
 };
 
@@ -331,22 +344,18 @@ function drawNullwardenMark(ctx, r, now = 0) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // An incoming vector from outside, and the point where it STOPS. The gap
-    // between the arrowhead and the ring is the whole point of the class: the
-    // blow never arrives, so nothing is drawn past the barrier.
-    ctx.beginPath();
-    ctx.moveTo(-r * 1.12, 0);
-    ctx.lineTo(-r * .99, 0);
-    ctx.strokeStyle = effect.accent;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-r * .99, 0);
-    ctx.lineTo(-r * 1.14, -r * .13);
-    ctx.lineTo(-r * 1.14, r * .13);
-    ctx.closePath();
-    ctx.fillStyle = effect.accent;
-    ctx.fill();
+    // Owner decision 2026-09-26: the incoming vector and its arrowhead are GONE.
+    // They were a line plus a filled triangle on the left, meant to read as a
+    // blow stopping at the wall — but the shaft spanned 80-90px while the
+    // arrowhead spanned 80-92px, so the shaft was 100% hidden inside the filled
+    // triangle and the mark rendered as a bare triangle with no line to imply
+    // travel. The "gap" that carried the denial idea was ~6px at Arena size,
+    // which does not survive contact with the canvas.
+    //
+    // Removing it is not just subtraction: the class is DENIAL, and the file
+    // already says denial is drawn by absence. A sealed wall with an empty
+    // interior is the honest mark for "the next word you LOSE deals no damage
+    // to you" — a solid boundary and literally nothing behind it.
 
     // The sealed interior: still, and empty. No inner geometry at all, because
     // "nothing gets through" is drawn by absence.

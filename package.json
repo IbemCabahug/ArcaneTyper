@@ -13,6 +13,7 @@
     "verify:perf": "node scripts/verify-arena-panel-perf.mjs",
     "verify:roster": "node scripts/verify-class-roster.mjs",
     "verify:wpm": "node scripts/verify-live-wpm-trim.mjs",
+    "verify:wpmgate": "node scripts/verify-wpm-sample-gate.mjs",
     "verify:actives": "node scripts/verify-class-actives.mjs",
     "verify:vfx": "node scripts/verify-arena-vfx.mjs",
     "verify:polish": "node scripts/verify-duel-polish.mjs",
@@ -20,6 +21,7 @@
     "verify:guests": "node scripts/verify-guest-gates.mjs",
     "verify:layout": "node scripts/verify-layout-fit.mjs",
     "verify:survival-word-loss": "node scripts/verify-survival-word-loss.mjs",
-    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:actives && npm run verify:vfx && npm run verify:polish && npm run verify:skins && npm run verify:guests && npm run verify:layout && npm run verify:survival-word-loss"
+    "verify:unspoken": "node scripts/verify-unspoken-counter.mjs",
+    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:wpmgate && npm run verify:actives && npm run verify:vfx && npm run verify:unspoken && npm run verify:polish && npm run verify:skins && npm run verify:guests && npm run verify:layout && npm run verify:survival-word-loss"
   }
 }

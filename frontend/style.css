@@ -1911,6 +1911,19 @@ h2 {
   justify-content: space-between;
 }
 
+/* The "nodes are permanent and cross-Discipline" clarification. Muted and small
+   on purpose: it is a footnote to the tree, not a call to action. Never a blur
+   (AT-F13 — see the block comment above). */
+.talent-tree-note {
+  max-width: 62ch;
+  margin: -0.75rem auto 1.25rem;
+  text-align: center;
+  font-size: 0.8rem;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .talent-branch {
   display: flex;
   flex-direction: column;
@@ -2323,6 +2336,135 @@ h2 {
   animation: toastSlideOut 0.4s ease forwards;
 }
 
+/* ── Entitlement gate prompt (owner request 2026-09-26) ────────────────────
+   A gate is a QUESTION, not news: it needs to read as a prompt, look
+   deliberate, and get out of the way. Hence the sealed-card gradient, the
+   gold rule under the headline, and a shorter slide (0.22s vs 0.35s) — the
+   player is being asked to do something, so it should land immediately.
+
+   No backdrop-filter here: .magical-toast sits over the redrawing Arena
+   canvas and verify-arena-panel-perf.mjs forbids blur on this selector. The
+   depth comes from an opaque gradient + box-shadow instead. */
+.magical-toast--gate {
+  background: linear-gradient(135deg, rgba(38, 20, 62, 0.98) 0%, rgba(20, 10, 34, 0.98) 100%);
+  border: 1px solid rgba(255, 215, 0, 0.45);
+  border-left: 4px solid var(--accent-primary);
+  padding: 0;
+  max-width: 340px;
+  overflow: hidden;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.85), 0 0 26px rgba(255, 215, 0, 0.22);
+  animation: toastGateIn 0.22s cubic-bezier(0.2, 0.9, 0.25, 1.3) forwards;
+}
+
+.toast-gate__head {
+  padding: 11px 16px 9px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--accent-primary);
+  text-shadow: 0 0 12px rgba(255, 215, 0, 0.45);
+  border-bottom: 1px solid rgba(255, 215, 0, 0.22);
+  background: rgba(255, 215, 0, 0.05);
+}
+
+.toast-gate__sub {
+  padding: 9px 16px 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* The gate slides in from the same side, just harder and faster than the
+   plain toast — the overshoot is what makes it read as "snap" rather than
+   "fade". */
+@keyframes toastGateIn {
+  from {
+    opacity: 0;
+    transform: translateX(56px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* ── Discipline Scroll shop (owner decision 2026-09-26) ────────────────────
+   The gate on class selection: a Discipline costs a one-time scroll bought
+   here. Cards wear the class's own accent on the border, so the shop and the
+   profile picker agree on which colour is which Discipline. */
+.scroll-shop-card {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scroll-shop-title {
+  font-weight: bold;
+  font-size: 0.95rem;
+  letter-spacing: 0.5px;
+}
+
+.scroll-shop-tagline {
+  font-size: 0.7rem;
+  color: #b892b0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.scroll-shop-blurb {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.scroll-shop-buy {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: rgba(255, 215, 0, 0.08);
+  border: 1px solid var(--accent-primary);
+  border-radius: 6px;
+  color: var(--text-main);
+  font-family: var(--font-family);
+  font-size: 0.75rem;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.scroll-shop-buy:hover:not(:disabled) {
+  background: rgba(255, 215, 0, 0.2);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+}
+
+.scroll-shop-buy.unaffordable {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.scroll-shop-buy.owned {
+  border-color: #4ade80;
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.08);
+  cursor: default;
+}
+
+.scroll-shop-buy.bound {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: rgba(255, 215, 0, 0.15);
+  cursor: default;
+  opacity: 1;
+}
+
 @keyframes toastSlideIn {
   to {
     opacity: 1;
@@ -2543,34 +2685,367 @@ h2 {
   }
 }
 
-/* ── Profile Menu Scroll & Responsiveness ── */
+/* ── Profile Menu — rebuilt 2026-09-26 ─────────────────────────────────────
+   The scroll bugs this replaces, and why each mattered:
+
+   1. A flex child centred with `margin: auto` INSIDE the scroll container.
+      Auto margins in a scroller are the classic dead-zone recipe, and it was
+      overridden twice (inline `margin: auto`, then `margin: 0 auto`).
+   2. `.profile-content { max-height: 100% }` while the title sat OUTSIDE it,
+      so the 100% resolved against a box that already contained the header and
+      the content overflowed by exactly the header height — clipping the last
+      section.
+   3. `pointer-events: none` on the wrapper with children re-enabling it, so
+      the wheel only scrolled when the cursor happened to be over a panel and
+      went dead over the gaps between them. That inconsistency is what made
+      "scroll down" feel broken rather than merely slow.
+
+   The fix is structural, not cosmetic: header / tabs / body / footer is a
+   flex column, and `.profile-body` is the ONLY scroller. `min-height: 0` on a
+   flex item is what lets it shrink below its content instead of pushing the
+   page — without it none of the rest works. */
 #profile-menu {
-  padding: 1.5rem 0;
-  overflow-x: hidden;
+  z-index: 35;
+  justify-content: stretch;
+  align-items: stretch;
+  overflow: hidden;
+  /* Shorten the open transition: the old 0.5s fade made a panel that now
+     behaves like a dialog feel like a slow cinematic. */
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+#profile-menu.active {
+  transform: translateY(0);
+}
+
+#profile-menu.hidden {
+  transform: translateY(0);
+}
+
+.profile-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Identity: one compact row instead of three full-width centred blocks that
+   spent ~200px of vertical space on three short strings. */
+.profile-identity {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid rgba(0, 229, 255, 0.14);
+  background: linear-gradient(180deg, rgba(20, 10, 40, 0.9), rgba(12, 6, 24, 0.55));
+}
+
+.profile-label {
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  margin: 0 0 1px;
+  font-weight: 600;
+}
+
+.profile-title-name {
+  color: #ffd700;
+  font-size: clamp(1.05rem, 3.4vw, 1.4rem);
+  margin: 0;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  line-height: 1.15;
+  word-break: break-word;
+}
+
+.profile-identity-side {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  text-align: right;
+  min-width: 0;
+}
+
+.profile-identity-cell {
+  min-width: 0;
+}
+
+.profile-username {
+  color: #fff;
+  font-size: 0.95rem;
+  margin: 0;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.profile-class-select {
+  background: transparent;
+  border: none;
+  color: #00e5ff;
+  font-size: 1rem;
+  font-family: var(--font-family);
+  font-weight: bold;
+  outline: none;
+  cursor: pointer;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+  text-align: right;
+  max-width: 150px;
+}
+
+/* Tabs: the Record tab holds the two tall panels, which is what used to push
+   RETURN / SEVER BOND below the fold. Tabs keep every section reachable
+   without a scroll. */
+.profile-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px 0;
+}
+
+.profile-tab {
+  flex: 1;
+  padding: 7px 6px;
+  font-family: var(--font-family);
+  font-size: 0.68rem;
+  letter-spacing: 1.6px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  cursor: pointer;
+  transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.profile-tab:hover {
+  color: #e9d5ff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.profile-tab.is-active {
+  color: #00e5ff;
+  background: rgba(0, 229, 255, 0.09);
+  border-color: rgba(0, 229, 255, 0.35);
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.45);
+}
+
+/* The single scroll container. */
+.profile-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  padding: 12px 16px;
+  scroll-snap-type: y proximity;
+  -webkit-overflow-scrolling: touch;
   contain: layout paint;
 }
 
-#profile-menu > div {
-  flex: 0 0 auto;
+.profile-panel {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  /* Full width: the panel was capped at 520px, so on any wide window the
+     profile floated as a narrow column with dead space either side and the
+     Record tab's chart was the only thing using the room. */
+  max-width: 1080px;
   margin: 0 auto;
+  scroll-snap-align: start;
 }
 
-#profile-menu .profile-content {
+.profile-panel.is-active {
+  display: flex;
+}
+
+/* ── Skin showcase (2026-09-26) ─────────────────────────────────────────────
+   All three skins are visible at once in one bordered row, and the EQUIPPED
+   one is drawn large: taller than its neighbours, and vertically centred so it
+   breaks out above and below them. That is the whole selection affordance —
+   there are no arrows, no dots, and nothing to scroll.
+
+   This replaced a one-card-at-a-time carousel. The carousel hid two thirds of a
+   three-card roster behind navigation controls that existed only because the
+   cards were drawn too large to show together. It was also a lot of machinery
+   to maintain: a scroller, snap points, a dot strip, arrow state, a scroll
+   listener, and a hover detector that had to be removed three times.
+
+   The emphasis is carried by SIZE and POSITION rather than by a moving
+   viewport, so it survives a resize, a font swap, and a re-render. */
+.skin-showcase {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 229, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.skin-showcase-row {
+  display: flex;
+  align-items: center; /* centres the small cards on the tall one */
+  justify-content: center;
+  gap: 14px;
+}
+
+.skin-showcase .skin-card {
+  flex: 0 1 190px;
   min-width: 0;
-  max-height: 100%;
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 8px !important;
 }
 
+/* The equipped card. It grows, it centres, and it is allowed to be taller than
+   the row it sits in — `align-items: center` on the row is what pushes the
+   smaller cards to its own vertical midpoint, so the big card visibly overhangs
+   them above and below. */
+.skin-showcase .skin-card.active {
+  flex-basis: 290px;
+  padding: 18px 14px !important;
+  z-index: 1;
+}
+
+.skin-showcase .skin-avatar-preview {
+  width: 100%;
+  height: 84px !important;
+  margin-bottom: 6px;
+}
+
+.skin-showcase .skin-card.active .skin-avatar-preview {
+  height: 148px !important;
+}
+
+.skin-showcase .skin-preview {
+  width: 100%;
+  height: auto;
+  /* The canvas is painted at 160×72 and upscaled; without this the sprite
+     rasterises blurry on a card this large. */
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* Locked + unrevealed: the label is replaced with ??? by the Forge, and the
+   teaser is withheld so the card does not name what it is hiding. */
+.skin-card.is-unrevealed > span:first-of-type {
+  color: #7c6b95 !important;
+  letter-spacing: 2px;
+}
+
+/* Narrow windows: the oversized card would squeeze its neighbours to slivers,
+   so the whole row drops the emphasis and becomes three equal cards. The
+   equipped one still reads as selected through its border and glow. */
+@media (max-width: 720px) {
+  .skin-showcase-row {
+    gap: 8px;
+  }
+
+  .skin-showcase .skin-card,
+  .skin-showcase .skin-card.active {
+    flex: 1 1 0;
+    padding: 8px 5px !important;
+  }
+
+  .skin-showcase .skin-avatar-preview,
+  .skin-showcase .skin-card.active .skin-avatar-preview {
+    height: 64px !important;
+  }
+}
+
+.profile-card {
+  padding: 10px;
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.42);
+  box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.05);
+  text-align: center;
+}
+
+.profile-card-title {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 1.5px;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.profile-wide-btn {
+  width: 100%;
+  margin-top: 10px;
+  font-size: 0.72rem;
+  letter-spacing: 1.4px;
+}
+
+/* Trophy strip inside the profile: a compact row of pips, NOT the full cards.
+   The full Trophy Room overlay remains the detailed view. */
+.trophy-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 6px;
+}
+
+.trophy-pip {
+  padding: 7px 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.trophy-pip.is-unlocked {
+  border-color: #f9a825;
+  background: linear-gradient(135deg, rgba(20, 10, 40, 0.8), rgba(40, 20, 60, 0.9));
+}
+
+.trophy-pip-name {
+  display: block;
+  font-size: 0.6rem;
+  font-family: var(--font-family);
+  letter-spacing: 0.6px;
+  color: #666;
+  line-height: 1.2;
+}
+
+.trophy-pip.is-unlocked .trophy-pip-name {
+  color: #f9a825;
+}
+
+.trophy-pip-sub {
+  display: block;
+  font-size: 0.6rem;
+  font-family: monospace;
+  color: #7c6b95;
+  margin-top: 2px;
+}
+
+/* Footer stays put while the body scrolls, so the destructive SEVER BOND
+   action can never sit below the fold. */
+.profile-footer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(0deg, rgba(12, 6, 24, 0.95), rgba(12, 6, 24, 0.55));
+}
+
+/* Profile-scoped rules for the skin showcase. The id-scoped selector is kept
+   because these are the profile's own containment rules, but the LAYOUT lives
+   in `.skin-showcase` / `.skin-showcase-row` above.
+
+   This rule used to carry `display: flex !important` and `align-items: stretch`
+   from when the element WAS the track. Both are removed: `!important` here would
+   outrank the showcase's own rules, and `stretch` would make all three cards the
+   same height — which is exactly the emphasis the showcase exists to remove. */
 #profile-menu #character-skin-grid {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: stretch;
   width: 100%;
   min-width: 0;
-  gap: 8px;
 }
 
 #profile-menu #character-skin-grid .skin-card {
@@ -2579,27 +3054,38 @@ h2 {
   isolation: isolate;
 }
 
-#profile-menu::-webkit-scrollbar {
+.profile-body::-webkit-scrollbar {
   width: 6px;
 }
 
-#profile-menu::-webkit-scrollbar-track {
+.profile-body::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.2);
 }
 
-#profile-menu::-webkit-scrollbar-thumb {
+.profile-body::-webkit-scrollbar-thumb {
   background: var(--text-muted);
   border-radius: 3px;
 }
 
-#profile-menu::-webkit-scrollbar-thumb:hover {
+.profile-body::-webkit-scrollbar-thumb:hover {
   background: var(--accent-primary);
 }
 
-@media (max-width: 520px) {
-  #profile-menu #character-skin-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 5px;
+@media (max-width: 560px) {
+  .profile-identity {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .profile-identity-side {
+    width: 100%;
+    justify-content: space-between;
+    text-align: left;
+  }
+
+  .profile-class-select {
+    text-align: left;
   }
 
   #profile-menu .skin-card {
@@ -2607,44 +3093,27 @@ h2 {
   }
 }
 
-/* Compact layout by default for the 600px container */
-#profile-menu h2 {
-  font-size: 1.3rem !important;
-  margin-bottom: 0.2rem !important;
-}
-
-#profile-menu .profile-content {
-  gap: 0.5rem !important;
-}
-
-#profile-menu .skin-avatar-preview {
-  height: 28px !important;
-}
-
-#profile-history-chart {
-  height: 80px !important;
-}
-
-/* Even more compact for very small screen heights */
-@media (max-height: 550px) {
-  #profile-menu {
-    padding: 0.5rem 0;
+/* Short viewports: the identity row is the first thing to give up height,
+   because it is pure text and re-flows without loss. */
+@media (max-height: 560px) {
+  .profile-identity {
+    padding: 6px 14px 5px;
   }
 
-  #profile-menu h2 {
-    font-size: 1.1rem !important;
-  }
-
-  #profile-menu .profile-content {
-    gap: 0.3rem !important;
+  .profile-title-name {
+    font-size: 1rem !important;
   }
 
   #profile-menu .skin-avatar-preview {
-    height: 22px !important;
+    height: 24px !important;
   }
 
   #profile-history-chart {
-    height: 60px !important;
+    height: 76px !important;
+  }
+
+  .profile-body {
+    padding: 8px 14px;
   }
 }
 

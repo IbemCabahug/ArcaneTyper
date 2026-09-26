@@ -73,6 +73,11 @@ export class AuthUI {
             opt.textContent = `${cls.title} (${cls.tagline})`;
             opt.style.background = 'var(--bg-deep)';
             opt.style.textShadow = 'none';
+            // Same fix as ProfileUI: an option with no colour of its own
+            // inherits the parent select's, so the registration list for the
+            // wizard family (the one family with three DIFFERENT colours) was
+            // monochrome and repainted wholesale on every pick.
+            opt.style.color = cls.color;
             this.ccClass.appendChild(opt);
         });
         this.ccClass.value = DEFAULT_MAGE_CLASS;

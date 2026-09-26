@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { dbHealth, isMissingColumnError, isNetworkError, describeError } from './dbHealth.js';
 import { syncQueue } from './syncQueue.js';
-import { DEFAULT_MAGE_CLASS, normalizeMageClass, normalizeMageClassForCharacter, isMageClassForCharacter } from './MageClasses.js';
+import { DEFAULT_MAGE_CLASS, normalizeMageClass, normalizeMageClassForCharacter, isMageClassForCharacter, DISCIPLINE_SWITCH_COST, disciplineScrollId, scrollCostFor } from './MageClasses.js';
 import { DEFAULT_CHARACTER, isCharacter, normalizeCharacter, characterInfo } from './Characters.js';
 
 /** localStorage keys that belong to ONE mage account (purged on logout). */
@@ -10,8 +10,26 @@ const PROGRESSION_KEYS = [
     'typerMaster_skills',
     'typerMaster_wandColor',
     'typerMaster_mageClass',
+    'typerMaster_classByCharacter', // AT-F16: per-character Discipline memory, same account
     'typerMaster_mageName',
     'typerMaster_achievements',
+    // AT-F16 follow-up (2026-09-26): this key was MISSING from this list, and the
+    // omission was two bugs at once. It is the PARTIAL state of a counter
+    // achievement, and it lives in the same file as the flag that says the
+    // counter finished — so purging one and keeping the other split them:
+    //   1. SOFT-LOCK: sign out deleted `typerMaster_achievements` but kept the
+    //      count, so the next sign-in showed a finished 100/100 that could never
+    //      be re-earned (`bumpProgress` clamps at the goal). Owned nothing, no way
+    //      back. See the reconciliation in Achievements.js.
+    //   2. CROSS-ACCOUNT LEAK: on a shared browser the count survived sign-out,
+    //      so the NEXT account signed in already at 100/100 and got the
+    //      Bloodseeker for free without playing a duel. Proved by execution.
+    //
+    // Both keys are purged together so an account can never inherit another's
+    // progress. The cost is that a partial count does not survive sign-out —
+    // which is why persisting both to the profile (the real fix for losing a
+    // 100-duel grind) is the next piece of work, not an optional extra.
+    'typerMaster_achievementProgress',
     'typerMaster_equippedTitle',
     'typerMaster_selectedCharacter',
     'typerMaster_unlockedCharacters', // AT-F16: Forge skins bought with XP (local, like the selection itself)
@@ -80,6 +98,15 @@ export class Stats {
         // Rolling WPM: store timestamp of each correct keystroke
         this._keystrokeTimestamps = [];
         this._rollingWindowMs = 10000; // 10-second window
+        // A rolling WPM is reported only once the window holds at least this many
+        // keystrokes AND spans at least this long — see the sample gate in
+        // getWPM(). Without it a single fast word computed as 100+ WPM and
+        // unlocked `speed_demon` / `celestial_focus` (owner report 2026-09-26).
+        // Both halves are needed: keystrokes alone is fooled by a burst, time
+        // alone by a slow start. 3s / 15 keys is ~50 WPM, well under the 100 the
+        // achievements require, so an honest fast typist is never held back.
+        this._wpmSampleMs = 3000;
+        this._wpmSampleKeystrokes = 15;
 
         this.bestScore = parseInt(localStorage.getItem('typerMaster_score') || '0', 10);
         this.bestWPM = parseInt(localStorage.getItem('typerMaster_wpm') || '0', 10);
@@ -114,6 +141,39 @@ export class Stats {
             localStorage.setItem('typerMaster_selectedCharacter', this.selectedCharacter);
         }
         this.mageClass = normalizeMageClassForCharacter(this.mageClass, this.selectedCharacter);
+        // AT-F16: the per-character class memory. Each character owns a disjoint
+        // class family, so ONE `mageClass` cannot describe all of them at once —
+        // which is what made switching skin reset the Discipline (see
+        // `setSelectedCharacter`). This map is the one value per character.
+        // Read BEFORE the normalisation below so a remembered pick is adopted
+        // rather than being flattened to the incoming character's Novice.
+        this.classByCharacter = readStoredJSON('typerMaster_classByCharacter', {});
+        if (!this.classByCharacter || typeof this.classByCharacter !== 'object' || Array.isArray(this.classByCharacter)) {
+            this.classByCharacter = {};
+        }
+        this.mageClass = normalizeMageClassForCharacter(this.mageClass, this.selectedCharacter);
+        // AT-F16: the equipped character's OWN pick wins over the single stored
+        // value, which may belong to whichever character was equipped last.
+        //
+        // BUT only when the map actually HAS an entry for this character.
+        // `_classFor` returns Novice for an unremembered character, so the
+        // original "if different, adopt it" destroyed any account whose
+        // `classByCharacter` was empty — which is every account predating the
+        // per-character memory, and any account that only ever had the single
+        // stored value. Their saved Discipline was silently replaced by Novice
+        // on the very next load, with nothing to indicate it had happened.
+        // Found while adding the scroll gate: the migration below could not even
+        // see the lost class, because it had already been overwritten by then.
+        if (this.classByCharacter[this.selectedCharacter]) {
+            this.mageClass = this._classFor(this.selectedCharacter);
+        }
+        // Owner decision 2026-09-26: Disciplines are gated behind scrolls, but
+        // NOBODY may lose a pick they already had. Every account created before
+        // the gate could bind any class for free, so their saved `mageClass`
+        // (and each character remembered in `classByCharacter`) is honoured for
+        // free here. Without this the gate would silently confiscate a Wizard's
+        // Pyromancer on their next login and drop them to Novice.
+        this._grantLegacyDisciplineScrolls();
         // AT-F16: which Forge characters this account owns. Validated against the
         // roster on load (a hand-edited/corrupt list degrades to the default,
         // exactly like `mageClass`) — the default character is always owned.
@@ -131,6 +191,12 @@ export class Stats {
         // to Stats.isAdmin() so guests can never trigger it (Bug #1B fix).
         if (this.achievements) {
             this.achievements.adminPredicate = () => this.isAdmin();
+            // Achievements are cloud-synced as of 2026-09-26, and one can be
+            // earned with NO XP spent (the 100-duel Bloodseeker route), so nothing
+            // else would ever call saveProgression(). This is what pushes the new
+            // state to the profile; it reuses the same deduped syncQueue as the
+            // rest of the profile, so a burst of unlocks is one request.
+            this.achievements.onChange = () => this.saveProgression();
         }
 
         this.bindDOM();
@@ -336,7 +402,7 @@ export class Stats {
     }
 
     getSurvivalDefenseColor() {
-        if (this.selectedCharacter === 'voidweaver') return '#00e5ff';
+        if (this.selectedCharacter === 'voidweaver') return '#536dfe';
         if (this.selectedCharacter === 'bloodseeker') return '#ff1744';
         return '';
     }
@@ -407,14 +473,40 @@ export class Stats {
         const countInWindow = this._keystrokeTimestamps.length;
         if (countInWindow === 0) return 0;
 
-        // Determine the actual window span (from oldest timestamp to now)
-        // This avoids inflating WPM at the very start of the game
         const oldest = this._keystrokeTimestamps[0];
-        const windowSpanMs = Math.max(1000, now - oldest); // minimum 1s to avoid NaN/Infinity
-        const windowSpanMin = windowSpanMs / 60000;
+        const realSpanMs = now - oldest;
 
-        // Standard WPM: keystrokes / 5 / minutes
-        const wpm = Math.round((countInWindow / 5) / windowSpanMin);
+        // ── A rolling WPM is only meaningful once the sample is big enough ────
+        // Owner bug report 2026-09-26: "even if you only typed the first word some
+        // of the achievement will become unlockable as it is only about wpm and
+        // accuracy which can easily be obtained while writing the first word."
+        // Correct, and worse than it looks. This used to be:
+        //
+        //     const windowSpanMs = Math.max(1000, now - oldest);
+        //
+        // a 1-second FLOOR, added to stop `Infinity` when two keystrokes landed in
+        // the same millisecond. But a floor does not merely prevent the divide-by-
+        // zero — it INFLATES every short window. Any burst of 9 correct keystrokes
+        // inside one second then computed as 100+ WPM. Measured against the real
+        // arithmetic: 9 characters at a relaxed 120ms each (about 49 WPM of actual
+        // typing) reported 108 WPM, which unlocked `speed_demon` — and because
+        // accuracy is likewise a 9-sample ratio, `celestial_focus` (100 WPM AND
+        // 95%+ accuracy) fired from the same single word.
+        //
+        // There is no honest number for a sample that small, so the fix is to
+        // REFUSE to report one until the sample can carry the claim. Both halves
+        // are required: keystrokes alone is fooled by a burst (9 keys in 1ms), and
+        // time alone is fooled by a slow start (3 seconds of 3 keys).
+        //
+        // 3 seconds / 15 keystrokes is ~50 WPM, comfortably below the 100 WPM the
+        // achievements ask for, so a genuine 100 WPM player clears both bars many
+        // times a second and loses nothing — while one lucky word never qualifies.
+        if (countInWindow < this._wpmSampleKeystrokes || realSpanMs < this._wpmSampleMs) return 0;
+
+        // Standard WPM: keystrokes / 5 / minutes, over the REAL span. The old
+        // Math.max(1000, …) floor is gone: the sample gate above already rules out
+        // a zero span, so nothing here can produce Infinity or NaN.
+        const wpm = Math.round((countInWindow / 5) / (realSpanMs / 60000));
         if (this.achievements && wpm > 0) {
             this.achievements.onEvent('wpm_update', { wpm, accuracy: this.getAccuracy() });
         }
@@ -618,16 +710,98 @@ export class Stats {
     }
 
     /**
+     * True when this mage may bind `classId` right now.
+     *
+     * A Discipline is bindable when its scroll is owned. Scrolls live in the
+     * `unlockedSkills` ledger under a `discipline-scroll:` prefix rather than in
+     * a new store, which is deliberate: that array is ALREADY persisted to
+     * localStorage, ALREADY synced to the cloud as `profiles.unlocked_skills`
+     * (jsonb) and ALREADY purged on logout. A separate store would have been
+     * local-only by default and lost on sign-out — so a bought scroll would
+     * vanish between sessions, which is the worst possible bug for a purchase.
+     *
+     * @param {string} classId
+     * @returns {boolean}
+     */
+    ownsDiscipline(classId) {
+        const canonical = normalizeMageClass(classId);
+        // A free Discipline (Novice) is always bindable — otherwise a fresh
+        // account has no legal first pick and the picker is a dead menu.
+        if (scrollCostFor(canonical) === 0) return true;
+        if (this.isAdmin()) return true;
+        return this.unlockedSkills.includes(disciplineScrollId(canonical));
+    }
+
+    /**
+     * Buy a Discipline's scroll from the Workshop. One-time, permanent.
+     * @returns {boolean} true when the scroll was actually bought
+     */
+    buyDisciplineScroll(classId) {
+        const canonical = normalizeMageClass(classId);
+        if (!isMageClassForCharacter(canonical, this.selectedCharacter)) return false;
+        if (this.ownsDiscipline(canonical)) return false;
+        // Spend FIRST, then record. `spendXP` re-reads totalXP, so paying after
+        // granting would hand out a free scroll to a mage who cannot afford it.
+        if (!this.spendXP(scrollCostFor(canonical))) return false;
+        this.unlockedSkills.push(disciplineScrollId(canonical));
+        this.saveProgression();
+        return true;
+    }
+
+    /**
+     * Free the scrolls a pre-gate account already earned by binding.
+     * Idempotent, and a no-op once every remembered class is owned.
+     */
+    _grantLegacyDisciplineScrolls() {
+        const owned = new Set(this.unlockedSkills);
+        let granted = false;
+        // Both the currently equipped character AND every character this account
+        // ever bound a class to, so switching skins cannot drop them to Novice.
+        for (const claim of [this.mageClass, ...Object.values(this.classByCharacter || {})]) {
+            const canonical = normalizeMageClass(claim);
+            if (scrollCostFor(canonical) === 0) continue;
+            const id = disciplineScrollId(canonical);
+            if (owned.has(id)) continue;
+            owned.add(id);
+            granted = true;
+        }
+        if (!granted) return;
+        this.unlockedSkills = [...owned];
+        // Write straight to localStorage rather than saveProgression(): this
+        // runs inside the constructor, before the DOM is bound, and it is a
+        // repair — it must never fail because the network is down.
+        localStorage.setItem('typerMaster_skills', JSON.stringify(this.unlockedSkills));
+    }
+
+    /**
      * Set the mage Discipline (AT-L8). Validated against `MageClasses.js` so the
      * stored/cloud value is always canonical; an unknown id is refused (the
      * current class survives) instead of poisoning the profile column.
+     *
+     * Owner decision 2026-09-26: binding is now GATED. The mage must own the
+     * scroll, and changing to a different Discipline costs DISCIPLINE_SWITCH_COST
+     * every time. `lastClassRefusal` says which rule stopped it, so the UI can
+     * explain the refusal instead of failing silently.
+     *
      * @returns {boolean} true when the class actually changed
      */
     setMageClass(className) {
         const chosen = normalizeMageClass(className);
         if (!isMageClassForCharacter(chosen, this.selectedCharacter) || chosen === this.mageClass) return false;
+        if (!this.ownsDiscipline(chosen)) {
+            this.lastClassRefusal = 'no-scroll';
+            return false;
+        }
+        if (!this.spendXP(DISCIPLINE_SWITCH_COST)) {
+            this.lastClassRefusal = 'insufficient-xp';
+            return false;
+        }
         this.mageClass = chosen;
+        // AT-F16: bank it against the CHARACTER, not just globally, so switching
+        // skin and switching back restores this pick instead of resetting.
+        this._rememberClassFor(this.selectedCharacter, chosen);
         this.saveProgression();
+        this.lastClassRefusal = null;
         return true;
     }
 
@@ -833,6 +1007,9 @@ export class Stats {
         localStorage.setItem('typerMaster_unlockedCharacters', JSON.stringify(this.unlockedCharacters));
         localStorage.setItem('typerMaster_wandColor', this.wandColor);
         localStorage.setItem('typerMaster_mageClass', this.mageClass || 'Novice');
+        // AT-F16: persist the per-character memory too, or the remembered picks
+        // only survive until the tab closes.
+        localStorage.setItem('typerMaster_classByCharacter', JSON.stringify(this.classByCharacter || {}));
         if (this.mageName) {
             localStorage.setItem('typerMaster_mageName', this.mageName);
         }
@@ -879,7 +1056,16 @@ export class Stats {
             wand_color: this.wandColor,
             mage_class: this.mageClass || DEFAULT_MAGE_CLASS,
             best_score: this.bestScore,
-            best_wpm: this.bestWPM
+            best_wpm: this.bestWPM,
+            // Achievements used to be the only progression that never left the
+            // browser (2026-09-26), so the 100-duel Bloodseeker route was lost on
+            // sign-out and on every device change. Read through `toCloudState()`,
+            // which SNAPSHOTS the data — handing the live Set and object to an
+            // async upsert would let a later unlock mutate the body after it was
+            // queued. Optional-chained: a guest Stats may carry no Achievements
+            // instance, and the degradation is a payload without these keys rather
+            // than a failed upsert.
+            ...(this.achievements?.toCloudState ? this.achievements.toCloudState() : {})
         };
     }
 
@@ -937,9 +1123,23 @@ export class Stats {
         if (profile.unlocked_skills) this.unlockedSkills = profile.unlocked_skills;
         if (profile.wand_color) this.wandColor = profile.wand_color;
         this.mageClass = normalizeMageClassForCharacter(this.mageClass, this.selectedCharacter);
-        if (profile.mage_class) this.mageClass = normalizeMageClassForCharacter(profile.mage_class, this.selectedCharacter);
+        if (profile.mage_class) {
+            this.mageClass = normalizeMageClassForCharacter(profile.mage_class, this.selectedCharacter);
+            // AT-F16: a cloud value arriving for the EQUIPPED character is that
+            // character's own pick — bank it, so the next skin switch can restore
+            // it instead of resetting to Novice.
+            this._rememberClassFor(this.selectedCharacter, this.mageClass);
+        }
         if (profile.best_score && profile.best_score > this.bestScore) this.bestScore = profile.best_score;
         if (profile.best_wpm && profile.best_wpm > this.bestWPM) this.bestWPM = profile.best_wpm;
+
+        // Achievements, restored from the cloud (2026-09-26). MERGED, never
+        // assigned — see `mergeCloudState` for why: both halves are purged on
+        // sign-out, so a signed-in mage who has been offline holds real local
+        // progress that a plain assignment would clobber with a stale snapshot.
+        // The merge writes through to localStorage itself, so this also covers a
+        // guest load with no cloud row.
+        this.achievements?.mergeCloudState?.(profile);
 
         // Mirror the cloud values into localStorage so an offline load or a
         // guest session does not revert them. The network write happens in the
@@ -958,7 +1158,15 @@ export class Stats {
         if (this.isAdmin()) return true;
         if (!isCharacter(charId)) return false;
         if (charId === DEFAULT_CHARACTER) return true;
-        return this.unlockedCharacters.includes(charId);
+        if (this.unlockedCharacters.includes(charId)) return true;
+        // Second route: the character declares an achievement that grants it
+        // (see Characters.js `unlockAchievement`). The achievement is NOT
+        // pushed into `unlockedCharacters` — ownership is always derived, so the
+        // two routes cannot disagree about who owns the character. Optional-
+        // chained because a guest Stats may not carry an Achievements instance.
+        const { unlockAchievement } = characterInfo(charId);
+        if (unlockAchievement && this.achievements?.unlocked?.has(unlockAchievement)) return true;
+        return false;
     }
 
     /**
@@ -987,10 +1195,35 @@ export class Stats {
     setSelectedCharacter(characterId) {
         const id = normalizeCharacter(characterId);
         if (!this.isCharacterUnlocked(id) || id === this.selectedCharacter) return false;
+        // Each character has its OWN class family, so switching character used to
+        // overwrite the pick and lose it: Wizard/Pyromancer → Voidweaver forced
+        // 'Novice', and switching BACK to Wizard could not restore Pyromancer
+        // because it had already been destroyed. The player had to re-pick their
+        // Discipline every single time they changed skin.
+        //
+        // So the class is remembered PER CHARACTER. Bank the outgoing one, then
+        // adopt whatever this character was last left on (Novice if never set).
+        this._rememberClassFor(this.selectedCharacter, this.mageClass);
         this.selectedCharacter = id;
-        this.mageClass = normalizeMageClassForCharacter(this.mageClass, id);
+        this.mageClass = this._classFor(id);
         localStorage.setItem('typerMaster_selectedCharacter', id);
         this.saveProgression();
         return true;
+    }
+
+    /**
+     * The Discipline this character was last set to, or its own Novice.
+     * Always run through the roster, so a hand-edited/stale entry (a class from
+     * a different family, a retired id) degrades instead of poisoning the state.
+     */
+    _classFor(characterId) {
+        const remembered = this.classByCharacter[characterId];
+        return normalizeMageClassForCharacter(remembered, characterId);
+    }
+
+    /** Bank `classId` as the choice for `characterId`, ignoring an invalid pair. */
+    _rememberClassFor(characterId, classId) {
+        if (!isMageClassForCharacter(classId, characterId)) return;
+        this.classByCharacter[characterId] = classId;
     }
 }

@@ -160,24 +160,28 @@ export class InputHandler {
                     }
                 }
 
-                // Fire counter-attack projectile at boss. The Bloodseeker does
-                // NOT need one: its netherblade is the strike, so the blade
-                // leaves formation the instant the word is solved and the hit
+                // Fire counter-attack projectile at boss. The Bloodseeker and the
+                // Voidweaver do NOT fire one: their weapon IS the strike, so it
+                // leaves the caster the instant the word is solved and the hit
                 // resolves with the flight instead of on an impact frame. The
-                // owner's correction: the slash must follow the WORD, not a
+                // owner's correction: the strike must follow the WORD, not a
                 // bullet, otherwise the character is just the Wizard with a
                 // decorative projectile.
                 if (this.game.isBossPhase && this.game.boss && !this.game.boss.isDead && word.isBossAttack) {
-                    if (this.game.stats.selectedCharacter !== 'bloodseeker') {
+                    const charId = this.game.stats.selectedCharacter;
+                    if (charId !== 'bloodseeker' && charId !== 'voidweaver') {
                         const startX = this.game.canvas.width / 2;
                         const startY = this.game.canvas.height - 40;
-                        const targetXOffset = (Math.random() - 0.5) * 100;
+                        // Same randomised body aim as the two melee characters,
+                        // replacing the old horizontal-only ±50px jitter.
+                        const target = this.game._bossStrikePoint?.(this.game.boss)
+                            || { x: this.game.boss.x, y: this.game.boss.y + 20 };
 
                         const colors = word.elementColors.particles;
-                        const projectile = new Projectile(startX, startY, this.game.boss.x + targetXOffset, this.game.boss.y + 20, colors, 'normal', word.text.length);
+                        const projectile = new Projectile(startX, startY, target.x, target.y, colors, 'normal', word.text.length);
                         this.game.projectiles.push(projectile);
                     } else {
-                        // The blade IS the projectile: hit now, animate the cut.
+                        // The weapon IS the projectile: hit now, animate the strike.
                         this.game.combatSystem.strikeBoss(word.text.length);
                     }
                 }

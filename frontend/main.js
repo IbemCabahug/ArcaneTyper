@@ -12,7 +12,7 @@ import { supabase } from '../backend/supabaseClient.js';
 import { dbHealth } from '../backend/dbHealth.js';
 import { syncQueue } from '../backend/syncQueue.js';
 import { DuelRace } from './game/DuelRace.js';
-import { mageClassInfo } from '../backend/MageClasses.js';
+import { mageClassInfo, classesForCharacter, DISCIPLINE_SWITCH_COST, scrollCostFor } from '../backend/MageClasses.js';
 import { characterInfo } from '../backend/Characters.js';
 import { CharacterRenderer } from './game/CharacterRenderer.js';
 
@@ -105,6 +105,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openAchievementsBtn = document.getElementById('open-achievements-icon-btn');
   const closeAchievementsBtn = document.getElementById('close-achievements-btn');
   const achievementsList = document.getElementById('achievements-list');
+  // Profile (rebuilt 2026-09-26): the compact trophy pips. Declared here with the
+  // other overlay refs because the tab controller and populateTrophyStrip()
+  // below close over it.
+  const trophyStrip = document.getElementById('profile-trophy-strip');
 
   // Duel UI
   const duelLobbyMenu = document.getElementById('duel-lobby-menu');
@@ -286,6 +290,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       const def = allDefs[id];
       const isUnlocked = unlocked.has(id);
       const isEquipped = equippedTitle === def.title;
+      // A secret counter achievement is the ONE card that shows a bare number
+      // while locked. The goal denominator is the entire clue — the condition,
+      // the character it grants, and the word "achievement" are all withheld on
+      // purpose, so the count climbing is the only thing that teaches the
+      // player something happened.
+      const isCounter = !!(def && def.counter);
+      const progressText = isCounter
+        ? `${game.achievements.getProgress(id)}/${def.counter.goal}`
+        : null;
 
       const card = document.createElement('div');
       card.style.background = isUnlocked ? 'linear-gradient(135deg, rgba(20,10,40,0.8), rgba(40,20,60,0.9))' : 'rgba(10,5,20,0.8)';
@@ -298,7 +311,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       card.innerHTML = `
           <h3 style="color: ${isUnlocked ? '#f9a825' : '#666'}; margin: 0; font-family: Cinzel, serif; letter-spacing: 1px;">${isUnlocked ? def.name : '???'}</h3>
-          <p style="color: ${isUnlocked ? '#ccc' : '#444'}; font-size: 0.85rem; margin: 0; line-height: 1.4;">${isUnlocked ? def.description : 'Locked Achievement'}</p>
+          ${isUnlocked
+            ? `<p style="color: #ccc; font-size: 0.85rem; margin: 0; line-height: 1.4;">${def.description}</p>`
+            : progressText !== null
+              ? `<p style="color: #7c6b95; font-size: 1.05rem; margin: 0; font-family: monospace; letter-spacing: 1px;">${progressText}</p>`
+              : `<p style="color: #444; font-size: 0.85rem; margin: 0; line-height: 1.4;">Locked Achievement</p>`}
           ${isUnlocked ? `<div style="margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(255,215,0,0.2);"><p style="color: #b892b0; font-size: 0.8rem; margin: 0;">Unlocks Title: <span style="color: #fff; font-weight: bold;">${def.title}</span></p></div>` : ''}
       `;
 
@@ -333,6 +350,69 @@ document.addEventListener('DOMContentLoaded', async () => {
   game.achievements.onUnlockCallback = (def) => {
     MagicalToast.show(`🏆 <b>Achievement Unlocked</b><br><span style="color: #f9a825;">${def.name}</span><br><span style="font-size: 0.8rem; color: var(--text-muted);">${def.title}</span>`, 4000);
   };
+
+  // ── Profile tabs (2026-09-26) ────────────────────────────────────────────
+  // The profile is now header / tabs / body / footer. Tabs exist so the tall
+  // Record panels cannot push RETURN and SEVER BOND below the fold.
+  // Badges were their own tab until 2026-09-26; they now sit inside the Forge
+  // panel, so the tab bar is FORGE / RECORD.
+  const profileTabs = Array.from(document.querySelectorAll('[data-profile-tab]'));
+  const profilePanels = Array.from(document.querySelectorAll('[data-profile-panel]'));
+  const selectProfileTab = (name) => {
+    profileTabs.forEach(t => {
+      const on = t.dataset.profileTab === name;
+      t.classList.toggle('is-active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    profilePanels.forEach(p => p.classList.toggle('is-active', p.dataset.profilePanel === name));
+    // Re-render the pips on entry, not only when the profile opens: an
+    // achievement can unlock mid-session (a boss kill in the arena), and a
+    // strip that still shows a stale 0/10 would be a lie. The strip moved into
+    // the FORGE panel, so that is the tab that refreshes it.
+    if (name === 'forge') populateTrophyStrip();
+    // Each panel has its own content height; a stale scroll offset from the
+    // previous tab would otherwise open the next one half-scrolled.
+    const body = document.querySelector('#profile-menu .profile-body');
+    if (body) body.scrollTop = 0;
+  };
+  profileTabs.forEach(t => t.addEventListener('click', () => selectProfileTab(t.dataset.profileTab)));
+
+  // AT-F16: the profile has NO Trophy Room button any more. It used to carry an
+  // "OPEN TROPHY ROOM" button that closed the profile, restored the start menu
+  // and opened the full achievements overlay — a second route to a screen the
+  // start menu already offers, reached by tearing down the panel you were in.
+  // The badge strip above is the in-profile summary; the full room is one click
+  // from the start menu. The main-menu trophy button and the overlay itself are
+  // untouched.
+
+  /**
+   * Compact trophy pips for the profile's TROPHIES tab, rendered from the SAME
+   * `game.achievements.definitions` the full Trophy Room reads — one source,
+   * two surfaces. A locked counter pip prints only its n/goal, matching the
+   * secret contract; an unlocked one shows its name.
+   */
+  function populateTrophyStrip() {
+    if (!trophyStrip) return;
+    trophyStrip.innerHTML = '';
+    const unlocked = game.achievements.unlocked;
+    for (const id in game.achievements.definitions) {
+      const def = game.achievements.definitions[id];
+      const got = unlocked.has(id);
+      const pip = document.createElement('div');
+      pip.className = `trophy-pip${got ? ' is-unlocked' : ''}`;
+      if (def.counter) {
+        const n = game.achievements.getProgress(id);
+        pip.innerHTML = got
+          ? `<span class="trophy-pip-name">${def.name}</span>`
+          : `<span class="trophy-pip-name">???</span><span class="trophy-pip-sub">${n}/${def.counter.goal}</span>`;
+      } else {
+        pip.innerHTML = got
+          ? `<span class="trophy-pip-name">${def.name}</span>`
+          : `<span class="trophy-pip-name">???</span><span class="trophy-pip-sub">LOCKED</span>`;
+      }
+      trophyStrip.appendChild(pip);
+    }
+  }
 
   profileUI.updateMenuStats();
 
@@ -896,6 +976,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       profileUI.updateMenuStats();
       paintSkinPreviews(); // a font swap can invalidate the baked previews
       updateForgeUI();
+      populateTrophyStrip(); // the secret counter may have moved since last open
+      selectProfileTab('forge');
 
       setMenuBehind(true);
 
@@ -917,14 +999,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     // The sprite spans ~67px around its anchor; this 0.8 scale and anchor keep the
-    // whole silhouette (halo included) inside the 160×72 strip at 0 combo.
-    ctx.translate(canvas.width / 2, 52);
+    // whole silhouette (halo included) inside the strip at 0 combo. The anchor is
+    // expressed as a FRACTION of the canvas height (52/72) so the framing is
+    // identical on the small strip and the 2× stage rather than drifting when the
+    // canvas size changes.
+    ctx.translate(canvas.width / 2, canvas.height * (52 / 72));
     ctx.scale(0.8, 0.8);
     CharacterRenderer.draw(ctx, 0, 0, characterId, 0, { combo: 0, wandColor: '#ffd700', hasSkill: () => false }, 0);
     ctx.restore();
   }
 
   function paintSkinPreviews() {
+    // The card grew from a 38px strip to a 150px stage, so the backing canvas is
+    // 2× the old strip rather than being upscaled from it. Every card canvas is
+    // resized BEFORE painting, and paintSkinPreview derives its anchor from the
+    // canvas height, so one framing rule covers both sizes.
+    skinCards.forEach(card => {
+      card.querySelectorAll('canvas.skin-preview').forEach(c => { c.width = 320; c.height = 144; });
+    });
     skinCards.forEach(card => paintSkinPreview(card.querySelector('.skin-preview'), card.dataset.char));
   }
 
@@ -957,17 +1049,84 @@ document.addEventListener('DOMContentLoaded', async () => {
         : 'rgba(0, 0, 0, 0.35)';
       card.style.removeProperty('box-shadow');
       card.style.cursor = owned ? 'pointer' : 'not-allowed';
+      // A locked card says ONE thing on hover: "Locked".
+      //
+      // This used to be `Coming Soon: ${info.blurb}`, which printed the teaser
+      // for BOTH locked cards — and the Bloodseeker's teaser is "Ancient Blood
+      // Runes & Netherblade", i.e. its whole identity, on a card whose label
+      // deliberately reads `???`. It was then overridden one block down with
+      // 'An unrecorded skin.', so the Voidweaver kept its teaser while the
+      // secret was patched; the two rules disagreed and the leak survived on
+      // the card that has a visible route.
+      //
+      // One rule, no override: ownership gets a real tooltip, anything locked
+      // gets the same two words. Nothing about a locked card is disclosed by
+      // hovering it, and the status line below still carries the real teaser
+      // for characters that have one (`0/10`).
       card.title = owned
         ? (equipped ? `${info.title} — equipped` : `Equip ${info.title}`)
-        : `Coming Soon: ${info.blurb}`;
+        : 'Locked';
 
       if (status) {
+        // A character can be earned two ways (see Characters.js
+        // `unlockAchievement`). The old label only ever printed the price, so a
+        // player who had already done the secret thing still saw
+        // "FORGE 12,000 XP" and clicking did nothing — purchaseCharacter
+        // correctly refused, so the card lied. Print the route the player is
+        // actually on instead. Read only from the roster + definitions.
+        const achId = info.unlockAchievement || null;
+        const achDef = achId ? game.achievements.definitions[achId] : null;
+        const count = achId ? game.achievements.getProgress(achId) : 0;
+        // AT-F16 (owner decision 2026-09-26): a character WITH a counter route
+        // always shows n/goal, including 0/goal.
+        //
+        // This used to require `count > 0`, on the reasoning that a fresh
+        // account should not be shown a bare "0/10" with no context for. That
+        // was wrong on both counts: it made every locked card fall through to
+        // "FORGE 12,000 XP", so the two locked skins read identically and
+        // indistinguishable; and it advertised an XP price for a character whose
+        // real route is the silent counter, contradicting the very secret the
+        // counter exists to hide. The goal is the hook — 0/10 is a promise that
+        // the card is a goal, which is strictly more information than a price.
+        const counterRoute = !owned && !!achDef?.counter;
+        // A character with NO route at all (the Bloodseeker) is unrevealed, and
+        // its status must not print a price either — `???` over "FORGE 12,000 XP"
+        // is the same contradiction the label was invented to prevent, one line
+        // lower. It reads `???` so the card gives away nothing.
+        const noRoute = !owned && !counterRoute;
         status.innerText = equipped ? 'Equipped'
           : owned ? 'Unlocked'
-            : `FORGE ${info.unlockPrice.toLocaleString()} XP`;
+            : counterRoute ? `${count}/${achDef.counter.goal}`
+              : noRoute ? '???'
+                : `FORGE ${info.unlockPrice.toLocaleString()} XP`;
         // A grey "Unlocked" label read as still-locked, so ownership state is
-        // carried by the label colour too, not only by its text.
-        status.style.color = owned ? '#ffd700' : '#64748b';
+        // carried by the label colour too, not only by its text. The counter
+        // gets its own violet so a partially-earned secret is visibly alive.
+        status.style.color = owned ? '#ffd700' : counterRoute ? '#c7d2fe' : noRoute ? '#7c6b95' : '#64748b';
+
+        // An unearned character with NO visible route reads as `???`. The
+        // Bloodseeker is the case this exists for: it is neither free, nor
+        // priced-to-a-counter, so before it has any unlock path of its own the
+        // card would otherwise announce it in full. A character that DOES have
+        // a route (the Voidweaver, at n/10) keeps its name — the counter is
+        // the teaser, and hiding the name there would throw away the hook.
+        //
+        // `secretIdentity` is the third state, added 2026-09-26: the Bloodseeker
+        // HAS a counter route (n/100) but its NAME stays `???` anyway, so
+        // winning duels is the only thing that reveals which card it is. The
+        // Voidweaver reveals itself through its counter; this one does not, and
+        // the difference is declared in the roster rather than hard-coded here.
+        const label = card.querySelector('span');
+        const revealed = owned || (!!info.unlockAchievement && !info.secretIdentity);
+        if (label) {
+          label.textContent = revealed ? info.short : '???';
+          card.classList.toggle('is-unrevealed', !revealed);
+        }
+        // No tooltip override here any more. The card title is now set ONCE
+        // above, where locked and unrevealed collapse to the same "Locked".
+        // This block used to re-assign `card.title` for the secret only, which
+        // meant the two rules had to be kept in agreement by hand — and the
+        // guard below is what caught them disagreeing.
       }
     });
   }
@@ -976,9 +1135,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     card.addEventListener('click', () => {
       const id = card.dataset.char;
       const info = characterInfo(id);
+      // AT-F16: a character the player has NOT unlocked may still be a SECRET
+      // (the Bloodseeker). Its label, tooltip and status all read `???`, and this
+      // handler used to undo all three the moment the card was clicked: the guest
+      // branch said "…to forge <real name>" and the purchase branch said "Not
+      // enough Arcane XP for <real name>. 12,000 XP required." — printing the
+      // secret's name AND its price from a card that had just hidden them.
+      //
+      // So the reveal rule is resolved ONCE, here, and every message below
+      // routes through it. It mirrors `updateForgeUI`'s `revealed` exactly — a
+      // character with a visible unlock route keeps its name, one without is
+      // never named in a toast.
+      const revealed = game.stats.isCharacterUnlocked(id) || !!info.unlockAchievement;
+      const name = revealed ? info.title : '???';
 
       if (needsMageCard()) {
-        MagicalToast.show(`The Forge needs a sealed Mage Card!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Log in or register to forge ${info.title}.</span>`);
+        // Never name a secret here, even in a login prompt. `name` is `???` for
+        // an unrevealed character, and "Log in or register to forge ???." read
+        // as a broken sentence AND leaked that the card is XP-forgeable — the
+        // same route hint the click refusal was fixed for. A prompt that cannot
+        // name its subject just asks for the card.
+        MagicalToast.locked(
+            '🔒 A sealed Mage Card is required',
+            revealed
+              ? `Log in or register to forge ${name}.`
+              : 'Log in or register to continue your journey.'
+        );
         return;
       }
 
@@ -986,18 +1168,40 @@ document.addEventListener('DOMContentLoaded', async () => {
         // The price is enforced inside Stats.purchaseCharacter (from the table),
         // so a tampered card price buys nothing.
         if (!game.stats.purchaseCharacter(id)) {
-          MagicalToast.show(`Not enough Arcane XP for ${info.title}.<br><span style='font-size: 0.8em; color: var(--text-muted);'>${info.unlockPrice.toLocaleString()} XP required.</span>`);
+          // Owner decision 2026-09-26: the refusal names the ROUTE, not the
+          // price. A character with a counter route is asking to be EARNED, so
+          // the toast points at that counter ("0/10") instead of quoting an XP
+          // figure the card deliberately stopped showing.
+          const achId = info.unlockAchievement || null;
+          const achDef = achId ? game.achievements.definitions[achId] : null;
+          if (achDef?.counter) {
+            const n = game.achievements.getProgress(achId);
+            MagicalToast.show(`${name} is not forged with XP.<br><span style='font-size: 0.8em; color: var(--text-muted);'>A hidden Discipline awaits — ${n}/${achDef.counter.goal}.</span>`);
+          } else if (revealed) {
+            MagicalToast.show(`Not enough Arcane XP for ${name}.<br><span style='font-size: 0.8em; color: var(--text-muted);'>${info.unlockPrice.toLocaleString()} XP required.</span>`);
+          } else {
+            // A secret says only `???` — the same token as its card label and
+            // status, and nothing else.
+            //
+            // Two earlier lines here were both wrong. "Not enough Arcane XP for
+            // ???." states that the card IS XP-forgeable, which is a hint about a
+            // route the player is meant to discover. And "Some things are not
+            // forged at all." then CONTRADICTED that in the next breath while
+            // still spending a sentence on it. Silence is the whole answer: the
+            // refusal has nothing to add over the card the player just clicked.
+            MagicalToast.show(name);
+          }
           return;
         }
         game.audio.playExplosion();
-        MagicalToast.show(`${info.title} forged!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Click the card again to equip it.</span>`);
+        MagicalToast.show(`${name} forged!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Click the card again to equip it.</span>`);
         updateForgeUI();
         return;
       }
 
       if (game.stats.setSelectedCharacter(id)) {
         profileUI.refreshClassSelection?.();
-        MagicalToast.show(`${info.title} equipped.`);
+        MagicalToast.show(`${name} equipped.`);
         updateForgeUI();
       }
     });
@@ -1058,7 +1262,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Workshop Listeners
   workshopBtn.addEventListener('click', () => {
     if (needsMageCard()) {
-      MagicalToast.show("The Workshop requires a sealed Mage Card!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Please log in or register to unlock upgrades.</span>");
+      MagicalToast.locked(
+        '🔒 A sealed Mage Card is required',
+        'Log in or register to unlock upgrades.'
+      );
       return;
     }
     startMenu.classList.remove('active');
@@ -1110,7 +1317,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (duelMageSilhouette) {
     duelMageSilhouette.addEventListener('click', () => {
       if (needsMageCard()) {
-        MagicalToast.show("The Arena requires a sealed Mage Card!<br><span style='font-size: 0.8em; color: var(--text-muted);'>Please log in or register to duel other mages.</span>");
+        MagicalToast.locked(
+          '🔒 A sealed Mage Card is required',
+          'Log in or register to duel other mages.'
+        );
         return;
       }
       if (!supabase) {
@@ -1289,6 +1499,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('wave-stat')?.classList.remove('hidden');
     document.getElementById('duel-scorebar')?.classList.add('hidden');
 
+    // Secret achievement route for the Bloodseeker (owner decision 2026-09-26):
+    // 100 Arena wins. Counted HERE, in endDuel, because this is the single
+    // place every duel funnels through — host and guest alike, whatever ended
+    // it (claimed a word, time, overtime, forfeit, disconnect). Bumping from the
+    // race's own resolution would miss the endings that never reach a word.
+    //
+    // A LOSS deliberately does not count: the goal is wins, and counting
+    // participation would let a mage farm it by feeding.
+    //
+    // Read from the roster rather than hard-coded, so the counter's key and goal
+    // stay in ONE place (Achievements.js) and the card's n/100 and this bump
+    // cannot disagree about what is being counted.
+    if (isWinner) {
+        const bloodseekerRoute = characterInfo('bloodseeker').unlockAchievement;
+        if (bloodseekerRoute) {
+            const reached = game.achievements.bumpProgress(bloodseekerRoute, 1);
+            const n = game.achievements.getProgress(bloodseekerRoute);
+            if (reached) {
+                // The card must stop reading `0/100` the moment it is earned, and
+                // the duel result screen is where the player already is.
+                updateForgeUI();
+            } else {
+                // A quiet, non-modal nudge. The number on the card is the real
+                // clue, so this only has to mark the duel as one that counted.
+                MagicalToast.show(
+                  `<span style="color:#ff1744; font-weight:bold;">Victory counted.</span>` +
+                  `<br><span style="font-size: 0.8em; color: var(--text-muted);">${n}/100</span>`
+                );
+            }
+        }
+    }
+
     // Result screen — race wins as the headline numbers (AT-F9)
     duelResMyScore.innerText = raceWins.mine;
     duelResOppScore.innerText = raceWins.theirs;
@@ -1462,8 +1704,77 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // ── Discipline Scrolls: the gate on class selection (owner 2026-09-26) ──
+  // The Workshop is where a Discipline is actually BOUGHT. The profile picker
+  // only binds what is owned here, so the two must read the same roster — this
+  // is built from `classesForCharacter(selectedCharacter)`, never a hand-kept
+  // list, because a second list is exactly how registration drifted to
+  // Scholar/Pyromancer/Oracle once.
+  const scrollShop = document.getElementById('discipline-scroll-list');
+  const scrollSwitchCostEl = document.getElementById('scroll-switch-cost');
+
+  function buildScrollShop() {
+    if (!scrollShop) return;
+    if (scrollSwitchCostEl) scrollSwitchCostEl.textContent = DISCIPLINE_SWITCH_COST.toLocaleString('en-US');
+    scrollShop.innerHTML = '';
+    classesForCharacter(game.stats.selectedCharacter).forEach((cls) => {
+      const cost = scrollCostFor(cls.id);
+      const owned = game.stats.ownsDiscipline(cls.id);
+      const bound = game.stats.mageClass === cls.id;
+
+      const card = document.createElement('div');
+      card.className = 'scroll-shop-card';
+      card.style.borderColor = cls.color;
+      // The free one is not a purchase — it is the floor every account stands on.
+      card.innerHTML =
+        `<div class="scroll-shop-title" style="color:${cls.color};">${cls.title}</div>` +
+        `<div class="scroll-shop-tagline">${cls.tagline}</div>` +
+        `<div class="scroll-shop-blurb">${cls.blurb}</div>`;
+      const btn = document.createElement('button');
+      btn.className = 'scroll-shop-buy';
+      btn.dataset.class = cls.id;
+      if (bound) {
+        btn.textContent = 'BOUND';
+        btn.classList.add('bound');
+        btn.disabled = true;
+      } else if (owned) {
+        btn.textContent = 'OWNED — BIND IN PROFILE';
+        btn.classList.add('owned');
+      } else if (cost === 0) {
+        btn.textContent = 'FREE';
+      } else {
+        btn.textContent = `BUY SCROLL — ${cost.toLocaleString('en-US')} XP`;
+        btn.classList.toggle('unaffordable', game.stats.totalXP < cost);
+      }
+      card.appendChild(btn);
+      scrollShop.appendChild(card);
+    });
+  }
+
+  scrollShop?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.scroll-shop-buy');
+    if (!btn || btn.disabled) return;
+    const id = btn.dataset.class;
+    const info = mageClassInfo(id);
+    if (game.stats.buyDisciplineScroll(id)) {
+      game.audio.playExplosion();
+      MagicalToast.show(
+        `<span style="color:${info.color}; font-weight:bold;">${info.title}</span> scroll acquired.` +
+        `<br><span style="font-size: 0.8em; color: var(--text-muted);">Bind it from your Discipline picker — ${info.blurb}</span>`
+      );
+    } else {
+      MagicalToast.show(
+        `Not enough Arcane XP for the ${info.title} scroll.` +
+        `<br><span style="font-size: 0.8em; color: var(--text-muted);">${scrollCostFor(id).toLocaleString('en-US')} XP required.</span>`
+      );
+    }
+    updateWorkshopUI();
+    profileUI.refreshClassSelection?.();
+  });
+
   function updateWorkshopUI() {
     buildTalentTree();
+    buildScrollShop();
 
     workshopXp.innerText = game.stats.totalXP;
     workshopLevel.innerText = game.stats.playerLevel;

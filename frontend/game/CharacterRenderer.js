@@ -1373,7 +1373,14 @@ export class CharacterRenderer {
             { dx: 37, dy: 2, size: 6.4, tilt: 0.34, phase: Math.PI * 1.5 }
         ];
         const armY = vy - 13;
-        for (const w of wellArm) {
+        // A leased well is GONE from formation. `stats.voidWells.leases[i]` is the
+        // Game-side lease: a well in flight cannot be leased again, the cursor
+        // rotates 0→1→2→3, and the collapse it was leased for is CONSUMED — it
+        // does not come home, so there is nothing to draw back at the anchor.
+        const wellLeases = (stats && stats.voidWells && stats.voidWells.leases) || null;
+        for (let wi = 0; wi < wellArm.length; wi++) {
+            if (wellLeases && wellLeases[wi]) continue;
+            const w = wellArm[wi];
             const breath = 1 + Math.sin(now / 900 + w.phase) * 0.07;
             const size = w.size * breath;
             const wx = cx + w.dx;
@@ -1529,6 +1536,31 @@ export class CharacterRenderer {
             ctx.ellipse(x, y - 4, 11, 3.2, 0, 0, Math.PI * 2);
             ctx.stroke();
 
+            // THE HOOD (owner decision 2026-09-26) — option C, replacing the old
+            // "tall cowl peak". Two separate faults, only one of them fixed by
+            // paint order:
+            //   1. OCCLUSION — the peak was painted after the rim, so its fill ate
+            //      the top of the cyan circle. Reordering it behind closed the rim.
+            //   2. NO CONTRAST — it was #030614, DARKER THAN THE ARENA FLOOR
+            //      (#0f0a14 / #06030c), so even the unoccluded part read as a
+            //      smudge rather than cloth. No amount of reordering fixes that.
+            // So it is rebuilt as a garment: the mantle's own #101542, a violet
+            // edge so the brim catches light, and — the part that makes it read —
+            // a base WIDER THAN THE COWL DISC (±13.5 against ±9.5), so its sides
+            // emerge on BOTH sides of the head instead of hiding behind it.
+            // The face is still absent: the starfield does that, unchanged.
+            ctx.fillStyle = '#101542';
+            ctx.strokeStyle = 'rgba(124, 77, 255, 0.85)';
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.moveTo(x - 13.5, y - 19);
+            ctx.quadraticCurveTo(x, y - 14.5, x + 13.5, y - 19);
+            ctx.lineTo(x + 3.5, y - 44);
+            ctx.lineTo(x - 3.5, y - 44);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
             // Cowl: bent-light rim around a starfield (absence, not a face).
             ctx.fillStyle = '#050a24';
             ctx.strokeStyle = '#00e5ff';
@@ -1543,15 +1575,6 @@ export class CharacterRenderer {
                 ctx.arc(x + star[0], y - 23 + star[1], 0.7, 0, Math.PI * 2);
                 ctx.fill();
             }
-            // Tall cowl peak
-            ctx.fillStyle = '#030614';
-            ctx.beginPath();
-            ctx.moveTo(x - 9.5, y - 22);
-            ctx.quadraticCurveTo(x, y - 19, x + 9.5, y - 22);
-            ctx.lineTo(x + 2, y - 42);
-            ctx.lineTo(x - 2, y - 42);
-            ctx.closePath();
-            ctx.fill();
         });
     }
 

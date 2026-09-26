@@ -52,6 +52,7 @@ function check(name, condition, detail = '') {
     if (!condition) failures++;
     console.log(`${condition ? 'PASS' : 'FAIL'}  ${name}${condition || !detail ? '' : `  (${detail})`}`);
 }
+
 const count = (src, needle) => src.split(needle).length - 1;
 
 /** Body of an exact CSS rule, e.g. `.stat-box.stat-acc { ... }` (indent-agnostic). */

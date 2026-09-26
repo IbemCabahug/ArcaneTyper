@@ -1,0 +1,74 @@
+-- =============================================================================
+-- Arcane Typer — achievement persistence (2026-09-26)
+-- =============================================================================
+-- WHY THIS FILE EXISTS
+--
+-- Achievements were the ONLY progression in the game that never left the
+-- browser. `frontend/Achievements.js` wrote two localStorage keys and read
+-- nothing back from the cloud:
+--
+--   typerMaster_achievements          — the unlocked id Set
+--   typerMaster_achievementProgress   — the partial counter, e.g. { pvpWins: 42 }
+--
+-- `_buildProfilePayload` in backend/Stats.js synced total_xp, unlocked_skills,
+-- mage_class and the rest, so everything else followed a mage between devices
+-- and these two keys did not. Concretely, a mage who ground the Bloodseeker's
+-- 100-duel route had no way to keep it:
+--
+--   1. Signed out  → both keys are in PROGRESSION_KEYS and are purged, so the
+--      grind was simply gone.
+--   2. Changed device or cleared site data → same, silently.
+--   3. Reached 100 duels → the Bloodseeker unlocked on that one browser only.
+--
+-- The 100-duel route made this expensive rather than cosmetic: the achievement
+-- was the ONLY way to earn the character without paying 12,000 XP.
+--
+-- This script is IDEMPOTENT and ADDITIVE: two columns, no drops, no rewrites,
+-- no data migration. Existing rows get the defaults ('[]' and '{}'), which is
+-- exactly what a mage who has never earned anything should read.
+--
+-- HOW TO RUN
+--   Supabase dashboard -> SQL Editor -> paste this file -> Run.
+--   Then re-run the query in section 3 to verify.
+--
+-- The client degrades gracefully if these columns are missing (see
+-- `_upsertProfile` / `isMissingColumnError`), so running this is additive to
+-- correctness rather than required to avoid a failure. Until it is run, the
+-- game simply keeps the old local-only behaviour.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1. profiles — the two achievement columns the client will now sync
+-- -----------------------------------------------------------------------------
+-- `unlocked_achievements` is a jsonb ARRAY of ids, matching the shape of
+-- `unlocked_skills` (also a jsonb array) so the two read the same way in SQL.
+-- `achievement_progress` is a jsonb OBJECT keyed by the counter key declared in
+-- frontend/Achievements.js (`bossKillsNoSupernova`, `pvpWins`).
+alter table public.profiles
+    add column if not exists unlocked_achievements jsonb not null default '[]'::jsonb;
+alter table public.profiles
+    add column if not exists achievement_progress   jsonb not null default '{}'::jsonb;
+
+-- -----------------------------------------------------------------------------
+-- 2. why the client MERGES rather than overwrites
+-- -----------------------------------------------------------------------------
+-- On load, backend/Stats.js unions the cloud ids with the local ones and takes
+-- the per-key MAX of the counters. It deliberately does not assign the cloud
+-- value over the local one the way `unlocked_skills` does.
+--
+-- Reason: these two keys are purged on sign-out, so local state is EMPTY for a
+-- returning mage and the cloud is the only source. But a mage who is signed in
+-- and offline has real local progress, and a plain assignment would overwrite
+-- it with a stale cloud snapshot — losing a 100-duel grind to a race. A union
+-- and a max are both idempotent and monotone: they can only ever ADD progress,
+-- so replaying them, running them out of order, or applying the same snapshot
+-- twice can never destroy anything. `unlocked_skills` can afford a plain assign
+-- because it is never purged mid-session; these can be, by definition.
+--
+-- No index is needed: `profiles` is only ever read by primary key (`eq('id')`).
+
+-- -----------------------------------------------------------------------------
+-- 3. verify (run after applying)
+-- -----------------------------------------------------------------------------
+-- Expected: two rows of `[]` / `{}` for any mage who has not earned anything.
+-- select unlocked_achievements, achievement_progress from public.profiles;

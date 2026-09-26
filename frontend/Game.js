@@ -26,6 +26,13 @@ import { drawCasterSigil, drawTimeStopSeal } from './game/ArenaSigils.js';
  */
 const BLADE_CATCH_TYPED = 0.6;
 
+/**
+ * How long one Voidweaver per-word implosion is drawn for once it lands on the
+ * boss. Long enough to read the collapse, short enough that a fast typist
+ * chaining words never stacks more than a couple of them.
+ */
+const VOID_IMPLOSION_MS = 340;
+
 export class Game {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -72,6 +79,13 @@ export class Game {
         this.supernovaFx = null;
         this.voidWardUntil = 0;
 
+        // Whether the Supernova has been cast DURING THE CURRENT BOSS FIGHT.
+        // Read by the secret `the_unspoken` achievement, which counts bosses
+        // killed without it. Reset in startBossPhase (not only in reset()) so
+        // each boss scores independently — banking the ultimate across bosses
+        // and spending it on the eleventh still counts the tenth.
+        this.supernovaUsedThisBoss = false;
+
         // Bloodseeker's four netherblades are a ROTATING STRIKE POOL. Each
         // solved boss word leases exactly one blade; a blade cannot be leased
         // again until it has flown out, cut, and been recalled. The cursor
@@ -79,6 +93,15 @@ export class Game {
         // the recall simply takes the next free blade instead of re-firing
         // one already in the air.
         this.bladeSlash = { next: 0, leases: [null, null, null, null] };
+
+        // The Voidweaver's four singularities are the same rotating lease pool
+        // the blades use, but a leased well is CONSUMED rather than recalled: it
+        // leaves formation and implodes on the boss. Unlike the blade pool these
+        // must keep regenerating — the Voidweaver's damage scales on the
+        // player's OWN streak, so a non-returning pool would go silent exactly
+        // during the long streaks the character exists to reward.
+        this.voidWells = { next: 0, leases: [null, null, null, null] };
+        this.voidImplosions = [];
 
         // Screen shake
         this.shakeTimer = 0;
@@ -301,6 +324,14 @@ export class Game {
         this.duelTimeStopSlot = null;
         this.supernovaFx = null;
         this.voidWardUntil = 0;
+        // A new run starts with a clean slate. startBossPhase also clears it per
+        // boss, but a run must never inherit the previous run's last boss.
+        this.supernovaUsedThisBoss = false;
+        // Drop any in-flight singularity strike. A pending entry whose dueAt is
+        // still in the future would otherwise pop an implosion in the middle of
+        // the NEXT run, at the previous boss's coordinates.
+        this.voidWells = { next: 0, leases: [null, null, null, null] };
+        this.voidImplosions = [];
         this._bossSummonsCleared = false;
         this.bladeSlash = { next: 0, leases: [null, null, null, null] };
 
@@ -544,6 +575,10 @@ export class Game {
             this.shakeTimer = Math.max(0, this.shakeTimer - dt);
         }
 
+        // A leased Voidweaver well reaches the boss on its own schedule, not on
+        // the frame the word was solved.
+        this._drainVoidImplosions();
+
 
 
         // Boss Logic
@@ -571,6 +606,17 @@ export class Game {
             // Wait for death animation to fully finish before ending phase
             if (this.boss.isFullyDead() && this.words.length === 0 && this.projectiles.length === 0) {
                 this.achievements.onEvent('boss_defeated');
+                // Secret `the_unspoken`: a boss killed without spending the
+                // Supernova counts. Read BEFORE endBossPhase, and the flag is
+                // per-boss so a cast on any earlier boss never disqualifies
+                // this one.
+                if (!this.supernovaUsedThisBoss) {
+                    const reached = this.achievements.bumpProgress('the_unspoken', 1);
+                    if (!reached) {
+                        const n = this.achievements.getProgress('the_unspoken');
+                        this.floatingTexts.push(new FloatingText(`${n}/10`, this.boss.x, this.boss.y - 40, '#c7d2fe', 26));
+                    }
+                }
                 this.endBossPhase();
             }
         }
@@ -915,7 +961,7 @@ export class Game {
                 // are represented by the HUD pool, never by stacked rings.
                 if (this.stats.lives > 0) {
                     const radius = this.stats.hasSkill('life') ? r4 : r3;
-                    this._blitBarrier(this._barrierImg('voidward', '#00e5ff', radius, 0), wizX, shieldY);
+                    this._blitBarrier(this._barrierImg('voidward', '#536dfe', radius, 0), wizX, shieldY);
                 }
             } else if (defenseMode !== 'lives') {
                 const barriers = [
@@ -995,8 +1041,10 @@ export class Game {
             // the run state, and stripped again immediately after the draw so
             // no later code path can mistake it for persistent stats.
             this.stats.bladeSlash = this.bladeSlash;
+            this.stats.voidWells = this.voidWells;
             CharacterRenderer.draw(this.ctx, wizX, wizY, this.stats.selectedCharacter, animProgress, this.stats);
             this.stats.bladeSlash = null;
+            this.stats.voidWells = null;
         }
         this.ctx.restore();
 
@@ -1046,6 +1094,9 @@ export class Game {
         // --- Character Supernova cinematics (presentation only) ---
         this._drawBloodMoonSupernova();
         this._drawVoidCollapseSupernova();
+        // Per-word implosions draw last so they land ON the boss rather than
+        // being swallowed by it.
+        this._drawVoidImplosions();
 
         // --- Blind Overlay ---
         if (this.blindTimer > 0) {
@@ -1321,11 +1372,16 @@ export class Game {
         }
 
         // Central Blood-Oath sigil: the Moon is the source, while this complete
-        // ritual geometry is what the Moon awakens in the middle of the canvas.
+        // ritual geometry is what the Moon awakens in. It converges on the
+        // recorded target, so during a boss fight the ritual is centred on the
+        // boss rather than on empty canvas beside it.
         if (stage >= 2 && stage <= 6) {
             const sigilAlpha = (stage === 2 ? 0.20 + local * 0.18 : stage >= 5 ? 0.76 - local * 0.12 : 0.42 + local * 0.14) * fade;
             ctx.save();
-            ctx.translate(w / 2, h / 2);
+            ctx.translate(
+                Number.isFinite(fx.cx) ? fx.cx : w / 2,
+                Number.isFinite(fx.cy) ? fx.cy : h / 2
+            );
             const sigilSpin = stage * 0.12 + Math.PI / 6;
             ctx.globalAlpha = sigilAlpha;
             ctx.strokeStyle = '#ff1744';
@@ -1394,8 +1450,15 @@ export class Game {
         const h = this.canvas.height;
         const stage = Math.min(9, Math.floor(elapsed / 100));
         const local = (elapsed % 100) / 100;
-        const cx = w / 2;
-        const cy = h / 2;
+        // The collapse converges on the recorded target (the boss during a boss
+        // fight), but the edge field stays anchored to the SCREEN. It is a
+        // screen-space vignette, and re-centring it on a boss hovering near the
+        // top would push the far side past its radius, where canvas clamps to
+        // the last stop and leaves the bottom of the screen flat black.
+        const sx = w / 2;
+        const sy = h / 2;
+        const cx = Number.isFinite(fx.cx) ? fx.cx : sx;
+        const cy = Number.isFinite(fx.cy) ? fx.cy : sy;
         const lowQ = window.__atLowQuality;
         const maxRadius = Math.max(w, h) * 0.68;
         const collapse = stage < 2
@@ -1412,7 +1475,7 @@ export class Game {
 
         // A void field closes around the edges while the center remains the
         // readable target. It is intentionally translucent, not a blackout.
-        const edge = ctx.createRadialGradient(cx, cy, maxRadius * 0.25, cx, cy, maxRadius);
+        const edge = ctx.createRadialGradient(sx, sy, maxRadius * 0.25, sx, sy, maxRadius);
         edge.addColorStop(0, 'rgba(7, 0, 24, 0)');
         edge.addColorStop(0.68, `rgba(8, 0, 28, ${0.20 + Math.min(0.30, stage * 0.04)})`);
         edge.addColorStop(1, `rgba(0, 0, 8, ${0.68 * fade})`);
@@ -1459,39 +1522,19 @@ export class Game {
         }
 
         if (release) {
-            ctx.save();
-            ctx.translate(cx, cy);
-            ctx.globalAlpha = (stage === 6 ? 0.85 : 0.52) * fade;
-            ctx.fillStyle = '#020008';
-            ctx.beginPath();
-            ctx.arc(0, 0, 18 + stage * 7, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#00e5ff';
-            ctx.lineWidth = lowQ ? 1.2 : 2.4;
-            ctx.shadowColor = '#7c4dff';
-            ctx.shadowBlur = lowQ ? 0 : 18;
-            ctx.beginPath();
-            ctx.arc(0, 0, 24 + stage * 8, 0, Math.PI * 2);
-            ctx.stroke();
-            // Lensed release: stretched light leaves the singularity without
-            // becoming a generic radial explosion.
-            for (let i = 0; i < 8; i++) {
-                const a = i * Math.PI / 4 + stage * 0.05;
-                const inner = 24 + stage * 5;
-                const outer = inner + 34 + stage * 7;
-                ctx.strokeStyle = i % 2 ? `rgba(0,229,255,${0.24 * fade})` : `rgba(192,132,252,${0.34 * fade})`;
-                ctx.lineWidth = lowQ ? 0.8 : 1.4;
-                ctx.beginPath();
-                ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner * 0.62);
-                ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer * 0.62);
-                ctx.stroke();
-            }
-            ctx.strokeStyle = `rgba(216,250,255,${0.30 * fade})`;
-            ctx.lineWidth = lowQ ? 0.8 : 1.2;
-            ctx.beginPath();
-            ctx.ellipse(0, 0, 30 + stage * 9, (30 + stage * 9) * 0.42, 0, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.restore();
+            // The Supernova's own release beat, at its original 6..9 stage sizes.
+            // It paints through the shared _drawVoidImplosionAt helper so the
+            // per-word boss strike can never drift from the ultimate it imitates.
+            this._drawVoidImplosionAt(cx, cy, stage, {
+                scale: 1,
+                alpha: (stage === 6 ? 0.85 : 0.52) * fade,
+                core: '#020008',
+                rim: '#00e5ff',
+                shadow: '#7c4dff',
+                rayA: `rgba(0, 229, 255, ${0.24 * fade})`,
+                rayB: `rgba(192, 132, 252, ${0.34 * fade})`,
+                glint: `rgba(216, 250, 255, ${0.30 * fade})`
+            });
         }
 
         if (stage === 5 || stage === 6) {
@@ -1510,6 +1553,180 @@ export class Game {
             ctx.restore();
         }
         ctx.restore();
+    }
+
+    /**
+     * The Voidweaver's implosion, shared by the Supernova's release beat and the
+     * per-word boss strike. Both the character cinematic and every single strike
+     * paint through this one function, which is what guarantees the strike can
+     * never quietly drift away from the ultimate it is imitating — the owner's
+     * ask was literally "our supernova, but only the 2nd part".
+     *
+     * @param {number} x  centre x
+     * @param {number} y  centre y
+     * @param {number} t  0..1 progress through the beat
+     * @param {object} o  { scale, alpha, core, rim, shadow, rayA, rayB, glint }
+     */
+    _drawVoidImplosionAt(x, y, stage, o) {
+        const ctx = this.ctx;
+        const lowQ = window.__atLowQuality;
+        const s = o.scale;
+        // NOTE: these are the Supernova's ORIGINAL release radii, still driven by
+        // the 6..9 `stage` progression. An earlier refactor substituted a 0..1
+        // progress value here, which silently halved the ultimate's release beat
+        // with no guard failing. `stage` is the size driver; `s` is the only knob.
+        const coreR = (18 + stage * 7) * s;
+        const rimR = (24 + stage * 8) * s;
+        const inner = (24 + stage * 5) * s;
+        const outer = inner + (34 + stage * 7) * s;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.globalAlpha = o.alpha;
+
+        ctx.fillStyle = o.core;
+        ctx.beginPath();
+        ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = o.rim;
+        ctx.lineWidth = (lowQ ? 1.2 : 2.4) * s;
+        ctx.shadowColor = o.shadow;
+        ctx.shadowBlur = lowQ ? 0 : 18 * s;
+        ctx.beginPath();
+        ctx.arc(0, 0, rimR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Lensed release: stretched light leaves the singularity without
+        // becoming a generic radial explosion.
+        for (let i = 0; i < 8; i++) {
+            const a = i * Math.PI / 4 + stage * 0.05;
+            ctx.strokeStyle = i % 2 ? o.rayA : o.rayB;
+            ctx.lineWidth = (lowQ ? 0.8 : 1.4) * s;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner * 0.62);
+            ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer * 0.62);
+            ctx.stroke();
+        }
+
+        ctx.strokeStyle = o.glint;
+        ctx.lineWidth = (lowQ ? 0.8 : 1.2) * s;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, (30 + stage * 9) * s, (30 + stage * 9) * s * 0.42, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    /**
+     * A random point ON the boss, used to aim the strike PRESENTATION.
+     *
+     * This deliberately lives on Game and not in CombatSystem: the
+     * damage-determinism guard slices CombatSystem from `bossStrikeDamage`
+     * through `spawnReaverArc` — a range that includes strikeBoss — and
+     * forbids Math.random() in it. Damage is a function of typing performance
+     * and never of chance, so the randomness has to stay out of that slice
+     * entirely. Here it is a pure target picker: bossStrikeDamage never sees it.
+     *
+     * The sample is an ellipse around the boss's body, not a full circle. A 360
+     * degree pick lands strikes at the boss's feet or above its head often
+     * enough to read as a whiff rather than as variety. The radius also never
+     * reaches zero, so two consecutive words never land on the exact same spot
+     * and the repeated-strike silhouette stops looking mechanical.
+     *
+     * @returns {{x:number,y:number}|null}
+     */
+    _bossStrikePoint(boss = this.boss) {
+        if (!boss) return null;
+        const angle = Math.random() * Math.PI * 2;
+        const r = 0.3 + Math.random() * 0.7;
+        return {
+            x: boss.x + Math.cos(angle) * 50 * r,
+            // +25 is the boss's visual centre: its draw origin is the head and
+            // the robes hang below it, so boss.y alone sits high on the sprite.
+            y: boss.y + 25 + Math.sin(angle) * 62 * r
+        };
+    }
+
+    /**
+     * Lease one of the Voidweaver's four singularities to collapse into the
+     * boss. Same rotating lease discipline as the Bloodseeker's netherblades —
+     * a well in flight cannot be leased again, and the cursor rotates — but the
+     * terminal beat differs by design: a blade slashes and is RECALLED, while a
+     * singularity is CONSUMED. It implodes on the target and does not come home.
+     *
+     * Damage resolves on the word (see InputHandler), so this only schedules
+     * presentation. The implosion is QUEUED rather than fired on the spot
+     * because the collapse has to land after the well has visibly left the
+     * caster; firing both on one frame reads as an undifferentiated pop at the
+     * boss with no visible source — the exact defect that made the old
+     * projectile-and-crush read as "the Wizard with a decoration".
+     *
+     * @returns {number} the leased well index, or -1 if all four are in flight
+     */
+    _leaseVoidWell(targetX, targetY, duration = 520) {
+        if (!this.voidWells) this.voidWells = { next: 0, leases: [null, null, null, null] };
+        if (!this.voidImplosions) this.voidImplosions = [];
+        const now = performance.now();
+
+        for (let i = 0; i < 4; i++) {
+            const active = this.voidWells.leases[i];
+            if (active && now - active.startedAt >= active.duration) this.voidWells.leases[i] = null;
+        }
+        for (let n = 0; n < 4; n++) {
+            const idx = (this.voidWells.next + n) % 4;
+            if (!this.voidWells.leases[idx]) {
+                this.voidWells.leases[idx] = { startedAt: now, duration, targetX, targetY };
+                this.voidWells.next = (idx + 1) % 4;
+                this.voidImplosions.push({ x: targetX, y: targetY, dueAt: now + duration * 0.66, startedAt: 0 });
+                return idx;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Promote any due well into a live implosion and retire finished ones. The
+     * particle burst and the drawn core are driven from the same entry, so the
+     * motes and the collapse can never desync or double-fire on a dropped frame.
+     */
+    _drainVoidImplosions() {
+        if (!this.voidImplosions || !this.voidImplosions.length) return;
+        const now = performance.now();
+        for (let i = this.voidImplosions.length - 1; i >= 0; i--) {
+            const im = this.voidImplosions[i];
+            if (!im.startedAt) {
+                if (now < im.dueAt) continue;
+                im.startedAt = now;
+                this.combatSystem?.spawnVoidImplode?.(im.x, im.y);
+            }
+            if (now - im.startedAt >= VOID_IMPLOSION_MS) this.voidImplosions.splice(i, 1);
+        }
+    }
+
+    /** Paint every live per-word implosion. Runs after the boss, so it lands in its face. */
+    _drawVoidImplosions() {
+        if (!this.voidImplosions || !this.voidImplosions.length) return;
+        const now = performance.now();
+        for (const im of this.voidImplosions) {
+            if (!im.startedAt) continue;
+            const k = (now - im.startedAt) / VOID_IMPLOSION_MS;
+            if (k < 0 || k >= 1) continue;
+            // Bright at the strike, then collapsing away to nothing.
+            const alpha = 0.92 * (k < 0.7 ? 1 : (1 - k) / 0.3);
+            // The same 6..9 stage sweep as the Supernova, scaled to ~0.8 so a
+            // single word's collapse covers the boss instead of being a dot on
+            // it. Still unmistakably the same beat, just a per-word one.
+            this._drawVoidImplosionAt(im.x, im.y, 6 + k * 3, {
+                scale: 0.8,
+                alpha,
+                core: '#05021a',
+                rim: '#c7d2fe',
+                shadow: '#7c4dff',
+                rayA: 'rgba(199, 210, 254, 0.32)',
+                rayB: 'rgba(124, 77, 255, 0.34)',
+                glint: 'rgba(224, 231, 255, 0.30)'
+            });
+        }
     }
 
     /** Bloodseeker's streak milestone restores a lost layer and announces it. */
@@ -1887,6 +2104,9 @@ export class Game {
 
     startBossPhase() {
         this.isBossPhase = true;
+        // Per-boss, not per-run: this is what makes the secret achievement count
+        // ten INDEPENDENT fights instead of "one Supernova-free run".
+        this.supernovaUsedThisBoss = false;
 
         const elements = ['fire', 'ice', 'lightning', 'void'];
         const randomElement = elements[Math.floor(Math.random() * elements.length)];

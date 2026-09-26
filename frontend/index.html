@@ -506,6 +506,27 @@
             <p style="color: #b892b0;">Player Rank: <span id="workshop-level">1</span></p>
           </div>
 
+            <!-- Discipline Scrolls (owner decision 2026-09-26) --------------------
+                 The gate on class selection. A Discipline costs a one-time
+                 scroll HERE; the profile picker then binds any scroll the mage
+                 owns. Options are BUILT from MageClasses.js by
+                 buildScrollShop() — never hand-write a roster here, that is how
+                 registration drifted to Scholar/Pyromancer/Oracle once.
+
+                 This panel deliberately sits ABOVE the talent tree, full width.
+                 Beside/below it, it fell below the fold behind a 12-node tree —
+                 the control that decides which Discipline you may use was the one
+                 thing on the page nobody could see. -->
+            <div class="workshop-panel" id="discipline-scroll-panel"
+              style="width: 100%; max-width: 1200px; padding: 20px; margin-bottom: 2rem;">
+              <h3 style="color: #ffd700; margin-bottom: 0.35rem; text-align: center;">Discipline Scrolls</h3>
+              <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem; text-align: center;">
+                Buy a scroll once to own that Discipline forever. Binding a scroll you own costs
+                <span id="scroll-switch-cost">1,000</span> XP per change.
+              </p>
+              <div id="discipline-scroll-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;"></div>
+            </div>
+
           <div
             style="display: flex; flex-wrap: wrap; gap: 2rem; width: 100%; max-width: 1200px; justify-content: center;">
             <!-- Skill Trees -->
@@ -513,6 +534,19 @@
               <h3
                 style="color: #00e5ff; margin-bottom: 1.5rem; text-align: center; border-bottom: 1px solid rgba(0,229,255,0.3); padding-bottom: 10px;">
                 Mystic Arts (Talent Tree)</h3>
+
+              <!-- Owner decision 2026-09-26: the branches are FANTASY GROUPING,
+                   not locks. Every effect is a bare `hasSkill(id)` check that never
+                   reads `mageClass`, so a node bought under one branch keeps
+                   working with ANY bound Discipline, forever. Only the Discipline
+                   passive is exclusive (one bound at a time, via a scroll).
+                   Stated on screen so "it still works" reads as the promise it is
+                   rather than looking like the branch silently failed to lock. -->
+              <p
+                class="talent-tree-note">
+                Every node is yours permanently. Each one works with whichever
+                Discipline is bound — the branches group the lore, they do not lock
+                the power. Only your bound Discipline itself is exclusive.</p>
 
               <!-- AT-L8 / AT-F10: the tree mirrors the four Workshop Disciplines.
                    Bloodseeker is deliberately Arena-only (`workshop: false`).
@@ -849,124 +883,183 @@
       </div>
 
       <!-- Mage Profile Menu -->
-      <div id="profile-menu" class="overlay-menu hidden"
-        style="z-index: 35; justify-content: flex-start; overflow-y: auto;">
-        <div
-          style="margin: auto; padding: 5px 0; display: flex; flex-direction: column; align-items: center; width: 100%; pointer-events: none;">
-          <h2 style="position: relative; z-index: 10; pointer-events: auto; margin-bottom: 0; font-size: 1.6rem;">MAGE
-            PROFILE</h2>
-          <div class="profile-content"
-            style="display: flex; flex-direction: column; gap: 0.8rem; width: 400px; max-width: 90vw; padding: 0.8rem; position: relative; z-index: 10; pointer-events: auto;">
+      <!-- Mage Profile Menu.
+           Rebuilt 2026-09-26. The old markup centred a flex child with
+           `margin: auto` INSIDE the scroll container (itself overridden by
+           `margin: 0 auto` in CSS), gave that child `pointer-events: none`
+           with the children re-enabling it, and clamped `.profile-content` to
+           `max-height: 100%` while the title sat outside it — so the panel
+           scrolled only over panels, dead over the gaps, and clipped its last
+           section. The structure is now the standard flex column:
+             header (sticky) / tabs (sticky) / body (THE scroll container) / footer (sticky)
+           with `min-height: 0` on the body, which is what actually makes an
+           inner scroller work instead of pushing the page. -->
+      <div id="profile-menu" class="overlay-menu hidden">
+        <div class="profile-shell">
 
-            <div style="text-align: center;">
-              <p style="color: var(--text-muted); font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase;">
-                Mage
-                Title</p>
-              <h3 id="profile-nickname"
-                style="color: #ffd700; font-size: clamp(1.1rem, 4vw, 1.5rem); margin-top: 3px; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); word-wrap: break-word; overflow-wrap: break-word;">
-                Unknown Mage</h3>
+          <header class="profile-identity">
+            <div class="profile-identity-main">
+              <p class="profile-label">Mage Title</p>
+              <h3 id="profile-nickname" class="profile-title-name">Unknown Mage</h3>
             </div>
-
-            <div style="text-align: center;">
-              <p style="color: var(--text-muted); font-size: 0.9rem; letter-spacing: 1px; text-transform: uppercase;">
-                True
-                Name (Login ID)</p>
-              <p id="profile-username"
-                style="color: white; font-size: clamp(0.9rem, 4vw, 1.2rem); margin-top: 5px; font-family: monospace; word-wrap: break-word; overflow-wrap: break-word;">
-                unknown</p>
-            </div>
-
-            <div style="text-align: center;">
-              <p style="color: var(--text-muted); font-size: 0.9rem; letter-spacing: 1px; text-transform: uppercase;">
-                Discipline (Class)</p>
-              <select id="mage-class-select"
-                style="background: transparent; border: none; color: #00e5ff; font-size: 1.2rem; margin-top: 5px; font-family: var(--font-family); outline: none; text-align: center; cursor: pointer; text-shadow: 0 0 10px rgba(0, 229, 255, 0.5); font-weight: bold;">
-                <!-- AT-L8: options are BUILT from backend/MageClasses.js by
-                     ProfileUI.setupClassSelection (it clears this element first, so
-                     the old four options that lived here were dead markup).
-                     Never re-add the roster here — a second list in markup is
-                     exactly how the registration picker drifted to
-                     Scholar/Pyromancer/Oracle. -->
-              </select>
-            </div>
-
-            <!-- Character Skin Selection -->
-            <div style="text-align: center; padding: 8px 10px; border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 8px; background: rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.05);">
-              <p style="color: var(--text-muted); font-size: 0.75rem; letter-spacing: 1.5px; margin-bottom: 8px; text-transform: uppercase; font-weight: 600;">Avatar Skins</p>
-              <div id="character-skin-grid" style="display: flex; justify-content: space-around; gap: 8px; margin-top: 5px;">
-                
-                <!-- Wizard Card -->
-                <div class="skin-card" id="skin-wizard" data-char="wizard" style="cursor: pointer; flex: 1; padding: 6px; border: 1.5px solid var(--accent-primary); border-radius: 6px; background: rgba(255, 255, 255, 0.02); transition: all 0.3s ease; position: relative;">
-                  <div class="skin-avatar-preview wizard-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-                    <!-- AT-F16: every preview here is painted by CharacterRenderer.draw()
-                         — the same call the arena makes for the player and the opponent —
-                         so a card can never promise art the game does not have. No raster
-                         images, no hand-drawn SVG stand-ins. -->
-                    <canvas class="skin-preview" width="160" height="72"></canvas>
-                  </div>
-                  <span style="font-size: 0.7rem; font-weight: bold; color: white; display: block;">WIZARD</span>
-                  <span class="skin-status" style="font-size: 0.55rem; color: #ffd700; display: block; font-family: monospace; margin-top: 1px;">Unlocked</span>
-                </div>
-
-                <!-- Voidweaver (Coming Soon) -->
-                <div class="skin-card locked" id="skin-voidweaver" data-char="voidweaver" style="cursor: not-allowed; flex: 1; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: 6px; background: rgba(0, 0, 0, 0.35); transition: all 0.3s ease; position: relative;" title="Coming Soon: Astral Gravitation & Singularity Magic">
-                  <div class="skin-avatar-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-                    <canvas class="skin-preview" width="160" height="72"></canvas>
-                  </div>
-                  <span style="font-size: 0.7rem; font-weight: bold; color: #00e5ff; display: block;">VOIDWEAVER</span>
-                  <span class="skin-status" style="font-size: 0.55rem; color: #64748b; display: block; font-family: monospace; margin-top: 1px;">IN FORGE</span>
-                </div>
-
-                <!-- Bloodseeker (Coming Soon). AT-F16: owner decision 2026-09-23 —
-                     the id was renamed to match the owner's name (the old spelling
-                     and the decision are recorded in future_feature.md AT-F16);
-                     `bloodseeker` is the character id and will be the class id's
-                     identity too. Locked by verify:skins. -->
-                <div class="skin-card locked" id="skin-bloodseeker" data-char="bloodseeker" style="cursor: not-allowed; flex: 1; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: 6px; background: rgba(0, 0, 0, 0.35); transition: all 0.3s ease; position: relative;" title="Coming Soon: Ancient Blood Runes & Netherblade">
-                  <div class="skin-avatar-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-                    <canvas class="skin-preview" width="160" height="72"></canvas>
-                  </div>
-                  <span style="font-size: 0.7rem; font-weight: bold; color: #ff1744; display: block;">BLOODSEEKER</span>
-                  <span class="skin-status" style="font-size: 0.55rem; color: #64748b; display: block; font-family: monospace; margin-top: 1px;">IN FORGE</span>
-                </div>
-
+            <div class="profile-identity-side">
+              <div class="profile-identity-cell">
+                <p class="profile-label">True Name</p>
+                <p id="profile-username" class="profile-username">unknown</p>
+              </div>
+              <div class="profile-identity-cell">
+                <p class="profile-label">Discipline</p>
+                <select id="mage-class-select" class="profile-class-select">
+                  <!-- AT-L8: options are BUILT from backend/MageClasses.js by
+                       ProfileUI.setupClassSelection (it clears this element first, so
+                       the old four options that lived here were dead markup).
+                       Never re-add the roster here — a second list in markup is
+                       exactly how the registration picker drifted to
+                       Scholar/Pyromancer/Oracle. -->
+                </select>
               </div>
             </div>
+          </header>
 
-            <!-- Run History Graph -->
-            <div
-              style="text-align: center; padding: 5px 10px; border: 1px solid rgba(41, 182, 246, 0.3); border-radius: 8px; background: rgba(0, 0, 0, 0.4);">
-              <p style="color: var(--text-muted); font-size: 0.75rem; letter-spacing: 1px; margin-bottom: 3px;">WPM
-                History (Last 10 Runs)</p>
-              <canvas id="profile-history-chart" width="350" height="110"
-                style="display: block; margin: 0 auto;"></canvas>
-            </div>
-            <!-- Recent Runs — cloud run_history with a local-buffer fallback -->
-            <div
-              style="text-align: center; padding: 8px 10px; border: 1px solid rgba(213, 0, 249, 0.3); border-radius: 8px; background: rgba(0, 0, 0, 0.4);">
-              <p style="color: var(--text-muted); font-size: 0.75rem; letter-spacing: 1px; margin-bottom: 6px;">Recent Runs (Last
-                5)</p>
-              <ul id="profile-recent-runs" class="recent-run-list">
-                <li class="recent-run-empty">Loading your history...</li>
-              </ul>
-            </div>
+          <nav class="profile-tabs" role="tablist">
+            <button class="profile-tab is-active" data-profile-tab="forge" role="tab" aria-selected="true">FORGE</button>
+            <button class="profile-tab" data-profile-tab="record" role="tab" aria-selected="false">RECORD</button>
+          </nav>
 
+          <div class="profile-body">
+            <section class="profile-panel is-active" data-profile-panel="forge">
+              <div class="profile-card forge-panel-card">
+                <p class="profile-card-title">Avatar Skins</p>
 
-            <div
-              style="text-align: center; padding: 10px; border: 1px dashed var(--text-muted); border-radius: 8px; background: rgba(255, 255, 255, 0.05);">
-              <p style="color: var(--text-muted); font-size: 0.8rem; letter-spacing: 1px;">Badges & Achievements</p>
-              <p style="color: #b892b0; font-size: 0.75rem; margin-top: 5px; font-style: italic;">Coming Soon in Phase
-                4
-              </p>
-            </div>
+                <!-- Skin showcase (2026-09-26). The three cards used to be SLIDES in
+                     one track, navigated by arrows/dots and scrolled one card at a
+                     time. That hid two thirds of a three-card roster behind
+                     navigation, and the navigation existed only because the cards
+                     were too big to show at once.
 
-            <div style="display: flex; gap: 10px; margin-top: 0.5rem;">
-              <button id="close-profile-btn" class="primary-btn" style="flex: 1; font-size: 0.9rem;">RETURN</button>
-              <button id="logout-btn" class="primary-btn"
-                style="flex: 1; border-color: var(--accent-danger); color: var(--accent-danger); font-size: 0.9rem;">SEVER
-                BOND</button>
-            </div>
+                     They are all visible now, in one bordered row, and the EQUIPPED
+                     skin is the one drawn large: it is the character you are
+                     actually playing, so it gets the height, and its two
+                     neighbours sit smaller beside it. The equipped card is
+                     centred vertically and breaks out above and below the others,
+                     which is what makes it read as the selected one without a
+                     single arrow or dot.
+
+                     The track keeps the id `character-skin-grid` on purpose: every
+                     existing selector and guard resolves `.skin-card` as a
+                     DESCENDANT of it, so the cards can move freely. All three
+                     canvases stay mounted and painted once at boot. -->
+                <div class="skin-showcase" id="character-skin-grid">
+                  <div class="skin-showcase-row">
+
+                      <!-- Wizard Card -->
+                      <div class="skin-card" id="skin-wizard" data-char="wizard" style="cursor: pointer; padding: 6px; border: 1.5px solid var(--accent-primary); border-radius: 6px; background: rgba(255, 255, 255, 0.02); transition: all 0.3s ease; position: relative;">
+                        <div class="skin-avatar-preview wizard-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
+                          <!-- AT-F16: every preview here is painted by CharacterRenderer.draw()
+                               — the same call the arena makes for the player and the opponent —
+                               so a card can never promise art the game does not have. No raster
+                               images, no hand-drawn SVG stand-ins. -->
+                          <canvas class="skin-preview" width="160" height="72"></canvas>
+                        </div>
+                        <span style="font-size: 0.7rem; font-weight: bold; color: white; display: block;">WIZARD</span>
+                        <span class="skin-status" style="font-size: 0.55rem; color: #ffd700; display: block; font-family: monospace; margin-top: 1px;">Unlocked</span>
+                      </div>
+
+                      <!-- Voidweaver. Owner request 2026-09-26: the shipped
+                           `title` carried the card's full teaser (and a stale
+                           "Coming Soon" phase). A locked card's hover text is
+                           now exactly "Locked" — one rule, set in
+                           updateForgeUI — so the markup says the same thing.
+                           It is what a player sees before updateForgeUI runs,
+                           and it must not contradict the post-boot state. -->
+                      <div class="skin-card locked" id="skin-voidweaver" data-char="voidweaver" style="cursor: not-allowed; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: 6px; background: rgba(0, 0, 0, 0.35); transition: all 0.3s ease; position: relative;" title="Locked">
+                        <div class="skin-avatar-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
+                          <canvas class="skin-preview" width="160" height="72"></canvas>
+                        </div>
+                        <span style="font-size: 0.7rem; font-weight: bold; color: #536dfe; display: block;">VOIDWEAVER</span>
+                        <span class="skin-status" style="font-size: 0.55rem; color: #c7d2fe; display: block; font-family: monospace; margin-top: 1px;">0/10</span>
+                      </div>
+
+                      <!-- Bloodseeker. AT-F16: owner decision 2026-09-23 —
+                           the id was renamed to match the owner's name (the old spelling
+                           and the decision are recorded in future_feature.md AT-F16);
+                           `bloodseeker` is the character id and will be the class id's
+                           identity too. Locked by verify:skins. The card's LABEL is
+                           replaced with ??? at runtime while it is locked, so the
+                           Bloodseeker is not announced before it is earned.
+
+                           Owner request 2026-09-26: the shipped `title` carried
+                           the card's full teaser, which for this card IS its
+                           entire identity, on a card whose label says `???`.
+                           It now ships "Locked" to match the runtime rule.
+
+                           Owner decision 2026-09-26: the status now ships
+                           `0/100`, not `???`. This card gained a secret
+                           counter route (`the_bloodied_standard`, 100 Arena
+                           wins — it replaced an earlier "die without typing"
+                           condition that punished the behaviour the game
+                           wants). The route is visible; the IDENTITY is not:
+                           the label stays `???` via `secretIdentity` in
+                           Characters.js, so winning duels is the only thing
+                           that reveals which card this is. The status colour
+                           is the same counter violet the Voidweaver uses. -->
+                      <div class="skin-card locked" id="skin-bloodseeker" data-char="bloodseeker" style="cursor: not-allowed; padding: 6px; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: 6px; background: rgba(0, 0, 0, 0.35); transition: all 0.3s ease; position: relative;" title="Locked">
+                        <div class="skin-avatar-preview" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
+                          <canvas class="skin-preview" width="160" height="72"></canvas>
+                        </div>
+                        <span style="font-size: 0.7rem; font-weight: bold; color: #ff1744; display: block;">???</span>
+                        <span class="skin-status" style="font-size: 0.55rem; color: #c7d2fe; display: block; font-family: monospace; margin-top: 1px;">0/100</span>
+                      </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- Badges live INSIDE the Forge panel, below the skins (2026-09-26).
+                   They used to be a third tab, which meant a tab whose whole
+                   content was one card, and a click to see progress you were
+                   already looking next to. Skins and badges are the same thing
+                   to a player — what you have and what you are working toward —
+                   so they read as one column and the tab bar drops to two. -->
+              <div class="profile-card">
+                <p class="profile-card-title">Badges &amp; Achievements</p>
+                <!-- These pips are rendered by populateTrophyStrip() in main.js
+                     from the SAME game.achievements.definitions the full Trophy
+                     Room reads — one source, two surfaces. The old markup here
+                     was a hardcoded "Coming Soon in Phase 4" placeholder, so the
+                     profile kept claiming the trophy room did not exist after it
+                     shipped. -->
+                <div id="profile-trophy-strip" class="trophy-strip"></div>
+              </div>
+            </section>
+
+            <section class="profile-panel" data-profile-panel="record">
+              <!-- Run History Graph -->
+              <div
+                style="text-align: center; padding: 8px 10px; border: 1px solid rgba(41, 182, 246, 0.3); border-radius: 8px; background: rgba(0, 0, 0, 0.4);">
+                <p style="color: var(--text-muted); font-size: 0.75rem; letter-spacing: 1px; margin-bottom: 5px;">WPM
+                  History (Last 10 Runs)</p>
+                <canvas id="profile-history-chart" width="350" height="110"
+                  style="display: block; margin: 0 auto;"></canvas>
+              </div>
+              <!-- Recent Runs — cloud run_history with a local-buffer fallback -->
+              <div
+                style="text-align: center; padding: 8px 10px; border: 1px solid rgba(213, 0, 249, 0.3); border-radius: 8px; background: rgba(0, 0, 0, 0.4);">
+                <p style="color: var(--text-muted); font-size: 0.75rem; letter-spacing: 1px; margin-bottom: 6px;">Recent
+                  Runs (Last 5)</p>
+                <ul id="profile-recent-runs" class="recent-run-list">
+                  <li class="recent-run-empty">Loading your history...</li>
+                </ul>
+              </div>
+            </section>
           </div>
+
+          <footer class="profile-footer">
+            <button id="close-profile-btn" class="primary-btn" style="flex: 1; font-size: 0.9rem;">RETURN</button>
+            <button id="logout-btn" class="primary-btn"
+              style="flex: 1; border-color: var(--accent-danger); color: var(--accent-danger); font-size: 0.9rem;">SEVER
+              BOND</button>
+          </footer>
         </div>
       </div>
 

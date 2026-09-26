@@ -1,5 +1,5 @@
 import { MagicalToast } from './MagicalToast.js';
-import { DEFAULT_MAGE_CLASS, classesForCharacter, mageClassInfo, normalizeMageClassForCharacter } from '../../backend/MageClasses.js';
+import { DEFAULT_MAGE_CLASS, DISCIPLINE_SWITCH_COST, classesForCharacter, mageClassInfo, normalizeMageClassForCharacter, scrollCostFor } from '../../backend/MageClasses.js';
 
 export class ProfileUI {
     constructor(game) {
@@ -49,6 +49,23 @@ export class ProfileUI {
                 opt.textContent = cls.title;
                 opt.style.background = 'var(--bg-deep)';
                 opt.style.textShadow = 'none';
+                // Each option must carry its OWN colour. Without this every
+                // option inherits `color` from the parent <select>, which
+                // `applyClassAccent` paints with the SELECTED class — so the
+                // whole dropdown was one colour: all green on Novice, and all
+                // orange the moment Pyromancer was picked, dragging Cryomancer
+                // and Chronomancer with it. The roster colours were always
+                // correct; they were just never reaching the option elements.
+                opt.style.color = cls.color;
+                // Owner decision 2026-09-26: a Discipline the mage has not bought
+                // is labelled with its scroll price so the menu states the rule
+                // before the click, rather than refusing and explaining after.
+                // (The option stays ENABLED on purpose — `disabled` would grey it
+                // out and swallow the explanation entirely.)
+                if (!this.game.stats.ownsDiscipline(cls.id)) {
+                    opt.textContent = `${cls.title} — 🔒 ${scrollCostFor(cls.id).toLocaleString('en-US')} XP`;
+                    opt.dataset.locked = '1';
+                }
                 select.appendChild(opt);
             });
             if (!classesForCharacter(this.game.stats.selectedCharacter).some((c) => c.id === this.game.stats.mageClass)) {
@@ -67,9 +84,28 @@ export class ProfileUI {
             if (changed) {
                 MagicalToast.show(
                     `Discipline bound: <span style="color:${info.color}; font-weight:bold;">${info.title}</span>` +
-                    `<br><span style="font-size: 0.8em; color: var(--text-muted);">${info.blurb}</span>`
+                    `<br><span style="font-size: 0.8em; color: var(--text-muted);">${info.blurb}</span>` +
+                    // Never let the surcharge be a surprise: it is money, and a
+                    // silent deduction reads as a bug.
+                    `<br><span style="font-size: 0.8em; color: var(--text-muted);">Binding cost ${DISCIPLINE_SWITCH_COST.toLocaleString('en-US')} XP.</span>`
                 );
                 if (this.game.audio) this.game.audio.playSound('click');
+                return;
+            }
+            // A refusal: explain WHICH rule stopped it. `setMageClass` records
+            // the reason, and `applyClassAccent` above has already snapped the
+            // control back to the real bound class, so the menu never lies.
+            if (this.game.stats.lastClassRefusal === 'no-scroll') {
+                const target = mageClassInfo(chosen);
+                MagicalToast.show(
+                    `<span style="color:${target.color}; font-weight:bold;">${target.title}</span> needs its scroll.` +
+                    `<br><span style="font-size: 0.8em; color: var(--text-muted);">Buy the Discipline Scroll in the Workshop for ${scrollCostFor(chosen).toLocaleString('en-US')} XP.</span>`
+                );
+            } else if (this.game.stats.lastClassRefusal === 'insufficient-xp') {
+                MagicalToast.show(
+                    'Not enough Arcane XP to re-bind.' +
+                    `<br><span style="font-size: 0.8em; color: var(--text-muted);">Changing Discipline costs ${DISCIPLINE_SWITCH_COST.toLocaleString('en-US')} XP.</span>`
+                );
             }
         });
     }

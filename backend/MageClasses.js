@@ -47,6 +47,11 @@ export const MAGE_CLASSES = [
         title: 'Novice',
         tagline: 'Balanced & Economy',
         color: '#4CAF50',
+        // Owner decision 2026-09-26: the XP price of this Discipline's scroll in
+        // the Workshop. 0 means the Discipline is free — Novice is the shared
+        // default and must never be behind a paywall, or a fresh account has no
+        // legal first pick.
+        scroll: 0,
         workshop: true,
         characters: ['wizard', 'voidweaver', 'bloodseeker'],
         blurb: 'No specialisation — a clean slate. PvP-only Arena active: Arcane Surge.',
@@ -64,6 +69,7 @@ export const MAGE_CLASSES = [
         title: 'Pyromancer',
         tagline: 'Destruction & Combo',
         color: '#FF5722',
+        scroll: 8000,
         workshop: true,
         characters: ['wizard'],
         blurb: '+20% score from every word (which also feeds XP). PvP-only Arena active: Cinder Brand.',
@@ -81,6 +87,7 @@ export const MAGE_CLASSES = [
         title: 'Cryomancer',
         tagline: 'Control & Warding',
         color: '#4dd0e1',
+        scroll: 8000,
         workshop: true,
         characters: ['wizard'],
         blurb: 'Words fall slower in Survival. PvP-only Arena active: Glacial Ward.',
@@ -98,6 +105,7 @@ export const MAGE_CLASSES = [
         title: 'Chronomancer',
         tagline: 'Time & Mana',
         color: '#d500f9',
+        scroll: 8000,
         workshop: true,
         characters: ['wizard'],
         blurb: 'Casting the Nova refunds 50 mana. PvP-only Arena active: Time Stop.',
@@ -114,7 +122,13 @@ export const MAGE_CLASSES = [
         id: 'Singulist',
         title: 'Singulist',
         tagline: 'Gravity & Momentum',
-        color: '#7c4dff',
+        scroll: 8000,
+        // Owner decision 2026-09-26: the Voidweaver's three Disciplines all
+        // wear the CHARACTER's identity colour (#536dfe, Characters.js
+        // `voidweaver`) instead of three near-identical violets. They were
+        // #7c4dff / #536dfe / #8b5cf6 — a spread of under 26 Delta-E across the
+        // family, so a Voidweaver's own actives did not read as one character.
+        color: '#536dfe',
         workshop: false,
         characters: ['voidweaver'],
         blurb: 'A collapsing point of gravity. PvP-only Arena active: Crushing Gravity.',
@@ -131,6 +145,7 @@ export const MAGE_CLASSES = [
         id: 'Nullwarden',
         title: 'Nullwarden',
         tagline: 'Event Horizon & Denial',
+        scroll: 8000,
         color: '#536dfe',
         workshop: false,
         characters: ['voidweaver'],
@@ -148,7 +163,8 @@ export const MAGE_CLASSES = [
         id: 'Riftbinder',
         title: 'Riftbinder',
         tagline: 'Space & Binding',
-        color: '#8b5cf6',
+        scroll: 8000,
+        color: '#536dfe',
         workshop: false,
         characters: ['voidweaver'],
         blurb: 'Binds the opponent to a weakened fold. PvP-only Arena active: Rift Tether.',
@@ -166,6 +182,7 @@ export const MAGE_CLASSES = [
         title: 'Hemomancer',
         tagline: 'Blood & Ruin',
         color: '#ff1744',
+        scroll: 8000,
         workshop: false,
         characters: ['bloodseeker'],
         blurb: 'Turns won claims into health. PvP-only Arena active: Blood Pact.',
@@ -183,6 +200,7 @@ export const MAGE_CLASSES = [
         title: 'Reaper',
         tagline: 'Execution & Ruin',
         color: '#b00020',
+        scroll: 8000,
         workshop: false,
         characters: ['bloodseeker'],
         blurb: 'A patient hunter that grows stronger as the opponent weakens. PvP-only Arena active: Final Cut.',
@@ -200,6 +218,7 @@ export const MAGE_CLASSES = [
         title: 'Bloodruner',
         tagline: 'Sacrifice & Fury',
         color: '#e53935',
+        scroll: 8000,
         workshop: false,
         characters: ['bloodseeker'],
         blurb: 'Writes a dangerous contract into the body. PvP-only Arena active: Bloodletting.',
@@ -217,6 +236,28 @@ export const MAGE_CLASSES = [
 /** The eight active kinds across ten Disciplines. Kept explicit so the host
  * arbitrates from the roster rather than a second local effect table. */
 export const MAGE_ACTIVE_KINDS = ['damage', 'combo_damage', 'mitigation', 'opponent_weaken', 'time_stop', 'lifesteal', 'execution', 'self_sacrifice'];
+
+/**
+ * Owner decision 2026-09-26: a Discipline costs a one-time scroll, but CHANGING
+ * to a different one costs this much every time.
+ *
+ * A scroll is owned forever, so without a surcharge the optimal play is to buy
+ * every scroll on the first run and then hop to whatever suits the current run
+ * for free — which deletes the whole point of the tree. The surcharge is
+ * deliberately small next to a scroll (1/8th) so an established mage can still
+ * experiment freely; it taxes the cheap repetitive act, not the decision.
+ */
+export const DISCIPLINE_SWITCH_COST = 1000;
+
+/** The scroll id for a Discipline, used in the `unlockedSkills` ledger. */
+export function disciplineScrollId(classId) {
+    return `discipline-scroll:${normalizeMageClass(classId)}`;
+}
+
+/** The XP cost of a Discipline's scroll. Normalised, so junk yields the free one. */
+export function scrollCostFor(classId) {
+    return mageClassInfo(classId).scroll || 0;
+}
 
 // AT-F14 migration: the old character name was also briefly used as the class
 // id. Preserve the saved Blood Pact choice for existing Bloodseeker profiles.

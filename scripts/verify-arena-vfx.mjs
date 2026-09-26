@@ -26,12 +26,36 @@ const projectile = read('frontend/Projectile.js');
 const input = read('frontend/game/InputHandler.js');
 const duelRace = read('frontend/game/DuelRace.js');
 const race = duelRace;
+const achievements = read('frontend/Achievements.js');
+const characters = read('backend/Characters.js');
+const migration = read('supabase/migrations/20260926_achievement_persistence.sql');
+
+// The Voidweaver's identity colour, read out of the ONE roster rather than
+// repeated here. Owner decision 2026-09-26 moved it to the Nullwarden indigo
+// (#536dfe); the three assertions below used to hard-code the old cyan, so
+// every future repricing would have failed the build on a literal. Deriving it
+// keeps this guard testing the real invariant — the survival ward and the
+// defense pool agree with `backend/Characters.js` — instead of testing a hex.
+const voidColor = ((read('backend/Characters.js')
+    .match(/id: 'voidweaver'[\s\S]*?color: '(#[0-9a-fA-F]{6})'/) || [])[1] || '#00e5ff');
+const bloodColor = ((read('backend/Characters.js')
+    .match(/id: 'bloodseeker'[\s\S]*?color: '(#[0-9a-fA-F]{6})'/) || [])[1] || '#ff1744');
 // The Reaper's own function body, so the "rejected shapes must not return"
 // assertions cannot be satisfied (or defeated) by an unrelated mark. A bare
 // `i < 3` search over the whole file would match Bloodletting's legitimate
 // triangle loop.
 const reaperSrc = (() => {
     const at = sigils.indexOf('function drawReaperMark(');
+    if (at < 0) return '';
+    const end = sigils.indexOf('\n}\n', at);
+    return sigils.slice(at, end < 0 ? sigils.length : end);
+})();
+// The Nullwarden's own body, for the same reason: the guard that the incoming
+// vector stays removed must be scoped to THIS function. A whole-file search for
+// `lineTo` or `closePath()` would match the Singulist, Riftbinder and every
+// other mark, and could never assert an absence.
+const nullwardenSrc = (() => {
+    const at = sigils.indexOf('function drawNullwardenMark(');
     if (at < 0) return '';
     const end = sigils.indexOf('\n}\n', at);
     return sigils.slice(at, end < 0 ? sigils.length : end);
@@ -116,7 +140,7 @@ check('Bloodseeker Supernova places the Moon upper-right and a complete central 
     combat.includes("kind: 'blood-moon'") && combat.includes('duration: 1000') &&
         game.includes('_drawBloodMoonSupernova()') && game.includes('Math.floor(elapsed / 100)') &&
         game.includes('const moonX = w * 0.82') && game.includes('const moonY = h * 0.18') &&
-        game.includes('ctx.translate(w / 2, h / 2)') && game.includes('const sigilSpin') &&
+        game.includes('Number.isFinite(fx.cx) ? fx.cx : w / 2,') && game.includes('const sigilSpin') &&
         game.includes("ctx.fillText('BLOOD MOON'"));
 check('Bloodseeker Supernova keeps the shared meteor-shatter foundation and palette',
     combat.includes('this.spawnBurst(cx, cy, palette.particles);') &&
@@ -189,6 +213,27 @@ check('the Reaper mark is A RETICLE: a sniper sight, not a weapon or a face',
         !reaperSrc.includes('ellipse(0, 0, irisR * .26') &&
         !reaperSrc.includes("fillStyle = '#0b0205';") &&
         !reaperSrc.includes('ctx.lineTo(0, -r * 1.02);'));
+check('no accent colour is shared between two characters',
+    // The Voidweaver's Novice accent was #c7f9ff — the same hex the Cryomancer
+    // uses for `glacial-ward` — so a Voidweaver and a Wizard painted the same
+    // dashed ring and expiry arc. Accents are the quietest colour in the sigil
+    // (companion ring + expiry arc), which is exactly why a collision there goes
+    // unnoticed. This asserts every character-scoped accent is unique, so the
+    // next recolour cannot quietly reintroduce a shared hex.
+    (() => {
+        const tintAccent = (id) => (sigils.match(new RegExp(`${id}: \\{ color: '(#[0-9a-fA-F]{6})', accent: '(#[0-9a-fA-F]{6})'`)) || [])[2];
+        const vw = tintAccent('voidweaver');
+        if (!vw) return false;
+        // The Wizard-only actives are the ones a Voidweaver could collide with:
+        // Novice falls through to the shared arcane palette, so it is excluded.
+        const others = ['arcane-surge', 'cinder-brand', 'glacial-ward', 'time-stop',
+            'blood-pact', 'final-cut', 'bloodletting',
+            'crushing-gravity', 'event-horizon', 'rift-tether']
+            .map((s) => (sigils.match(new RegExp(`'${s}': \\{ color: '(#[0-9a-fA-F]{6})', accent: '(#[0-9a-fA-F]{6})'`)) || [])[2])
+            .filter(Boolean);
+        return !others.includes(vw);
+    })(),
+    'the Voidweaver accent collides with another active — accents must be unique per character');
 check('the Novice mark is painted in the CHARACTER\'s own identity colour',
     // The Novice active is one shared Discipline, so its mark has to be
     // per-character — and the cheapest way to be attributable is to wear the
@@ -205,6 +250,37 @@ check('the Novice mark is painted in the CHARACTER\'s own identity colour',
             tintOf('bloodseeker') === colourOf('bloodseeker');
     })(),
     'CHARACTER_TINT has drifted from backend/Characters.js');
+check('every Voidweaver Discipline wears the CHARACTER identity colour',
+    // The Novice check above only covers the shared Discipline. The other three
+    // Voidweaver actives belong to exactly one character each, so they read
+    // `EFFECTS[skillId]` directly and were free to drift onto three unrelated
+    // violets (#7c4dff / #536dfe / #8b5cf6) while the character wore one colour
+    // — a Voidweaver's own actives did not read as one character. Both files are
+    // checked against backend/Characters.js, so the roster stays the one source.
+    (() => {
+        const classes = read('backend/MageClasses.js');
+        const vwColour = voidColor;
+        const owned = (classes.match(/id: '(Singulist|Nullwarden|Riftbinder)'[\s\S]*?color: '(#[0-9a-fA-F]{6})'/g) || []);
+        const rosterOk = owned.length === 3 && owned.every((l) => l.includes(vwColour));
+        const effectOf = (skill) => (sigils.match(new RegExp(`'${skill}': \\{ color: '(#[0-9a-fA-F]{6})'`)) || [])[1];
+        const sigilOk = ['crushing-gravity', 'event-horizon', 'rift-tether']
+            .every((s) => effectOf(s) === vwColour);
+        return rosterOk && sigilOk;
+    })(),
+    'the Voidweaver Disciplines or their sigils have drifted from backend/Characters.js');
+check('no OTHER character family was collapsed into a shared colour',
+    // The guard above proves the Voidweaver is unified; this proves the fix was
+    // not applied by flattening the roster. Every other character's actives must
+    // keep their own distinct hue, or "one colour per character" quietly became
+    // "one colour for everyone".
+    (() => {
+        const classes = read('backend/MageClasses.js');
+        const other = (classes.match(/characters: \['wizard'\][\s\S]*?active: \{/g) || []).length;
+        const wizardColours = (classes.match(/id: '(Pyromancer|Cryomancer|Chronomancer)'[\s\S]*?color: '(#[0-9a-fA-F]{6})'/g) || [])
+            .map((l) => l.match(/color: '(#[0-9a-fA-F]{6})'/)[1]);
+        return other >= 3 && new Set(wizardColours).size === wizardColours.length;
+    })(),
+    'the Wizard Disciplines must keep distinct colours — only the Voidweaver was meant to unify');
 check('the Novice FRAME wears the character colour too, not just the interior',
     // The violet-frame bug: drawNova was character-aware but drawCasterSigil
     // resolved its palette from EFFECTS[skillId] alone, so the glow, the solid
@@ -268,11 +344,16 @@ check('each Voidweaver mark encodes its own mechanic, not decoration',
     // SINGULIST: rings collapsing inward to a dense core (scales off own combo).
     sigils.includes('for (const [rad, lw] of [[r * .98, 1], [r * .70, 1.5], [r * .44, 1.2]])') &&
         sigils.includes("core.addColorStop(0, 'rgba(0, 0, 0, 0.96)');") &&
-        // NULLWARDEN: an incoming vector that STOPS at the ring, and an empty
-        // interior — denial is drawn by absence, so nothing is past the wall.
+        // NULLWARDEN: a sealed wall and an EMPTY interior — denial is drawn by
+        // absence, so nothing is past the barrier. Owner decision 2026-09-26
+        // removed the incoming vector and its arrowhead: the shaft was 100%
+        // occluded by the filled arrowhead, so the mark rendered as a bare
+        // triangle. The guard now pins the ABSENCE so it cannot creep back.
         sigils.includes('function drawNullwardenMark') &&
-        sigils.includes('ctx.moveTo(-r * 1.12, 0);') &&
         sigils.includes('ctx.arc(0, 0, r * .92, 0, Math.PI * 2);') &&
+        !nullwardenSrc.includes('ctx.moveTo(-r * 1.12, 0);') &&
+        !nullwardenSrc.includes('ctx.closePath();') &&
+        !nullwardenSrc.includes('lineTo') &&
         // RIFTBINDER: a vertical tear with the tether stretched across it.
         sigils.includes('function drawRiftbinderMark') &&
         sigils.includes('ctx.moveTo(0, -slit);') &&
@@ -290,7 +371,7 @@ check('the active sigil is painted before the mage sprite, keeping the body read
 
 check('Survival uses one outer Voidweaver absorption ward and no Bloodseeker ward ring',
     game.includes("const defenseMode = this.stats.getSurvivalDefenseMode()") &&
-        game.includes("this._barrierImg('voidward', '#00e5ff', radius, 0)") &&
+        game.includes(`this._barrierImg('voidward', '${voidColor}', radius, 0)`) &&
         game.includes("else if (defenseMode !== 'lives')") &&
         !game.includes("this.stats.selectedCharacter === 'bloodseeker' ? 'bloodward'"));
 check('Voidweaver has a pooled meteor-absorption animation centred on the ward',
@@ -304,12 +385,12 @@ check('Bloodseeker ready Moon is a progressive background charge indicator, hide
         game.includes("const backgroundAlpha = 0.18 + readiness * 0.24;") &&
         game.includes("this.stats.selectedCharacter !== 'bloodseeker'"));
 check('Survival defense pools share stable character colors',
-    stats.includes("if (this.selectedCharacter === 'voidweaver') return '#00e5ff';") &&
-        stats.includes("if (this.selectedCharacter === 'bloodseeker') return '#ff1744';") &&
+    stats.includes(`if (this.selectedCharacter === 'voidweaver') return '${voidColor}';`) &&
+        stats.includes(`if (this.selectedCharacter === 'bloodseeker') return '${bloodColor}';`) &&
         stats.includes('heart.style.backgroundColor = defenseColor;') &&
         stats.includes('heart.style.boxShadow = `0 0 10px ${defenseColor}`;'));
 check('the Voidweaver shield is a clean circle with no vertical radial spokes',
-    game.includes("this._barrierImg('voidward', '#00e5ff', radius, 0)") &&
+    game.includes(`this._barrierImg('voidward', '${voidColor}', radius, 0)`) &&
         game.includes('no radial spokes') &&
         !game.includes('ctx.lineTo(cx + Math.cos(a) * (radius + 10), cy + Math.sin(a) * (radius + 10));'));
 check('boss meteor impact feedback is character-specific and distinct from ordinary streak breaks',
@@ -602,7 +683,7 @@ if (leaseSingle && leaseVolley) {
 }
 
 check('CombatSystem leases a blade per boss strike and volleys on Supernova',
-    combat.includes('this.game._leaseBladeSlash?.(boss.x, boss.y + 20);') &&
+    combat.includes('this.game._leaseBladeSlash?.(hit.x, hit.y);') &&
     combat.includes('this.game._leaseBladeVolley?.(this.game.boss.x, this.game.boss.y + 20);'));
 
 check('the renderer reads the lease and moves a leasing blade off its anchor',
@@ -646,15 +727,140 @@ check("the netherblades keep their own deep crimson (the owner called it perfect
 // Regression: the slash used to fire on the Projectile's IMPACT, so the
 // character threw an arcane bolt and only slashed when the bolt landed. The
 // blade must leave formation the moment the word is solved.
-check('the Bloodseeker throws no arcane bullet — the netherblade is the strike',
-    input.includes("if (this.game.stats.selectedCharacter !== 'bloodseeker') {") &&
-    input.includes('this.game.combatSystem.strikeBoss(word.text.length);'),
-    'expected the bloodseeker branch to strike on the word, not on a projectile');
-check('the Wizard and Voidweaver still fire their projectile',
+// Two characters now strike with their weapon instead of a bullet. Scoped to
+// the exact source statements: a comment saying the Voidweaver no longer fires
+// must NOT be able to satisfy this — that mistake is exactly how the old
+// "still fire their projectile" assertion survived the rework.
+check('neither the Bloodseeker nor the Voidweaver throws an arcane bullet',
+    input.includes("if (charId !== 'bloodseeker' && charId !== 'voidweaver') {") &&
+    input.includes('this.game.combatSystem.strikeBoss(word.text.length);') &&
+    !input.includes("this.game.stats.selectedCharacter !== 'bloodseeker') {"),
+    'expected the weapon branch to strike on the word, not on a projectile');
+check('the Wizard is the only character that still fires a projectile',
     input.includes('this.game.projectiles.push(projectile);') &&
     input.includes('word.text.length)'));
-check('the projectile impact path still exists for the other two characters',
+check('the projectile impact path still exists for the Wizard',
     game.includes('this.combatSystem.strikeBoss(proj.wordLength);'));
+
+// ── Voidweaver: the singularity IS the strike ───────────────────────────────
+// Regression: the Voidweaver used to fire the generic bullet and then pop a
+// crush at the boss on impact, which is the "Wizard with a decorative
+// projectile" defect. Its four singularities are now a real lease pool.
+check('the Supernova converges on the BOSS during a boss fight, not the canvas centre',
+    combat.includes('const onBoss = this.game.isBossPhase && boss && !boss.isDead;') &&
+    combat.includes('const cx = onBoss ? boss.x : cw / 2;') &&
+    combat.includes('const cy = onBoss ? boss.y + 20 : ch / 2;') &&
+    !combat.includes('const cx = cw / 2;'),
+    'the canvas centre is empty air beside a boss fight, so the ultimate detonated next to the boss');
+check('the Supernova target rides along on the fx record for the Game-side renderers',
+    combat.includes("kind: 'void-collapse', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000, cx, cy") &&
+    combat.includes("kind: 'blood-moon', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000, cx, cy"),
+    'the two draw methods cannot see the boss, so the target must travel with the effect');
+check('the void collapse edge field stays SCREEN-anchored while the horizon targets the boss',
+    game.includes('const sx = w / 2;') && game.includes('const sy = h / 2;') &&
+    game.includes('const cx = Number.isFinite(fx.cx) ? fx.cx : sx;') &&
+    game.includes('ctx.createRadialGradient(sx, sy, maxRadius * 0.25, sx, sy, maxRadius)'),
+    're-centring the vignette on a top-hovering boss would clamp its far side and black out the lower screen');
+check('the Blood Moon sigil follows the recorded target',
+    game.includes('Number.isFinite(fx.cx) ? fx.cx : w / 2,') &&
+    game.includes('Number.isFinite(fx.cy) ? fx.cy : h / 2'),
+    'the ritual geometry must converge on the boss during a boss fight');
+check('both Supernova centres fall back safely when no boss exists',
+    (game.match(/Number\.isFinite\(fx\.c[xy]\)/g) || []).length >= 2,
+    'Nova and the pre-boss phase still need the canvas centre');
+
+check('the Voidweaver leases a singularity per boss strike instead of crushing on the spot',
+    combat.includes('this.game._leaseVoidWell?.(hit.x, hit.y);') &&
+    !combat.includes('this.spawnVoidCrush('),
+    'the strike must leave the caster, not appear at the boss unexplained');
+check('the well lease pool is four deep and rotates',
+    game.includes('_leaseVoidWell(targetX, targetY, duration = 520)') &&
+    game.includes('this.voidWells = { next: 0, leases: [null, null, null, null] };') &&
+    game.includes('const idx = (this.voidWells.next + n) % 4;') &&
+    game.includes('this.voidWells.next = (idx + 1) % 4;'),
+    'four wells, rotating cursor, so one well cannot be leased twice in a row');
+check('the well pool REGENERATES — a consumed-only pool would go silent on a streak',
+    game.includes('if (active && now - active.startedAt >= active.duration) this.voidWells.leases[i] = null;'),
+    'the Voidweaver scales on its OWN streak, so the wells must return');
+check('a leased well leaves formation in the renderer',
+    voidBody.includes('const wellLeases = (stats && stats.voidWells && stats.voidWells.leases) || null;') &&
+    voidBody.includes('if (wellLeases && wellLeases[wi]) continue;'));
+check('the implosion is QUEUED, so the collapse lands after the well leaves',
+    game.includes('dueAt: now + duration * 0.66, startedAt: 0') &&
+    game.includes('if (now < im.dueAt) continue;') &&
+    game.includes('this._drainVoidImplosions();') &&
+    game.includes('this.combatSystem?.spawnVoidImplode?.(im.x, im.y);'),
+    'firing the collapse on the solved-word frame reads as a pop with no source');
+check('the Supernova and the per-word strike share ONE implosion routine',
+    game.includes('_drawVoidImplosionAt(x, y, stage, o) {') &&
+    game.includes('this._drawVoidImplosionAt(cx, cy, stage, {') &&
+    game.includes('this._drawVoidImplosionAt(im.x, im.y, 6 + k * 3, {'),
+    'the strike must be the Supernova release beat, not a lookalike copy');
+check('the Supernova release radii are still the ORIGINAL stage-driven ones',
+    // Regression: an early refactor drove the sizes off a 0..1 progress value
+    // instead of `stage`, which HALVED the ultimate's release beat (rim 72..96
+    // became 24..48) and no existing guard noticed. `stage` is the size driver.
+    game.includes('const coreR = (18 + stage * 7) * s;') &&
+    game.includes('const rimR = (24 + stage * 8) * s;') &&
+    game.includes('const inner = (24 + stage * 5) * s;') &&
+    game.includes('const outer = inner + (34 + stage * 7) * s;') &&
+    game.includes('(30 + stage * 9) * s'),
+    'the Supernova must keep its own 6..9 stage sizes; only `s` may differ');
+check('the per-word collapse is big enough to read on a boss, not a dot',
+    game.includes('scale: 0.8,') &&
+    game.includes('this._drawVoidImplosionAt(im.x, im.y, 6 + k * 3, {'),
+    'at stage 6 the rim is (24+48)*0.8 = 58px, which covers the boss sprite');
+check('the per-word implosion is the light indigo, not the Supernova cyan',
+    game.includes("rim: '#c7d2fe',") && game.includes("rim: '#00e5ff',") &&
+    game.includes("core: '#05021a',"),
+    'cyan is reserved for the Supernova so the strike reads as a distinct event');
+check('the strike implosion does not reuse the Novice accent hex',
+    game.split("rim: '#a5b4fc'").length === 1 && !game.includes("'#a5b4fc'"),
+    '#a5b4fc is the Novice accent (ArenaSigils CHARACTER_TINT); a second owner would break the accent guard');
+check('per-word implosions draw AFTER the boss so they land in its face',
+    game.indexOf('this._drawVoidImplosions();') > game.indexOf('this.boss.draw(this.ctx);') &&
+    game.indexOf('this._drawVoidImplosions();') > game.indexOf('this.particles.draw(this.ctx);'));
+check('reset() drops any in-flight singularity strike',
+    game.includes('this.voidWells = { next: 0, leases: [null, null, null, null] };') &&
+    game.includes('this.voidImplosions = [];') &&
+    (game.match(/this\.voidImplosions = \[\];/g) || []).length >= 2,
+    'a pending implosion must not pop into the next run at the old boss coords');
+
+// ── Randomised strike aim ───────────────────────────────────────────────────
+// The strike presentation aims at a random point on the boss's body. Damage is
+// NOT allowed to follow suit, so the sampler lives on Game and the
+// determinism guard below still sees a randomness-free CombatSystem.
+check('every character strike aims at a randomised point on the boss body',
+    game.includes('_bossStrikePoint(boss = this.boss) {') &&
+    combat.includes('const hit = this.game._bossStrikePoint?.(boss) || { x: boss.x, y: boss.y + 20 };') &&
+    input.includes('this.game._bossStrikePoint?.(this.game.boss)'),
+    'all three characters must share the same randomised aim');
+check('the strike sampler is an ellipse on the body, never a full-circle whiff',
+    game.includes('const r = 0.3 + Math.random() * 0.7;') &&
+    game.includes('x: boss.x + Math.cos(angle) * 50 * r,') &&
+    game.includes('y: boss.y + 25 + Math.sin(angle) * 62 * r'),
+    'a 360-degree pick hits the feet or the air above the head and reads as a miss');
+check('the damage number stays ANCHORED while the impact VFX varies',
+    (() => {
+        // Scan the whole of strikeBoss, not just up to the spawnReaverArc CALL
+        // (indexOf finds the call before the method definition, which cuts the
+        // segment off before the damage number is even written).
+        const start = combat.indexOf('const dealt = boss.takeDamage(amount);');
+        const end = combat.indexOf('spawnVoidImplode(');
+        if (start < 0 || end < 0) return false;
+        const seg = combat.slice(start, end);
+        const numAt = seg.indexOf('new FloatingText(');
+        if (numAt < 0) return false;
+        const block = seg.slice(numAt, numAt + 240);
+        return block.includes('boss.x,') && block.includes('boss.y - 10') && !block.includes('hit.x');
+    })(),
+    'a number that jumps with every hit is harder to track mid-streak');
+check('the aim is PRESENTATION only — damage stays deterministic',
+    !/Math\.random\(\)/.test(combat.slice(combat.indexOf('bossStrikeDamage('), combat.indexOf('spawnReaverArc('))),
+    'the aim randomness must never enter the damage path');
+check('the Supernova volley still targets the boss centre (all four at once)',
+    combat.includes('this.game._leaseBladeVolley?.(this.game.boss.x, this.game.boss.y + 20);'),
+    'a four-blade volley needs one shared target, not four scattered hits');
 
 // The four flight beats. A single dash-out-and-return read as an instant blink,
 // which is what the owner reported; the hover/charge beat is the fix, so it is
@@ -690,6 +896,34 @@ check('the Voidweaver streak is a brighter aqua than the wells\' own photon ring
     voidBody.includes("const hot = combo >= 50 ? '#7cf0ff' : '#4fd8f0';") &&
     voidBody.includes('const warm = combo >= 50 ?') &&
     voidBody.includes("ctx.fillStyle = '#01010a';"));
+check('the Voidweaver hood is drawn behind the rim AND wide enough to be seen',
+    // Two independent faults lived in this one shape, and the first guard I wrote
+    // only caught the first:
+    //   1. OCCLUSION — the peak was painted after the rim, so its fill ate the top
+    //      of the cyan circle (circle spans y-32.5..y-13.5, peak ran y-22..y-42).
+    //   2. NO CONTRAST + FULLY CLIPPED — at #030614 it was darker than the arena
+    //      floor, and at ±9.5 it was no wider than the ±9.5 disc, so once it sat
+    //      behind the rim there was essentially nothing left to see.
+    // The shape is now the mantle's #101542 with a violet edge, a ±13.5 base that
+    // clears the disc so both sides emerge, and a stroke so the brim reads. The
+    // order assertion alone would have passed while the hood was invisible.
+    voidBody.includes('ctx.arc(x, y - 23, 9.5, 0, Math.PI * 2);') &&
+        // hood before rim — the order that keeps the circle closed
+        voidBody.indexOf('ctx.lineTo(x + 3.5, y - 44);') > 0 &&
+        voidBody.indexOf('ctx.lineTo(x + 3.5, y - 44);')
+            < voidBody.indexOf('ctx.arc(x, y - 23, 9.5, 0, Math.PI * 2);') &&
+        // base wider than the disc, or the opaque cowl hides it again
+        voidBody.includes('ctx.moveTo(x - 13.5, y - 19);') &&
+        voidBody.includes('ctx.quadraticCurveTo(x, y - 14.5, x + 13.5, y - 19);') &&
+        // cloth that reads against the floor, and a lit edge
+        voidBody.includes("ctx.fillStyle = '#101542';") &&
+        voidBody.includes("ctx.strokeStyle = 'rgba(124, 77, 255, 0.85)';") &&
+        // the old, unreadable peak must not come back. Assert the FILL
+        // STATEMENT, not the bare hex — the comment above documents #030614 as
+        // the old value, and a bare-hex check would match its own prose.
+        !voidBody.includes("ctx.fillStyle = '#030614';") &&
+        !voidBody.includes('ctx.lineTo(x + 2, y - 42);'),
+    'the cowl hood must be drawn before the rim, wider than the 9.5 disc, in visible cloth');
 check('the Voidweaver black-hole wells keep their original deep colours',
     voidBody.includes("rgba(0, 229, 255, 0.9)") &&
     voidBody.includes("rgba(124, 77, 255, 0.6)"));
@@ -843,6 +1077,135 @@ check('the slash line particle renders (the flag is not left dead)',
     particles.includes('} else if (this.isSlashLine) {') &&
         particles.includes('ctx.strokeStyle = this.slashGlow;') &&
         particles.includes('ctx.rotate(this.slashAngle);'));
+
+// ── Secret achievement: THE UNSPOKEN (unlocks the Voidweaver) ───────────────
+// The only clue a player gets is a bare n/10 on the locked card, so every
+// guarantee below is a promise about what that number means.
+check('the secret counter is declared with a goal of ten bosses',
+    achievements.includes("'the_unspoken': {") &&
+    achievements.includes("counter: { key: 'bossKillsNoSupernova', goal: 10 }"),
+    'the denominator IS the clue — it must be exactly 10');
+check('counter progress is persisted in its OWN key, not in the unlocked id Set',
+    achievements.includes("typerMaster_achievementProgress") &&
+    achievements.includes('this.progress = {};') &&
+    achievements.includes('_saveProgress() {'),
+    'a partially-completed achievement must survive a reload, and an id Set cannot hold a partial');
+check('the counter never advances past its goal',
+    achievements.includes('Math.min(this.getProgress(achievementId)') &&
+    achievements.includes('if (this.unlocked.has(achievementId)) return false;'),
+    'an 11th qualifying kill must not drift the stored value beyond 10/10');
+check('the Supernova is stamped on CAST, and only during a boss fight',
+    combat.includes('if (this.game.isBossPhase) this.game.supernovaUsedThisBoss = true;') &&
+    combat.indexOf('supernovaUsedThisBoss = true') > combat.indexOf('useMana(100)'),
+    'a cast outside a boss fight must not poison the next one, and the stamp must precede the cinematic');
+check('the flag resets PER BOSS, not only per run',
+    game.includes('this.supernovaUsedThisBoss = false;') &&
+    (game.match(/supernovaUsedThisBoss = false;/g) || []).length === 3,
+    'constructor + startBossPhase + reset. Without the per-boss clear this is "one Supernova-free run", not ten fights');
+check('the per-boss clear lives in startBossPhase',
+    /startBossPhase\(\)\s*\{[^}]*supernovaUsedThisBoss = false;/.test(game),
+    'banking the ultimate across bosses must still let the tenth count');
+check('a qualifying boss kill advances the counter by exactly one',
+    game.includes("this.achievements.bumpProgress('the_unspoken', 1);") &&
+    game.includes('if (!this.supernovaUsedThisBoss) {') &&
+    game.indexOf('bumpProgress') < game.indexOf('this.endBossPhase();'),
+    'the flag must be read BEFORE endBossPhase clears the phase');
+check('the Voidweaver is granted by the achievement, alongside the XP route',
+    characters.includes("unlockAchievement: 'the_unspoken',") &&
+    stats.includes('if (unlockAchievement && this.achievements?.unlocked?.has(unlockAchievement)) return true;'),
+    'isCharacterUnlocked must stay the ONE place that decides ownership');
+check('earning the achievement never charges XP for the character',
+    /purchaseCharacter\(characterId\)\s*\{[^}]*isCharacterUnlocked\(id\)\) return false/.test(stats),
+    'purchaseCharacter must bail on the already-unlocked path BEFORE spendXP');
+check('a locked counter card shows ONLY the bare count — no words at all',
+    main.includes('const progressText = isCounter') &&
+    main.includes('${progressText}</p>') &&
+    main.includes(": `<p style=\"color: #444; font-size: 0.85rem; margin: 0; line-height: 1.4;\">Locked Achievement</p>`}"),
+    'the counter branch must not print a description, a name, or the word achievement');
+
+// ── Secret achievement: THE BLOODIED STANDARD (unlocks the Bloodseeker) ──────
+// Owner decision 2026-09-26. This route REPLACED an earlier "die in Survival
+// without typing a word" unlock, which punished the behaviour the game asks for.
+// The brief was also diagnostic — a visible n/100 — so the wiring has to be
+// provable, not merely plausible.
+check('the Bloodseeker counter is declared over duel wins, at a goal of 100',
+    achievements.includes("'the_bloodied_standard': {") &&
+    achievements.includes("counter: { key: 'pvpWins', goal: 100 }"),
+    'the denominator IS the clue — it must be exactly 100, and the key must be the win count');
+// Stripped copies, for the guards below that must find CODE. Reading raw source
+// here would make the "retired condition" guard match the very comment in
+// Achievements.js that documents why it was retired — a guard that fails
+// because someone explained the decision is worse than no guard. Block and line
+// comments go; a retired unlock condition would be executable code, so stripping
+// comments cannot hide one.
+const codeOf = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+check('the replaced "die without typing" condition survives nowhere in the game',
+    !/without typing a (single )?word/i.test(codeOf(achievements)) &&
+    !/without typing a (single )?word/i.test(codeOf(game)) &&
+    !/without typing a (single )?word/i.test(codeOf(stats)) &&
+    !/without typing a (single )?word/i.test(codeOf(characters)),
+    'the old unlock condition was retired; it must not linger as a second route');
+check('a duel WIN advances the counter, and it is counted in endDuel',
+    main.includes('if (isWinner) {') &&
+    main.includes('bumpProgress(bloodseekerRoute, 1)') &&
+    main.includes("characterInfo('bloodseeker').unlockAchievement"),
+    'counting anywhere else misses duels that end on time/overtime/forfeit/disconnect');
+check('the counter key is read from the roster, not hard-coded at the call site',
+    main.includes("const bloodseekerRoute = characterInfo('bloodseeker').unlockAchievement;") &&
+    !/bumpProgress\('pvp/.test(main),
+    'a hard-coded key would let the card and the bump disagree about what counts');
+check('a duel LOSS does not advance the counter',
+    /if \(isWinner\) \{[\s\S]{0,900}bumpProgress/.test(main),
+    'counting participation would let a mage farm the unlock by feeding');
+check('the Bloodseeker is granted by its achievement, alongside the XP route',
+    characters.includes("unlockAchievement: 'the_bloodied_standard',") &&
+    stats.includes('if (unlockAchievement && this.achievements?.unlocked?.has(unlockAchievement)) return true;'),
+    'isCharacterUnlocked must stay the ONE place that decides ownership');
+check('the Bloodseeker card shows the count but NOT its name (secretIdentity)',
+    characters.includes('secretIdentity: true,') &&
+    main.includes('const revealed = owned || (!!info.unlockAchievement && !info.secretIdentity);'),
+    'the route is visible; the identity is not — winning duels is the only reveal');
+check('the card stops reading 0/100 the instant the route is earned',
+    main.includes('if (reached) {') && main.includes('updateForgeUI();'),
+    'otherwise the player owns the skin while the card still calls it locked');
+
+// ── Achievements are cloud-synced (2026-09-26) ──────────────────────────────
+// They were the only progression that never left the browser, so a 100-duel
+// grind to the Bloodseeker died on sign-out and on every device change. These
+// guard the WIRING; the behaviour is executed in verify-unspoken-counter.mjs.
+check('the profile payload carries the achievement state',
+    stats.includes('this.achievements?.toCloudState ? this.achievements.toCloudState() : {}'),
+    'an achievement earned with no XP spent would never reach the cloud');
+check('a profile load merges that state back in',
+    stats.includes('this.achievements?.mergeCloudState?.(profile);'),
+    'the round trip is write-only without it');
+check('an achievement change triggers a profile save',
+    stats.includes('this.achievements.onChange = () => this.saveProgression();') &&
+    achievements.includes('if (typeof this.onChange === \'function\') this.onChange();'),
+    'nothing else would ever call saveProgression() for a 0-XP unlock');
+check('the guest path degrades: no Achievements instance is not a crash',
+    stats.includes('this.achievements?.') && achievements.includes('typeof this.onChange === \'function\''),
+    'a guest Stats carries no Achievements');
+check('the two columns the client writes exist in the migration',
+    migration.includes('add column if not exists unlocked_achievements jsonb') &&
+    migration.includes('add column if not exists achievement_progress   jsonb'),
+    'the client writes columns no migration creates');
+check('the merge is additive, never a destructive assignment',
+    // Scoped to mergeCloudState on purpose. A first version tested the WHOLE
+    // file, where `this.unlocked = new Set()` is the CONSTRUCTOR's own
+    // initialisation — legitimate, and unrelated to merging — so the guard
+    // failed on correct code.
+    (() => {
+        const from = achievements.indexOf('mergeCloudState(snapshot) {');
+        if (from < 0) return false;
+        const body = achievements.slice(from, achievements.indexOf('\n    }', from));
+        return !/this\.unlocked = /.test(body) &&
+            !/this\.progress = /.test(body) &&
+            body.includes('Math.max(current, incoming)');
+    })(),
+    'a stale cloud row rolled a counter backwards');
 
 if (failures) {
     console.error(`${failures} Arena VFX hierarchy check(s) FAILED.`);

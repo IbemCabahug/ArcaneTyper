@@ -53,7 +53,17 @@ const mainSrc = strip(read('frontend/main.js'));
 const mainCode = codeOnly(mainSrc);
 const statsSrc = strip(read('backend/Stats.js'));
 const authUiSrc = strip(read('frontend/ui/AuthUI.js'));
+const toastSrc = codeOnly(strip(read('frontend/ui/MagicalToast.js')));
+const cssSrc = strip(read('frontend/style.css'));
 const pkgSrc = read('package.json');
+
+/** Body of one exact top-level CSS rule, e.g. `.magical-toast--gate { ... }`. */
+function ruleBody(css, selector) {
+    const start = css.indexOf(`\n${selector} {`);
+    if (start < 0) return '';
+    const end = css.indexOf('\n}', start);
+    return css.slice(start, end < 0 ? css.length : end);
+}
 
 let failures = 0;
 function check(name, condition, detail = '') {
@@ -89,24 +99,55 @@ check(
 );
 
 const gates = [
-    { name: 'Forge (AT-F16)', toast: 'The Forge needs a sealed Mage Card!', spend: 'game.stats.purchaseCharacter(id)' },
-    { name: 'Workshop', toast: 'The Workshop requires a sealed Mage Card!', spend: 'game.stats.spendXP' },
-    { name: 'Arena lobby', toast: 'The Arena requires a sealed Mage Card!', spend: null },
+    // Owner request 2026-09-26: the three gates now share ONE prompt built by
+    // `MagicalToast.locked`, so the per-gate headline is a single literal that
+    // appears three times. `count(...) === 3` is now the LOAD-BEARING check —
+    // it is what proves all three gates really route through the shared
+    // builder instead of one of them quietly keeping a bespoke toast.
+    { name: 'Forge (AT-F16)', head: '🔒 A sealed Mage Card is required', spend: 'game.stats.purchaseCharacter(id)' },
+    { name: 'Workshop', head: '🔒 A sealed Mage Card is required', spend: 'game.stats.spendXP' },
+    { name: 'Arena lobby', head: '🔒 A sealed Mage Card is required', spend: null },
 ];
-for (const gate of gates) {
-    const at = mainSrc.indexOf(gate.toast);
-    check(`the ${gate.name} gate exists`, at > 0 && count(mainSrc, gate.toast) === 1);
-
-    // The guard must be the branch that owns this toast, and it must bail out.
-    const before = mainSrc.slice(Math.max(0, at - 400), at);
-    const guardAt = before.lastIndexOf('if (');
-    const guard = guardAt < 0 ? '' : before.slice(guardAt).split('\n')[0];
+const gateRule = ruleBody(cssSrc, '.magical-toast--gate');
+check(
+    'the fancy gate prompt is actually styled (the rule exists)',
+    gateRule.length > 0,
+    '.magical-toast--gate not found in style.css'
+);
+check(
+    'all three gates share the one fancy gate prompt',
+    count(mainCode, gates[0].head) === 3,
+    `found ${count(mainCode, gates[0].head)} occurrence(s)`
+);
+// Walk the occurrences in order. All three gates now share ONE headline literal,
+// so `indexOf(head)` always returns the FIRST one — iterating gates over that
+// single index would re-check the Forge three times and leave the Workshop and
+// Arena gates completely unverified, which is how a bespoke toast could creep
+// back into either without any check noticing.
+const occurrences = [...mainCode.matchAll(new RegExp(gates[0].head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))]
+    .map((m) => m.index);
+check('the shared headline appears exactly three times', occurrences.length === 3, `${occurrences.length}`);
+gates.forEach((gate, i) => {
+    const at = occurrences[i];
+    if (at === undefined) {
+        check(`the ${gate.name} gate exists`, false, 'no occurrence to check');
+        return;
+    }
+    check(
+        `the ${gate.name} gate uses MagicalToast.locked`,
+        mainCode.slice(Math.max(0, at - 60), at).includes('MagicalToast.locked(')
+    );
+    // The guard must be the NEAREST preceding `if (` for THIS occurrence, and it
+    // must be the mage-card gate — otherwise gate N can satisfy the check using
+    // gate N-1's guard.
+    const guardAt = mainCode.lastIndexOf('if (', at);
+    const guard = guardAt < 0 ? '' : mainCode.slice(guardAt).split('\n')[0];
     check(
         `the ${gate.name} gate is a needsMageCard() branch`,
         guard.includes('needsMageCard()'),
         `found: ${guard.trim()}`
     );
-    const after = mainSrc.slice(at, at + 600);
+    const after = mainCode.slice(at, at + 600);
     check(`the ${gate.name} gate prompts and returns`, /return;/.test(after));
     if (gate.spend) {
         check(
@@ -114,7 +155,28 @@ for (const gate of gates) {
             !after.includes(gate.spend) || after.indexOf('return;') < after.indexOf(gate.spend)
         );
     }
-}
+});
+// The gate prompt must never be able to print a secret's name: a locked card
+// that is not revealed falls back to generic wording (owner request 2026-09-26).
+check(
+    'the Forge gate never interpolates a name into a prompt for an unrevealed card',
+    mainCode.includes('? `Log in or register to forge ${name}.`') &&
+        mainCode.includes("'Log in or register to continue your journey.'")
+);
+// The shared prompt must be built by the shared helper, not re-improvised as
+// inline markup at a call site (the fancier treatment lives in one place).
+check(
+    'the gate prompt markup is owned by MagicalToast.locked, not inlined per gate',
+    count(mainCode, 'toast-gate__head') === 0 &&     // main.js never builds it
+    count(toastSrc, 'toast-gate__head') === 1 &&
+    count(toastSrc, 'toast-gate__sub') === 1
+);
+check(
+    'the gate prompt is snappier than a plain toast (and blur-free over the canvas)',
+    gateRule.includes('toastGateIn') &&
+        /animation: toastGateIn 0\.\d+s/.test(gateRule) &&
+        !gateRule.includes('backdrop-filter')
+);
 
 // ── 3. the rule itself, executed from the shipped source ───────────────────
 const ruleAt = statsSrc.indexOf('requiresMageCard(hasBackend) {');

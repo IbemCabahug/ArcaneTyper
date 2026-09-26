@@ -68,6 +68,12 @@ export class CombatSystem {
 
         if (!this.game.stats.useMana(100)) return;
 
+        // The secret `the_unspoken` achievement scores a boss by whether the
+        // Supernova was spent during THAT fight. Stamped on cast, not on the
+        // cinematic's completion, so tabbing through or pausing mid-ultimate
+        // cannot slip a qualifying kill past it.
+        if (this.game.isBossPhase) this.game.supernovaUsedThisBoss = true;
+
         // Mana Overflow Skill: Ultimate restores one character-specific defense
         // charge. Voidweaver calls these absorption charges; Bloodseeker calls
         // them lives; the Wizard keeps its historic barrier/final-life split.
@@ -100,8 +106,15 @@ export class CombatSystem {
 
         const cw = this.game.canvas.width;
         const ch = this.game.canvas.height;
-        const cx = cw / 2;
-        const cy = ch / 2;
+        // The Supernova converges on what it is aimed at. During a boss fight
+        // that is the BOSS: the canvas centre is empty air beside the fight, so
+        // the old hardcoded cx/cy made the ultimate detonate in the void next to
+        // the boss instead of on it. With no boss (Nova, or pre-boss) it falls
+        // back to the canvas centre, which is where the effect always lived.
+        const boss = this.game.boss;
+        const onBoss = this.game.isBossPhase && boss && !boss.isDead;
+        const cx = onBoss ? boss.x : cw / 2;
+        const cy = onBoss ? boss.y + 20 : ch / 2;
         const palette = this._supernovaPalette();
 
         // The shared meteor-shatter language remains the foundation of every
@@ -112,10 +125,12 @@ export class CombatSystem {
         // The Blood Moon's renderer advances in 100 ms steps, so the stage cap
         // is derived from the duration rather than hardcoded — the cinematic
         // has been lengthened before and must not freeze on its last frame.
+        // cx/cy ride along on the record: the two draw methods in Game.js cannot
+        // see the boss, so the target has to travel with the effect.
         this.game.supernovaFx = isBloodseeker
-            ? { kind: 'blood-moon', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000 }
+            ? { kind: 'blood-moon', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000, cx, cy }
             : isVoidweaver
-                ? { kind: 'void-collapse', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000 }
+                ? { kind: 'void-collapse', startedAt: performance.now(), duration: 1000, seed: Math.random() * 1000, cx, cy }
                 : null;
         if (!isBloodseeker && !isVoidweaver) {
             this.game.ctx.fillStyle = palette.flash;
@@ -216,31 +231,41 @@ export class CombatSystem {
         const dealt = boss.takeDamage(amount);
         const character = this.game.stats?.selectedCharacter || 'wizard';
 
+        // Every strike aims at a random point on the boss's body so a long
+        // fight does not replay the same impact frame on every word. The
+        // sampler lives on Game (see _bossStrikePoint) precisely so that no
+        // randomness literal appears in this method, which the
+        // damage-determinism guard scans for.
+        const hit = this.game._bossStrikePoint?.(boss) || { x: boss.x, y: boss.y + 20 };
+
         if (character === 'voidweaver') {
-            // The boss is briefly crushed inward — the same singularity language
-            // as the Voidweaver Supernova, at per-word scale.
-            this.spawnVoidCrush(boss.x, boss.y + 20);
-            this.game.audio.playVoidAbsorb();
+            // One of the four singularities leaves formation and implodes on the
+            // boss. Damage already resolved above; this only schedules the
+            // collapse, so the player sees the well leave before it lands.
+            this.game._leaseVoidWell?.(hit.x, hit.y);
         } else if (character === 'bloodseeker') {
             // A crimson carve through the boss, with life drawn back upward.
             // One netherblade is leased per solved word and flies out to cut the
             // boss before recalling. The rotation lives in Game._leaseBladeSlash
             // so a fast typist cycles 1→2→3→4 rather than re-striking one blade.
-            this.game._leaseBladeSlash?.(boss.x, boss.y + 20);
-            this.spawnBurst(boss.x, boss.y + 20, ['#ff1744', '#ff8a95', '#ffffff']);
-            this.spawnReaverArc(boss.x, boss.y + 20);
+            this.game._leaseBladeSlash?.(hit.x, hit.y);
+            this.spawnBurst(hit.x, hit.y, ['#ff1744', '#ff8a95', '#ffffff']);
+            this.spawnReaverArc(hit.x, hit.y);
             this.game.audio.playShatter();
         } else {
-            this.spawnExplosion(boss.x, boss.y + 20, { particles: ['#ffd700', '#ffffff', '#ff4b4b'] });
+            this.spawnExplosion(hit.x, hit.y, { particles: ['#ffd700', '#ffffff', '#ff4b4b'] });
             this.game.audio.playExplosion();
         }
 
+        // The damage number stays ANCHORED above the boss while the impact VFX
+        // varies. A number that jumps with every hit is harder to track, and
+        // the number is what the player is actually reading mid-streak.
         if (dealt > 1) {
             this.game.floatingTexts.push(new FloatingText(
                 `-${dealt}`,
                 boss.x,
                 boss.y - 10,
-                character === 'voidweaver' ? '#00e5ff' : character === 'bloodseeker' ? '#ff6b7a' : '#ffd700',
+                character === 'voidweaver' ? '#536dfe' : character === 'bloodseeker' ? '#ff6b7a' : '#ffd700',
                 26
             ));
         }
@@ -249,13 +274,18 @@ export class CombatSystem {
     }
 
     /**
-     * A per-word singularity centred on the struck boss. Deliberately much
-     * smaller than spawnVoidImplosion (which is a screen-wide Supernova): the
-     * motes start just outside the boss and collapse into it, so each solved
-     * word visibly crushes the target rather than filling the canvas.
+     * The mote collapse that accompanies a per-word singularity strike landing
+     * on the boss. Deliberately much smaller than spawnVoidImplosion (which is a
+     * screen-wide Supernova): the motes start just outside the boss and fall
+     * into it, so each solved word visibly crushes the target rather than
+     * filling the canvas.
+     *
+     * The palette is the strike's own indigo (#c7d2fe) rather than the body's
+     * cyan, so the effect reads as a distinct event on the target instead of
+     * more ambient aura. The body art is deliberately still cyan.
      */
-    spawnVoidCrush(x, y) {
-        const colors = ['#7c4dff', '#00e5ff', '#b388ff', '#ffffff'];
+    spawnVoidImplode(x, y) {
+        const colors = ['#c7d2fe', '#7c4dff', '#e0e7ff', '#ffffff'];
         const count = window.__atLowQuality ? 10 : 20;
         for (let i = 0; i < count; i++) {
             const angle = Math.random() * Math.PI * 2;

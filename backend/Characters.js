@@ -41,7 +41,19 @@ export const CHARACTERS = [
         title: 'Voidweaver',
         short: 'VOIDWEAVER',
         unlockPrice: 12000,
-        color: '#00e5ff',
+        // The Voidweaver has a SECOND way in: the secret `the_unspoken`
+        // achievement. This is declared here, on the character, rather than
+        // written into the roster by the achievement itself — so
+        // Stats.isCharacterUnlocked stays the ONE place that decides ownership
+        // and the Forge card can advertise both routes. A non-empty value means
+        // the character is also free once that achievement is unlocked.
+        unlockAchievement: 'the_unspoken',
+        // Owner decision 2026-09-26: the Voidweaver's identity colour is the
+        // Nullwarden indigo, #536dfe (MageClasses.js `Nullwarden`). It reads as
+        // the same "deep space" family as its Disciplines instead of competing
+        // with the Wizard's sky blue, and it is what CHARACTER_TINT mirrors in
+        // ArenaSigils.js so the Novice sigil wears it too.
+        color: '#536dfe',
         blurb: 'Astral Gravitation & Singularity Magic'
     },
     {
@@ -49,6 +61,20 @@ export const CHARACTERS = [
         title: 'Bloodseeker',
         short: 'BLOODSEEKER',
         unlockPrice: 12000,
+        // Second route (owner decision 2026-09-26): the secret
+        // `the_bloodied_standard` counter, at 100 Arena wins. This REPLACED an
+        // earlier idea — dying in Survival without typing a word — which
+        // punished the behaviour the game actually wants. Declared here on the
+        // character, exactly as the Voidweaver declares `the_unspoken`, so
+        // Stats.isCharacterUnlocked stays the ONE place that decides ownership.
+        unlockAchievement: 'the_bloodied_standard',
+        // The card LABEL stays `???` even though this character now HAS a
+        // visible n/100 route. The Voidweaver is revealed by its counter; the
+        // Bloodseeker deliberately is not, so winning duels is the only thing
+        // that teaches the player this card is the Bloodseeker at all. One
+        // flag, read by main.js `revealed`, because the two secrets now differ
+        // in exactly this way and the rule must not be re-derived per card.
+        secretIdentity: true,
         color: '#ff1744',
         blurb: 'Ancient Blood Runes & Netherblade'
     }

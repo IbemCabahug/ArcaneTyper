@@ -210,10 +210,30 @@ check(
 );
 check('main.js clears any stale inline filter', count(mainSrc, "startMenu.style.filter = '';") === 1);
 check('setMenuBehind is defined once', count(mainSrc, 'function setMenuBehind(') === 1);
+// The counts are an EXACT ledger of every dim/restore pair, so a new pair
+// added by a real feature must be counted here or the guard fires. The profile
+// remodelling (2026-09-26) added a restore in the "OPEN TROPHY ROOM" shortcut:
+// it closes the profile before revealing the Trophy Room, so the start menu
+// must be un-dimmed on the way out — a path that dims the menu has to restore
+// AT-F16: the counts dropped by one on each side when the profile's Trophy Room
+// shortcut was removed — it was the only path that dimmed the menu on the way in
+// and restored it on the way out. The pairing is what matters: 2 in, 4 out.
 check(
     'every path that dims the menu also restores it',
     count(mainSrc, 'setMenuBehind(true)') === 2 && count(mainSrc, 'setMenuBehind(false)') === 4,
     `true=${count(mainSrc, 'setMenuBehind(true)')} false=${count(mainSrc, 'setMenuBehind(false)')}`
+);
+check(
+    'the profile has NO Trophy Room shortcut — the start menu owns that screen',
+    // AT-F16: the button was a second route to the achievements overlay, and it
+    // tore down the profile to get there. The badge strip is the in-profile
+    // summary; the full room stays one click from the start menu.
+    !htmlSrc.includes('open-trophy-room-btn') &&
+        !mainSrc.includes('openTrophyRoomBtn') &&
+        // The start menu's own trophy button and the overlay must SURVIVE.
+        htmlSrc.includes('id="achievements-menu"') &&
+        mainSrc.includes("achievementsMenu.classList.add('active')"),
+    'removing the profile shortcut must not remove the Trophy Room itself'
 );
 check(
     'the Enter quick-start guard knows a submenu is open',
