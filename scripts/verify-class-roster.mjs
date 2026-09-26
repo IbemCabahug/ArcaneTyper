@@ -359,6 +359,51 @@ check(
         MAGE_CLASSES.filter((c) => c.scroll > 0).every((c) => c.scroll > DISCIPLINE_SWITCH_COST),
     `surcharge=${DISCIPLINE_SWITCH_COST}`
 );
+// ── the economy must stay MEANINGFUL, not merely well-formed ────────────────
+// The check above is satisfiable by any positive numbers, and that is exactly
+// how the economy went wrong on 2026-09-26: at 8,000 XP a scroll cost the
+// modelled median player 12 MINUTES and a 1,000 XP switch cost about 1 MINUTE.
+// Both passed every structural check while being worth nothing in play.
+//
+// XP is floor(score * 0.1) and score carries a combo multiplier up to 10.0, so
+// income is sharply skill-dependent. These bounds are pinned to the MODELLED
+// median and are why the prices are 60,000 and 8,000. If income ever changes,
+// update these with the constants — they exist to make that coupling impossible
+// to miss.
+//
+// The arithmetic this constant encodes, because I got it wrong the first time:
+// the model measured ~3,414 XP per 5-MINUTE run, and an hour holds TWELVE of
+// them, so the median is ~40,968 XP/HOUR. A first version wrote 410 — off by
+// 100x — so an 8,000 XP scroll computed as 19 HOURS and every price ever tried
+// passed. The tell was that reverting to the old 8,000 did not fail this check.
+// Thresholds below are stated in hours and divided, so the unit lives in one
+// place rather than being re-derived per line.
+const MEDIAN_XP_PER_HOUR = 3414 * 12;   // modelled median; see DISCIPLINE_SWITCH_COST
+const paidScrolls = MAGE_CLASSES.filter((c) => c.scroll > 0);
+const cheapestScroll = Math.min(...paidScrolls.map((c) => c.scroll));
+const scrollHours = cheapestScroll / MEDIAN_XP_PER_HOUR;
+const switchHours = DISCIPLINE_SWITCH_COST / MEDIAN_XP_PER_HOUR;
+check(
+    'a scroll is a real commitment at the modelled median (>= 45 minutes)',
+    scrollHours >= 0.75,
+    `cheapest scroll ${cheapestScroll} XP = ${(scrollHours * 60).toFixed(0)} min — under 45 means the gate is a rounding error`
+);
+check(
+    'a switch actually taxes something at the median (>= 10 minutes)',
+    switchHours >= 10 / 60,
+    `${DISCIPLINE_SWITCH_COST} XP = ${(switchHours * 60).toFixed(1)} min — a tax this cheap lets a scroll-holder hop freely`
+);
+check(
+    'the switch stays a fraction of a scroll (>= 5x cheaper) so choice is never blocked',
+    cheapestScroll >= DISCIPLINE_SWITCH_COST * 5,
+    `scroll ${cheapestScroll} vs switch ${DISCIPLINE_SWITCH_COST} — the ratio decides whether switching is viable`
+);
+check(
+    'the switch is neither noise nor a wall (5%-50% of a scroll)',
+    DISCIPLINE_SWITCH_COST >= cheapestScroll * 0.05 && DISCIPLINE_SWITCH_COST <= cheapestScroll * 0.5,
+    `${DISCIPLINE_SWITCH_COST} is outside 5-50% of a ${cheapestScroll} XP scroll`
+);
+
 check(
     'scroll ids are namespaced so they can never collide with a skill id',
     disciplineScrollId('Pyromancer') === 'discipline-scroll:Pyromancer' &&

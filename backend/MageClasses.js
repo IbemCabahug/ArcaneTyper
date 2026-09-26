@@ -51,6 +51,12 @@ export const MAGE_CLASSES = [
         // the Workshop. 0 means the Discipline is free — Novice is the shared
         // default and must never be behind a paywall, or a fresh account has no
         // legal first pick.
+        //
+        // The nine paid scrolls were REPRICED 8,000 -> 60,000 the same day, for
+        // the reason set out in full on DISCIPLINE_SWITCH_COST below: at the
+        // modelled median income (~40,968 XP per hour) an 8,000 XP scroll cost
+        // 12 MINUTES, which is not a commitment. 60,000 is ~88 minutes at the
+        // median — an ACCESS milestone rather than a rounding error.
         scroll: 0,
         workshop: true,
         characters: ['wizard', 'voidweaver', 'bloodseeker'],
@@ -69,7 +75,7 @@ export const MAGE_CLASSES = [
         title: 'Pyromancer',
         tagline: 'Destruction & Combo',
         color: '#FF5722',
-        scroll: 8000,
+        scroll: 60000,
         workshop: true,
         characters: ['wizard'],
         blurb: '+20% score from every word (which also feeds XP). PvP-only Arena active: Cinder Brand.',
@@ -87,7 +93,7 @@ export const MAGE_CLASSES = [
         title: 'Cryomancer',
         tagline: 'Control & Warding',
         color: '#4dd0e1',
-        scroll: 8000,
+        scroll: 60000,
         workshop: true,
         characters: ['wizard'],
         blurb: 'Words fall slower in Survival. PvP-only Arena active: Glacial Ward.',
@@ -105,7 +111,7 @@ export const MAGE_CLASSES = [
         title: 'Chronomancer',
         tagline: 'Time & Mana',
         color: '#d500f9',
-        scroll: 8000,
+        scroll: 60000,
         workshop: true,
         characters: ['wizard'],
         blurb: 'Casting the Nova refunds 50 mana. PvP-only Arena active: Time Stop.',
@@ -122,7 +128,7 @@ export const MAGE_CLASSES = [
         id: 'Singulist',
         title: 'Singulist',
         tagline: 'Gravity & Momentum',
-        scroll: 8000,
+        scroll: 60000,
         // Owner decision 2026-09-26: the Voidweaver's three Disciplines all
         // wear the CHARACTER's identity colour (#536dfe, Characters.js
         // `voidweaver`) instead of three near-identical violets. They were
@@ -145,7 +151,7 @@ export const MAGE_CLASSES = [
         id: 'Nullwarden',
         title: 'Nullwarden',
         tagline: 'Event Horizon & Denial',
-        scroll: 8000,
+        scroll: 60000,
         color: '#536dfe',
         workshop: false,
         characters: ['voidweaver'],
@@ -163,7 +169,7 @@ export const MAGE_CLASSES = [
         id: 'Riftbinder',
         title: 'Riftbinder',
         tagline: 'Space & Binding',
-        scroll: 8000,
+        scroll: 60000,
         color: '#536dfe',
         workshop: false,
         characters: ['voidweaver'],
@@ -182,7 +188,7 @@ export const MAGE_CLASSES = [
         title: 'Hemomancer',
         tagline: 'Blood & Ruin',
         color: '#ff1744',
-        scroll: 8000,
+        scroll: 60000,
         workshop: false,
         characters: ['bloodseeker'],
         blurb: 'Turns won claims into health. PvP-only Arena active: Blood Pact.',
@@ -200,7 +206,7 @@ export const MAGE_CLASSES = [
         title: 'Reaper',
         tagline: 'Execution & Ruin',
         color: '#b00020',
-        scroll: 8000,
+        scroll: 60000,
         workshop: false,
         characters: ['bloodseeker'],
         blurb: 'A patient hunter that grows stronger as the opponent weakens. PvP-only Arena active: Final Cut.',
@@ -218,7 +224,7 @@ export const MAGE_CLASSES = [
         title: 'Bloodruner',
         tagline: 'Sacrifice & Fury',
         color: '#e53935',
-        scroll: 8000,
+        scroll: 60000,
         workshop: false,
         characters: ['bloodseeker'],
         blurb: 'Writes a dangerous contract into the body. PvP-only Arena active: Bloodletting.',
@@ -238,16 +244,35 @@ export const MAGE_CLASSES = [
 export const MAGE_ACTIVE_KINDS = ['damage', 'combo_damage', 'mitigation', 'opponent_weaken', 'time_stop', 'lifesteal', 'execution', 'self_sacrifice'];
 
 /**
- * Owner decision 2026-09-26: a Discipline costs a one-time scroll, but CHANGING
- * to a different one costs this much every time.
+ * Owner decision 2026-09-26 (repriced later the same day): a Discipline costs a
+ * one-time scroll, but CHANGING to a different one costs this much every time.
  *
  * A scroll is owned forever, so without a surcharge the optimal play is to buy
  * every scroll on the first run and then hop to whatever suits the current run
  * for free — which deletes the whole point of the tree. The surcharge is
- * deliberately small next to a scroll (1/8th) so an established mage can still
- * experiment freely; it taxes the cheap repetitive act, not the decision.
+ * deliberately small next to a scroll (about 1/7th) so an established mage can
+ * still experiment freely; it taxes the cheap repetitive act, not the decision.
+ *
+ * REPRICED from 1,000 to 8,000, and that is the part that mattered. XP is
+ * `floor(score * 0.1)`, and score scales with a combo multiplier reaching 10.0,
+ * so income is sharply skill-dependent: modelled across a 35-120 WPM population
+ * over 5-minute runs, p10 earns ~1,164 XP/run and p90 ~10,966 — roughly 10:1.
+ * An hour of play is twelve 5-minute runs, so the median is ~40,968 XP/HOUR.
+ * At that median the old 1,000 XP switch cost 1.5 MINUTES and the old 8,000 XP
+ * scroll cost 12 MINUTES. A tax that cheap taxes nothing: a mage holding every
+ * scroll hopped freely, which is the exact failure this constant exists to
+ * prevent. Respec research is explicit that too low a cost "trivialises build
+ * choices" while still making the choice look meaningful.
+ *
+ * The convention across the design literature is to AUTHOR IN HOURS and convert
+ * to XP — a currency figure only means something relative to income. At 8,000 XP
+ * a switch is ~12 minutes at the median; the 60,000 XP scroll is ~88 minutes. A
+ * flat price cannot give a struggling and a strong player equal durations, and
+ * the ~10:1 income spread is inherent to a score-driven economy — so this is
+ * tuned for the MEDIAN on purpose, and should be revisited against observed
+ * play, not more modelling.
  */
-export const DISCIPLINE_SWITCH_COST = 1000;
+export const DISCIPLINE_SWITCH_COST = 8000;
 
 /** The scroll id for a Discipline, used in the `unlockedSkills` ledger. */
 export function disciplineScrollId(classId) {
