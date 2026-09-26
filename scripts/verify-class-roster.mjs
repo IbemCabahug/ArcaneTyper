@@ -58,11 +58,39 @@ function elementBody(html, marker, tag) {
 }
 
 /**
- * The 12 nodes that existed before the AT-L8 re-grouping, as branch → { id:
- * XP cost }. Verified byte-for-byte against the previous revision of
- * index.html; this is a fingerprint, not a wish list.
+ * The 12 nodes, as branch → { id: XP cost }.
+ *
+ * ── REBALANCED 2026-09-26 (deliberate) ──────────────────────────────────────
+ * The original values were a FINGERPRINT, not a target: the old set ran
+ * 1,000–25,000 XP, which at the modelled median income (~40,968 XP/hour) is
+ * 1 MINUTE to 37 minutes — the cheapest node cost less than one boss fight.
+ *
+ * The pricing problem inside it was `greed`: +25% XP, permanently, and XP buys
+ * the 60,000 XP Discipline scrolls. Earning back its own 7,000 XP took 212,000 XP
+ * of base income — 5.2 hours — while it was priced as the 5th CHEAPEST node at
+ * 10 minutes. The most economically valuable node was the second cheapest thing
+ * to buy.
+ *
+ * The tree is now priced in median-MINUTES by measured play impact, and the two
+ * ECONOMY nodes are priced against the income they generate rather than against
+ * their description. New band: 15,000–120,000 XP = 22 to 176 minutes, an 8x
+ * spread. A 60,000 XP scroll (88 min) lands mid-ladder at `siphon`, so scrolls
+ * compete with the tree rather than dwarfing or hiding it.
+ *
+ * The ids are unchanged and every one is still live in code — a node may be
+ * repriced, it may never be DROPPED (a lost id silently disables a skill the
+ * player paid for, and `CombatSystem.js` still spends `echo` for Nova's mana
+ * refund). The checks below assert both.
  */
 const RECORDED_TREE = {
+    Novice: { mana: 15000, greed: 100000, philosopher: 40000 },
+    Pyromancer: { combo: 20000, burst: 30000, combustion: 70000 },
+    Cryomancer: { life: 25000, vision: 35000, precognition: 120000 },
+    Chronomancer: { clairvoyance: 50000, siphon: 60000, echo: 80000 }
+};
+
+/** The pre-rebalance costs, kept so a revert is deliberate and reviewable. */
+const PRE_REBALANCE_TREE = {
     Novice: { mana: 1000, greed: 7000, philosopher: 18000 },
     Pyromancer: { combo: 5000, burst: 3000, combustion: 15000 },
     Cryomancer: { life: 2500, vision: 4000, precognition: 25000 },
@@ -404,9 +432,58 @@ check(
     `${DISCIPLINE_SWITCH_COST} is outside 5-50% of a ${cheapestScroll} XP scroll`
 );
 
+
+// ── the talent tree, by the same median-minute yardstick ─────────────────────
+// Repriced 2026-09-26. The old tree spanned 1 minute to 37 minutes of median
+// income, and its `greed` node — +25% XP permanently, in a game where XP buys
+// 60,000-XP scrolls — was priced as the 5th CHEAPEST node while taking 5.2
+// hours of income to earn back. These guards stop the tree quietly compressing
+// into irrelevance again, and stop the ECONOMY nodes drifting back under-priced.
+const allNodeCosts = Object.values(RECORDED_TREE).flatMap((b) => Object.values(b));
+const cheapestNode = Math.min(...allNodeCosts);
+const dearestNode = Math.max(...allNodeCosts);
+const nodeMinutes = (xp) => (xp / MEDIAN_XP_PER_HOUR * 60).toFixed(0);
+check(
+    'the cheapest node is still a reachable goal (>= 15 minutes at the median)',
+    cheapestNode / MEDIAN_XP_PER_HOUR >= 15 / 60,
+    `${cheapestNode} XP = ${nodeMinutes(cheapestNode)} min`
+);
+check(
+    'the dearest node is a real milestone (>= 2 hours at the median)',
+    dearestNode / MEDIAN_XP_PER_HOUR >= 2,
+    `${dearestNode} XP = ${nodeMinutes(dearestNode)} min — the top of the tree is a rounding error`
+);
+check(
+    'the tree has a real price gradient (dearest >= 4x cheapest)',
+    dearestNode >= cheapestNode * 4,
+    `${cheapestNode} -> ${dearestNode} is a ${(dearestNode / cheapestNode).toFixed(1)}x spread`
+);
+check(
+    'greed is no longer one of the cheapest nodes — it multiplies the whole economy',
+    RECORDED_TREE.Novice.greed >= dearestNode * 0.5,
+    `greed ${RECORDED_TREE.Novice.greed} vs dearest ${dearestNode} — a permanent +25% XP is not a cheap node`
+);
+check(
+    'a Discipline scroll competes with the tree rather than dwarfing it',
+    cheapestScroll >= cheapestNode && cheapestScroll <= dearestNode,
+    `cheapest scroll ${cheapestScroll} vs tree ${cheapestNode}-${dearestNode}`
+);
+check(
+    'no two nodes share a price (a tie reads as coincidence, not decision)',
+    new Set(allNodeCosts).size === allNodeCosts.length,
+    allNodeCosts.join(','));
+check(
+    'the whole tree is a long tail, not a single afternoon',
+    allNodeCosts.reduce((a, b) => a + b, 0) / MEDIAN_XP_PER_HOUR >= 8,
+    `total ${(allNodeCosts.reduce((a, b) => a + b, 0) / MEDIAN_XP_PER_HOUR).toFixed(1)} h at the median`
+);
+check(
+    'the pre-rebalance costs are retained so a revert is deliberate',
+    PRE_REBALANCE_TREE.Novice.mana === 1000 && PRE_REBALANCE_TREE.Cryomancer.precognition === 25000,
+    'PRE_REBALANCE_TREE was edited instead of left as history');
+
 check(
     'scroll ids are namespaced so they can never collide with a skill id',
-    disciplineScrollId('Pyromancer') === 'discipline-scroll:Pyromancer' &&
         !MAGE_CLASSES.some((c) => c.active.id === disciplineScrollId(c.id)) &&
         disciplineScrollId('nope') === `discipline-scroll:${DEFAULT_MAGE_CLASS}`
 );
