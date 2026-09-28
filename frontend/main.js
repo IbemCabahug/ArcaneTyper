@@ -1946,22 +1946,74 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // ── AT-M6 input-bridge hardening (2026-09-28) ────────────────────────────
+  // This bridge used to derive a keystroke in this order:
+  //
+  //   e.inputType === 'deleteContentBackward'  ->  'Backspace'
+  //   else e.data && e.data.length === 1      ->  that character
+  //   else                                     ->  value.slice(-1)
+  //
+  // and `slice(-1)` returns the WRONG character whenever `e.data` is null or
+  // multi-character. PROJECT_STATUS recorded that as "derived from reading, not
+  // reproduced", which is the weakest evidence this project accepts. It is now
+  // reproduced: scratch/probe-mobile-input.mjs dispatches real InputEvents with a
+  // controlled inputType/data/isComposing and records the keys the game actually
+  // receives. Against the shipped build it found three real defects, each of
+  // which a soft keyboard genuinely does:
+  //
+  //   IME mid-composition   'insertCompositionText', isComposing true
+  //                          -> the game received the PARTIAL character 'に'
+  //   phantom space         'insertText', data null, value still just the padding
+  //                          -> the game received a SPACE the player never typed
+  //   paste                 'insertFromPaste', data 'hello'
+  //                          -> the game received a single 'o'
+  //
+  // The phantom space is the serious one: a space terminates a word in this game,
+  // so a spurious space completes or breaks a word and counts as a wrong
+  // keystroke. Its cause is the padding trick below — soft keyboards only emit
+  // `deleteContentBackward` when there is something to delete, so the field is
+  // force-reset to a single space after every event. That means `value` is ' '
+  // when the next event arrives, and on an event that added nothing
+  // `slice(-1)` returns that padding. Hence the test below is `length > 1` and
+  // not `length > 0`: exactly one character of padding is ALWAYS present, so
+  // anything beyond it is a real character the player typed.
   mobileInput.addEventListener('input', (e) => {
-    if (!game.isRunning && !scribe.isRunning) return;
+    // 1. IME composition in progress -> dispatch NOTHING. Partial composition
+    //    text is not a keystroke. The committed text arrives later with
+    //    isComposing === false and is handled by the multi-character branch
+    //    below, which takes the character the player actually finished. This
+    //    costs an IME user one keystroke per committed word instead of typing
+    //    every intermediate character, which is the best a one-character-per-
+    //    event bridge can do.
+    const composing = e.isComposing === true;
+
+    // 2. A typing game must not accept pasted text. Before this, a paste was
+    //    multi-character so it fell through to slice(-1) and typed the paste's
+    //    LAST character — a paste of "hello" scored a keystroke for 'o'.
+    const pasted = e.inputType === 'insertFromPaste';
 
     let char = null;
-
-    // Check if backspace was pressed on mobile software keyboard
-    if (e.inputType === 'deleteContentBackward') {
-      char = 'Backspace';
-    } else if (e.data && e.data.length === 1) {
-      char = e.data.toLowerCase();
-    } else if (mobileInput.value && mobileInput.value.length > 0) {
-      // Fallback if e.data is missing but the value grew
-      char = mobileInput.value.slice(-1).toLowerCase();
+    if (!composing && !pasted) {
+      if (e.inputType === 'deleteContentBackward') {
+        char = 'Backspace';
+      } else if (e.data && e.data.length === 1) {
+        char = e.data.toLowerCase();
+      } else if (e.data && e.data.length > 1) {
+        // A committed composition, an autocomplete expansion, or any other
+        // multi-character insert. One keystroke per event is this bridge's
+        // contract, so take the character the player just completed.
+        char = e.data.slice(-1).toLowerCase();
+      } else if (mobileInput.value && mobileInput.value.length > 1) {
+        // e.data is missing but the value GREW past the single padding space.
+        // This is the case the fallback exists for, and it is now safe.
+        char = mobileInput.value.slice(-1).toLowerCase();
+      }
+      // Anything left is an event that added nothing (data null, value still
+      // exactly the padding). Dispatching here is what produced the phantom
+      // space; there is nothing to type, so nothing is typed.
     }
 
-    if (char) {
+    if (char && (game.isRunning || scribe.isRunning)) {
       const syntheticEvent = {
         key: char,
         ctrlKey: false,
@@ -1972,12 +2024,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (game.isRunning) {
         game.inputHandler.handleKeyDown(syntheticEvent);
-      } else if (scribe.isRunning) {
+      } else {
         scribe.handleKeyDown(syntheticEvent);
       }
     }
 
-    // Always keep a space in the input so soft keyboards will emit 'deleteContentBackward' when Backspace is hit
+    // Always restore the padding, INCLUDING while idle. The old handler
+    // returned before this when no run was active, so characters accumulated in
+    // the field between runs and the fallback above was left with no fixed
+    // reference to measure against.
     mobileInput.value = ' ';
   });
 
