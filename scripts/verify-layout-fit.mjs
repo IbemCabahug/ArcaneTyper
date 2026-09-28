@@ -35,6 +35,14 @@
  *   7. `verify:layout` is wired into `npm run verify`.
  *
  * Run:  node scripts/verify-layout-fit.mjs
+ *
+ * ALSO AT-F18 (2026-09-28), the same class of defect one layer out: the two
+ * start-menu silhouettes were sized in `vh` alone. `mage-bg.png` is 626x626, so
+ * its rendered width equals its rendered height and a `vh` size never consults
+ * viewport width — the same mage measured 42% of the screen on desktop and 93%
+ * on an iPad in portrait. Section 7 below locks the width bound, the tablet tier
+ * that did not exist, and the fact that the silhouettes must stay clickable
+ * (they are the only hit surface for the Profile and Arena entry points).
  */
 
 import { readFileSync } from 'node:fs';
@@ -136,6 +144,75 @@ check('.overlay-menu centres SAFELY, so a too-tall column cannot overflow above 
 check('#start-menu scrolls instead of clipping',
     /#start-menu\s*\{[^}]*overflow-y:\s*auto/.test(atM11));
 
+
+// ── 7. AT-F18 (2026-09-28): the silhouettes must be width-bounded too ────────
+//
+// The same class of defect as check 2 above, one layer out. `.mage-silhouette-img`
+// was `height: 65vh` with `width: max-content` and an `img { height:100%;
+// width:auto }` child. Because `mage-bg.png` is 626x626 — SQUARE — the rendered
+// width equals the rendered height, so sizing it in `vh` sized it by viewport
+// HEIGHT and never consulted viewport WIDTH. Measured with
+// scratch/probe-silhouettes.mjs, one rule, four outcomes:
+//
+//     1400x900 desktop   585px  =  42% of the screen   (fine)
+//      834x1194 iPad 11  776px  =  93% of the screen   (the bug)
+//      810x1080 iPad 10  702px  =  87% of the screen   (the bug)
+//      390x844  phone    591px  = 152% of the screen   (the bug)
+//
+// It was a usability bug too, not only a visual one: the click handlers for the
+// Mage Profile and the Arena are bound to the PARENT (#background-mage /
+// #duel-mage), which is `pointer-events: none`, so the silhouette is the only
+// clickable surface for both. At 93% of the width its centre landed on top of the
+// menu column, where a `<p>` intercepted the tap — `elementFromPoint` returned the
+// paragraph, not the image, on iPad in portrait.
+//
+// The fix bounds the size by BOTH axes with `min()`. `duel-mage-bg.png` is
+// 348x696 (1:2), so its width is height/2 and the width bound is 68vw, not 46vw.
+const mageSil = blockBySelector(css, /^\.mage-silhouette-img\s*\{/m);
+const duelSil = blockBySelector(css, /^\.duel-silhouette-img\s*\{/m);
+check('.mage-silhouette-img is bounded by viewport WIDTH as well as height',
+    !!mageSil && /height:\s*min\([^;]*\b\d+vw\b/.test(mageSil),
+    'a square image sized in vh alone is sized by viewport height — the AT-F18 defect');
+check('.duel-silhouette-img is bounded by viewport WIDTH as well as height',
+    !!duelSil && /height:\s*min\([^;]*\b\d+vw\b/.test(duelSil),
+    '1:2 art, so the width bound is 68vw rather than the mage 46vw');
+check('neither silhouette still sizes itself in a bare viewport height',
+    !!mageSil && !/\bheight:\s*\d+vh\b/.test(mageSil) && !!duelSil && !/\bheight:\s*\d+vh\b/.test(duelSil),
+    'a bare `height: Nvh` is the exact shape that produced the report');
+check('the mage silhouette keeps its 46vw bound (not silently widened)',
+    !!mageSil && /46vw/.test(mageSil), '46vw is what leaves 1400x900 and 1194x834 byte-identical');
+check('the duel silhouette keeps its 68vw bound (1:2 art)',
+    !!duelSil && /68vw/.test(duelSil));
+
+// The tablet tier must exist. Breakpoints used to jump from the desktop base
+// straight to `max-width: 768px`, so real iPad widths (768/810/834/1024/1080/
+// 1194) matched no silhouette rule at all and inherited the desktop treatment.
+const TABLET_TIER = '@media (min-width: 769px) and (max-width: 1180px)';
+const tabletTier = css.includes(TABLET_TIER);
+check('a tablet tier for the silhouettes exists', tabletTier,
+    'without it every iPad inherits the desktop opacity/hover treatment');
+const tabletBlock = tabletTier ? sliceBlock(css, css.indexOf('{', css.indexOf(TABLET_TIER))) : '';
+// `:hover` LATCHES on touch devices, so the desktop hover treatment
+// (brightness 1.5 + scale 1.05) fires on the very tap meant to open the menu.
+check('the tablet tier disables the hover zoom (it latches on touch)',
+    tabletBlock.includes('.mage-avatar-background:hover .mage-silhouette-img')
+    && tabletBlock.includes('transform: none')
+    && tabletBlock.includes('filter: none'),
+    'a sticky :hover leaves the silhouette brightened and zoomed after one tap');
+check('the tablet tier leaves the silhouettes clickable',
+    tabletBlock.length > 0 && !/pointer-events:\s*none/.test(tabletBlock),
+    'the silhouettes are the ONLY hit surface for the Profile and Arena entry points');
+// The phone tier pushed them -25vw / -20vw off-canvas purely to compensate for
+// the oversized silhouette. With the size bounded, that push would hide almost
+// all of it (at 46vw, -25vw on a 390px phone leaves ~80px of a 179px silhouette).
+const phoneBlock = sliceBlock(css, css.indexOf('{', css.indexOf('@media (max-width: 768px) {\n  .mage-silhouette-img')));
+check('the phone tier no longer shoves the silhouettes off-canvas',
+    phoneBlock.includes('left: -6vw') && phoneBlock.includes('right: -6vw')
+    && !/left:\s*-\d+vw/.test(phoneBlock.replace('left: -6vw', '')),
+    '-25vw was a compensation for the oversized silhouette, not a design intent');
+
+// ── 8. the bug, the fix and the numbers are recorded together ───────────────
+
 // ── 7. the bug, the fix and the numbers are recorded together ───────────────
 const status = read('docs/arcaneTyper-docs/PROJECT_STATUS.md');
 check('PROJECT_STATUS records AT-M11 with its measured numbers',
@@ -151,5 +228,5 @@ if (failures) {
     console.error(`${failures} layout-fit check(s) FAILED.`);
     process.exit(1);
 }
-console.log('All AT-M11 layout-fit checks passed.');
+console.log('All AT-M11 / AT-F18 layout-fit checks passed.');
 process.exit(0);

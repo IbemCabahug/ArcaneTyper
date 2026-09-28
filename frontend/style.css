@@ -1350,12 +1350,37 @@ h1 .highlight {
   transform: scale(0.98);
 }
 
+/* AT-F18 (2026-09-28) — the silhouettes are sized in `vh` ALONE.
+ *
+ * `mage-bg.png` is 626x626 — SQUARE — and the wrapper is `width: max-content`
+ * with `img { height: 100%; width: auto }`, so the rendered WIDTH equals the
+ * rendered HEIGHT. Sizing by `vh` therefore sizes the silhouette by viewport
+ * height and never consults viewport width, which is what produced the owner's
+ * report that on a phone or iPad the silhouettes "are not in their place and
+ * just enlarge to the screen". Measured with scratch/probe-silhouettes.mjs
+ * before this change, same `65vh` rule throughout:
+ *
+ *     1400x900 desktop   585px wide  =  42% of the screen
+ *      834x1194 iPad 11  776px wide  =  93% of the screen
+ *      810x1080 iPad 10  702px wide  =  87% of the screen
+ *      390x844  phone    591px wide  = 152% of the screen
+ *
+ * One rule, four completely different results, because only the height was
+ * constrained. `min()` bounds the size by the SHORTER usable axis, so a tall
+ * narrow viewport can no longer produce a silhouette wider than the screen.
+ *
+ * 46vw is chosen to leave the desktop composition untouched: on 1400x900 and
+ * 1194x834 the `vh` term is still the smaller one, so those two keep their exact
+ * current size (585px and 542px) and the fix is invisible on desktop.
+ *
+ * `max-height` is dropped rather than kept alongside: with the size now coming
+ * from a single `min()`, a second bound is a second source of truth that can
+ * silently disagree with the first. */
 .mage-silhouette-img {
   position: absolute;
   bottom: -2px;
   left: 0px;
-  height: 65vh;
-  max-height: 800px;
+  height: min(65vh, 800px, 46vw);
   width: max-content;
   opacity: 0.8;
   transition: opacity 0.5s ease, transform 0.5s ease;
@@ -1606,12 +1631,18 @@ h1 .highlight {
   transform: scale(0.98);
 }
 
+/* AT-F18 (2026-09-28) — same `vh`-only sizing defect as the mage silhouette.
+ * `duel-mage-bg.png` is 348x696, i.e. 1:2, and the wrapper is `width: max-content`
+ * with `img { height: 100%; width: auto }`, so WIDTH = HEIGHT / 2. Bounding the
+ * width to 34vw therefore means bounding the HEIGHT to 68vw — the factor of two
+ * is the whole reason this is not simply the same number as the mage's.
+ * Measured before the change: 495px wide (18%) on desktop, but 315px (38%) on an
+ * 834-wide iPad in portrait and 312px (39%) on an 810-wide one. */
 .duel-silhouette-img {
   position: absolute;
   top: 50%;
   right: 5vw;
-  height: 55vh;
-  max-height: 600px;
+  height: min(55vh, 600px, 68vw);
   width: max-content;
   opacity: 0.8;
   transition: opacity 0.5s ease, transform 0.5s ease;
@@ -1639,15 +1670,27 @@ h1 .highlight {
   /* Hide glow since the new image is a tower without a wand */
 }
 
-/* ── Mobile Responsive Adjustments for Silhouettes ── */
+/* ── Mobile Responsive Adjustments for Silhouettes ──
+ *
+ * AT-F18 (2026-09-28): the `70vh` / `50vh` here were the same vh-only defect as
+ * the base rules, and the `-25vw` / `-20vw` pushes were a COMPENSATION for it —
+ * they shoved the oversized silhouette off-canvas so it stopped dominating. Now
+ * that the size is bounded properly, keeping the full push would hide almost
+ * everything: at 46vw a -25vw offset on a 390px phone leaves roughly 80px of a
+ * 179px silhouette visible, which is a sliver rather than edge decoration. The
+ * push is reduced to a modest bleed so the silhouette still reads as emerging
+ * from the edge, which is what the original values were reaching for.
+ *
+ * `min(70vh, 46vw)` / `min(50vh, 68vw)` keep the same relationship to the base
+ * rules as before (the phone is allowed to be slightly larger relative to the
+ * screen), while still being bounded by width. */
 @media (max-width: 768px) {
   .mage-silhouette-img {
-    height: 70vh;
-    /* stretch it tall */
+    height: min(70vh, 46vw);
     opacity: 0.25;
     /* low opacity so it doesn't block text */
-    left: -25vw;
-    /* anchor it aggressively to the left */
+    left: -6vw;
+    /* a small bleed off the left edge — see the note above */
     bottom: -5vh;
     /* pull it slightly down */
     transform-origin: bottom left;
@@ -1665,11 +1708,11 @@ h1 .highlight {
   }
 
   .duel-silhouette-img {
-    height: 50vh;
-    /* Tall tower */
+    height: min(50vh, 68vw);
+    /* Tall tower, still width-bounded */
     opacity: 0.25;
-    right: -20vw;
-    /* anchor aggressively to the right */
+    right: -6vw;
+    /* a small bleed off the right edge */
     top: 20%;
     /* Pull it up so it acts as the right-side boundary */
     transform-origin: top right;
@@ -1684,6 +1727,56 @@ h1 .highlight {
     filter: none;
   }
 }
+
+/* ── AT-F18 (2026-09-28): the TABLET tier, which did not exist ──
+ *
+ * The silhouette rules jumped straight from the desktop base to `max-width:
+ * 768px`. Every iPad therefore fell into the desktop bucket in BOTH
+ * orientations, because real device widths are 768 / 810 / 834 / 1024 / 1080 /
+ * 1194 — only the 768 mini matches the phone rule, and 1024+ matches nothing at
+ * all. Measured before this change: an iPad 11 in portrait rendered the mage at
+ * 776px, 93% of an 834px screen, fully on-canvas, at desktop opacity 0.8.
+ *
+ * This tier is deliberately `min-width: 769px`, so it cannot fight the phone
+ * rules above (mutually exclusive ranges) and cannot reach desktop widths.
+ *
+ * What it changes, and why each is here:
+ *
+ *   opacity 0.25 — the phone treatment. At 0.8 a 46%-wide silhouette is a hard
+ *     shape sitting behind the menu on a tablet held much closer to the face
+ *     than a desktop monitor, so the same alpha reads far heavier.
+ *   hover effects off — `:hover` LATCHES on touch devices: the first tap sets
+ *     it and it stays until you tap elsewhere. That means on an iPad the
+ *     silhouette would brighten (`brightness(1.5)`) and zoom after the very tap
+ *     that was meant to open it. Disabling the hover transform removes that
+ *     whole class of touch-only artefact.
+ *   pointer-events stays `auto` on purpose. The click handlers are bound to the
+ *     PARENT (#background-mage / #duel-mage), which is `pointer-events: none`,
+ *   so the silhouette is the ONLY clickable surface for the Mage Profile and the
+ *     Arena. Killing it here would remove two entry points on tablets. The
+ *     pre-existing `max-width: 600px` rule that sets `pointer-events: none` is a
+ *     separate finding and is NOT extended here. */
+@media (min-width: 769px) and (max-width: 1180px) {
+  .mage-silhouette-img {
+    opacity: 0.25;
+  }
+
+  .mage-avatar-background:hover .mage-silhouette-img {
+    transform: none;
+    opacity: 0.35;
+  }
+
+  .duel-silhouette-img {
+    opacity: 0.25;
+  }
+
+  .duel-avatar-background:hover .duel-silhouette-img {
+    transform: translateY(-50%);
+    opacity: 0.35;
+    filter: none;
+  }
+}
+
 
 @keyframes floatWandImage {
 
