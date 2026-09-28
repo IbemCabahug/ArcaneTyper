@@ -211,6 +211,62 @@ check('the phone tier no longer shoves the silhouettes off-canvas',
     && !/left:\s*-\d+vw/.test(phoneBlock.replace('left: -6vw', '')),
     '-25vw was a compensation for the oversized silhouette, not a design intent');
 
+// ── 7b. the silhouettes are LOAD-BEARING: they are the only hit surface ─────
+//
+// Stripped of comments before any scanning below. This guard's own prose QUOTES
+// the rule it exists to forbid (`pointer-events: none !important`) and the old
+// opacity value, so scanning the raw stylesheet made the guard fail on its own
+// documentation — three checks red for a reason that had nothing to do with the
+// thing they were checking. The same lesson as the migration's `sqlOnly`.
+const cssCodeOnly = css.replace(/\/\*[\s\S]*?\*\//g, '');
+//
+// A `max-width: 600px` block once set `pointer-events: none !important` on both
+// silhouettes, justified as keeping them from occluding touch controls. That was
+// reasonable when the mage rendered at 152% of the screen width. After the width
+// bound above it was pure cost: both entry points' click handlers are bound to
+// the PARENT (#background-mage / #duel-mage), which is itself `pointer-events:
+// none`, so the silhouette is the only thing a finger can hit. Proved by
+// clicking, not by reading — at 360x640 / 390x844 / 430x932, as shipped, both
+// surfaces were NOT CLICKABLE; and 0 of the 10 interactive controls in the start
+// menu lost a single tap point when pointer-events was restored, because the
+// buttons paint above the silhouette and won every hit test regardless.
+//
+// So the invariant to lock is simply: nothing may ever set the silhouettes
+// non-interactive again.
+const silhouettePointerNone = [...cssCodeOnly.matchAll(/([^{}]*silhouette-img[^{}]*)\{([^}]*)\}/g)]
+    .filter(([, , body]) => /pointer-events:\s*none/.test(body))
+    .map(([, sel]) => sel.trim().replace(/\s+/g, ' '));
+check('no CSS rule anywhere disables pointer-events on a silhouette',
+    silhouettePointerNone.length === 0,
+    silhouettePointerNone.join(' | ') || 'a disabled silhouette is an unreachable feature');
+
+const parentBlocks = ['.mage-avatar-background', '.duel-avatar-background']
+    .map((sel) => blockBySelector(css, new RegExp('^' + sel.replace('.', '\\.') + '\\s*\\{', 'm')));
+check('both silhouette parents really are pointer-events: none (so the silhouette IS the hit surface)',
+    parentBlocks.every((b) => b && /pointer-events:\s*none/.test(b)),
+    'if this ever changes, the silhouettes stop being load-bearing and the guard above is moot');
+check('both silhouettes declare pointer-events: auto in their base rules',
+    !!mageSil && /pointer-events:\s*auto/.test(mageSil) && !!duelSil && /pointer-events:\s*auto/.test(duelSil));
+
+// A tappable control has to be VISIBLE as a control. The phone override used to
+// be 0.12, which is close to invisible.
+const opacityValues = [...cssCodeOnly.matchAll(/\.(?:mage|duel)-silhouette-img[^{]*\{[^}]*?opacity:\s*([\d.]+)/g)].map((m) => Number(m[1]));
+check('no silhouette opacity drops below 0.2 (a tappable control must be visible)',
+    opacityValues.length > 0 && opacityValues.every((v) => v >= 0.2),
+    `opacities seen: ${opacityValues.join(', ')}`);
+
+// The reason this bug was so expensive: each of those two menus is unhidden from
+// exactly ONE place in the whole codebase, and that place is a silhouette
+// handler. A rule that disables the silhouette therefore disables a feature, and
+// nothing else would have said so.
+const mainForEntry = read('frontend/main.js');
+for (const [menu, opener] of [['authUI.profileMenu', 'mageAvatarBg'], ['duelLobbyMenu', 'duelMageSilhouette']]) {
+    const occurrences = mainForEntry.split(`${menu}.classList.remove('hidden')`).length - 1;
+    check(`${menu} is opened from exactly one place`, occurrences === 1, `found ${occurrences}`);
+    check(`  ...and that place is the ${opener} silhouette handler`, occurrences === 1 && mainForEntry.includes(`${opener}.addEventListener('click'`),
+        'if this ever changes, the silhouette stops being the only route to the feature');
+}
+
 // ── 8. the bug, the fix and the numbers are recorded together ───────────────
 
 // ── 7. the bug, the fix and the numbers are recorded together ───────────────

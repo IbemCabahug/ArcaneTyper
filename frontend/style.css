@@ -3634,11 +3634,53 @@ h2 {
     letter-spacing: 1px !important;
   }
 
-  /* Keep ambient silhouettes from occluding touch controls */
+  /* AT-F18 follow-up (2026-09-28): the old rule here was
+   *
+   *     .mage-silhouette-img, .duel-silhouette-img {
+   *       opacity: 0.12 !important;
+   *       pointer-events: none !important;
+   *     }
+   *
+   * justified as "keep ambient silhouettes from occluding touch controls". It was
+   * written when the mage silhouette rendered at 152% of the screen width, so it
+   * genuinely did blanket the menu — the band-aid was reasonable then.
+   *
+   * Measured after AT-F18 bounded it to 46%, the justification is GONE and the
+   * cost is not. Both surfaces are opened from exactly one place each in the
+   * codebase — `authUI.profileMenu` at main.js:1019 inside the #background-mage
+   * handler, and `duelLobbyMenu` at main.js:1365 inside the #duel-mage handler —
+   * and BOTH handlers sit on a parent that is itself `pointer-events: none`. The
+   * silhouette is therefore the ONLY hit surface for the Mage Profile and the
+   * Mage Duels. The floating action bar offers Achievements and the Patch Board,
+   * which are neither of those. So this rule made two features unreachable on
+   * every phone.
+   *
+   * Proven by clicking, not by reading (scratch/probe-phone-reachability.mjs, at
+   * 360x640, 390x844 and 430x932):
+   *
+   *   as shipped           Mage Profile  NOT CLICKABLE   Mage Duels  NOT CLICKABLE
+   *   pointer-events auto  Mage Profile  menu OPENED     Mage Duels  handler RAN,
+   *                                                        showed the AT-M9 locked
+   *                                                        toast (correct for a guest)
+   *
+   * And the reason it is safe to remove: scratch/probe-phone-entry-points.mjs
+   * hit-tested all 10 interactive controls in the start menu at three points each,
+   * before and after forcing `pointer-events: auto` —
+   *
+   *   controls that LOSE a tap point: 0     (at all three phone widths)
+   *
+   * The buttons paint ABOVE the silhouette, so they won every hit test whether or
+   * not the silhouette was hit-testable. The rule was never protecting them.
+   *
+   * `opacity` moves 0.12 -> 0.25, matching the AT-F18 tablet tier. A control that
+   * is tappable has to be visible AS a control; 0.12 is close to invisible, and
+   * 0.25 is the value already proven legible in the iPad screenshots. The
+   * `pointer-events` declaration is deleted rather than set back to `auto` — the
+   * base rule already says `auto`, so restating it here would be a second source
+   * of truth for the same fact. */
   .mage-silhouette-img,
   .duel-silhouette-img {
-    opacity: 0.12 !important;
-    pointer-events: none !important;
+    opacity: 0.25 !important;
   }
 
   #start-menu-floating-actions {
@@ -3832,10 +3874,20 @@ h2 {
     letter-spacing: 0.5px !important;
   }
 
+  /* AT-F18 follow-up (2026-09-28): `opacity` was 0.15 here. That was fine when
+   * this block's silhouettes were inert decoration, but the same block relied on
+   * the `max-width: 600px` rule that made them untappable — and once that rule
+   * is gone, THIS block's silhouettes are the only hit surface for the Mage
+   * Profile and the Mage Duels too. A tap target at 0.15 is effectively
+   * invisible, so it is raised to 0.25, matching the portrait-phone and tablet
+   * tiers: one value for "this is ambient art you can also tap", so a landscape
+   * phone is not a second-class surface. `height` is untouched — 48vh is the
+   * right answer on a 390px-tall screen and AT-F18's width bound does not bite
+   * at 844px wide. */
   .mage-silhouette-img,
   .duel-silhouette-img {
     height: 48vh !important;
-    opacity: 0.15 !important;
+    opacity: 0.25 !important;
   }
 
   #start-menu-floating-actions {
