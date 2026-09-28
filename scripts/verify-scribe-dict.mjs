@@ -130,7 +130,89 @@ check('no split-on-a-single-space survives anywhere in Scribe.js',
     !/\.split\(' '\)/.test(codeOf(live)),
     'any surviving split would reintroduce the untypeable tokens');
 
-// ── summary ──────────────────────────────────────────────────────────────────
+// ── AT-L9: one canonical Scribe score ────────────────────────────────────────
+// The identical run used to record a score 10x apart in two places:
+// `Scribe.finishTrial` wrote `floor(wpm * accuracy/100) * 10` to `run_history`,
+// while `main.js` recomputed the same quantity WITHOUT the *10 and submitted
+// that to the Hall of Fame. So a player's own Recent Runs and the public board
+// disagreed about the same run by a factor of ten.
+//
+// This executes the REAL `Scribe.prototype.finishTrial` (imported, not
+// reconstructed — the header of this file records what a `new Function` slice
+// cost this repo once) against stubbed getters and a recording Stats, then
+// reads back all three numbers the method hands out: the XP award, the
+// `run_history` score, and the score passed to `onTrialComplete` for the board.
+// The bug is precisely that these disagree, so the guard asserts they are the
+// same value.
+function runRealFinishTrial({ wpm, accuracy }) {
+    const calls = { xp: [], runs: [], trial: null };
+    const el = () => ({ innerText: '', classList: { add() { }, remove() { } } });
+    const s = Object.create(Scribe.prototype);
+    s.stats = {
+        addXP: (n) => calls.xp.push(n),
+        logRunToSupabase: (mode, w, a, score) => calls.runs.push({ mode, wpm: w, accuracy: a, score })
+    };
+    s.stop = () => { };
+    s.getWPM = () => wpm;
+    s.getRawWPM = () => wpm;
+    s.getAccuracy = () => accuracy;
+    s.getConsistency = () => 90;
+    s.resWpm = el(); s.resRawWpm = el(); s.resAcc = el(); s.resConsistency = el();
+    s.resultsMenu = el();
+    s.wpmSamples = [10, 20, 30];
+    s.maxStreak = 7;
+    s.onTrialComplete = (w, r, a, c, samples, streak, score) => { calls.trial = { score, streak }; };
+    s.finishTrial();
+    return calls;
+}
+
+const CANONICAL = (wpm, accuracy) => Math.floor(wpm * (accuracy / 100));
+// What the OLD code awarded, spelled out from the shipped source: the score
+// carried a *10 and XP divided by 10, so the two cancelled.
+const LEGACY_XP = (wpm, accuracy) => Math.floor((Math.floor(wpm * (accuracy / 100)) * 10) / 10);
+
+for (const { wpm, accuracy } of [{ wpm: 60, accuracy: 100 }, { wpm: 83, accuracy: 96.4 }, { wpm: 0, accuracy: 100 }]) {
+    const r = runRealFinishTrial({ wpm, accuracy });
+    const want = CANONICAL(wpm, accuracy);
+    const tag = `(wpm ${wpm}, acc ${accuracy})`;
+
+    check(`AT-L9 ${tag}: run_history and the Hall of Fame record the SAME score`,
+        r.runs.length === 1 && r.trial && r.runs[0].score === r.trial.score,
+        `run_history ${r.runs[0]?.score} vs leaderboard ${r.trial?.score}`);
+    check(`AT-L9 ${tag}: that score is the canonical un-multiplied value`,
+        r.runs[0]?.score === want, `got ${r.runs[0]?.score}, expected ${want}`);
+    check(`AT-L9 ${tag}: the run is logged as a 'scribe' run`,
+        r.runs[0]?.mode === 'scribe' && r.runs[0]?.wpm === wpm && r.runs[0]?.accuracy === accuracy);
+    // The non-regression that matters most. Removing the *10 while leaving the
+    // /10 in place would look like a tidy-up and would cut Scribe XP tenfold.
+    check(`AT-L9 ${tag}: XP is UNCHANGED from the pre-fix award`,
+        r.xp.length === 1 && r.xp[0] === LEGACY_XP(wpm, accuracy),
+        `got ${r.xp[0]}, legacy award was ${LEGACY_XP(wpm, accuracy)}`);
+    check(`AT-L9 ${tag}: the streak still reaches the board callback`,
+        r.trial?.streak === 7);
+}
+
+// The score must be defined in exactly ONE place. Two copies are what drifted,
+// so a second copy is the regression even when both happen to agree today.
+const mainLive = codeOf(read('frontend/main.js'));
+const scribeLive = codeOf(live);
+const formula = 'Math.floor(wpm * (accuracy / 100))';
+check('AT-L9 the Scribe score formula exists exactly ONCE in the game source',
+    (mainLive.split(formula).length - 1) + (scribeLive.split(formula).length - 1) === 1,
+    `${scribeLive.split(formula).length - 1} in Scribe.js, ${mainLive.split(formula).length - 1} in main.js`);
+check('AT-L9 no x10 multiplier survives in the Scribe score path',
+    !/const scribeScore = Math\.floor\(wpm \* \(accuracy \/ 100\)\) \* 10;/.test(scribeLive));
+check('AT-L9 XP is not silently divided by 10 any more',
+    !/addXP\(Math\.floor\(scribeScore \/ 10\)\)/.test(scribeLive),
+    'the /10 only ever cancelled the *10; keeping it alone would cut XP tenfold');
+check('AT-L9 finishTrial hands its score to the board callback',
+    /onTrialComplete\([^)]*this\.maxStreak,\s*scribeScore\)/.test(scribeLive));
+check('AT-L9 the main.js handler accepts the passed score instead of recomputing it',
+    /onTrialComplete = async \([^)]*scribeScore\)/.test(mainLive));
+check('AT-L9 a missing score skips submission loudly rather than inventing one',
+    /Number\.isFinite\(scribeScore\)/.test(mainLive) &&
+        /onTrialComplete received no score/.test(mainLive));
+
 console.log('');
 if (failures) {
     console.error(`${failures} scribe-dictionary check(s) FAILED.`);

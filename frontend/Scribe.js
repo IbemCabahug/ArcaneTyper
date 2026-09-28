@@ -413,16 +413,37 @@ export class Scribe {
 
         this.resultsMenu.classList.remove('hidden');
 
-        const scribeScore = Math.floor(wpm * (accuracy / 100)) * 10;
+        // ── AT-L9: ONE canonical Scribe score ───────────────────────────────
+        // This used to be `floor(wpm * accuracy/100) * 10`, while main.js
+        // recomputed the same quantity WITHOUT the *10 and submitted that to
+        // the leaderboard. The identical run therefore recorded a score 10x
+        // apart between `run_history` (your own Recent Runs) and the Hall of
+        // Fame. `scribe-trial.md` §5 is marked "READ BEFORE TOUCHING" and
+        // demands a decision first, so the decision is recorded here: the
+        // UN-MULTIPLIED value is canonical, because that is what the public
+        // board has always displayed and what the Arena path already does (it
+        // posts the raw `finalStats.score`, not a scaled one).
+        //
+        // The score is computed ONCE, here, and handed to the leaderboard path
+        // rather than re-derived there. A second copy of the formula is the
+        // defect, not the arithmetic — the two copies are what drifted.
+        const scribeScore = Math.floor(wpm * (accuracy / 100));
 
-        // Log to Supabase and Add XP
+        // XP KEEPS ITS HISTORICAL VALUE, and that is not a coincidence. It used
+        // to arrive as `floor(scribeScore / 10)` while `scribeScore` itself
+        // carried a `* 10` — i.e. exactly `floor(wpm * accuracy/100)`. Removing
+        // the `* 10` and leaving the `/ 10` in place would have silently cut
+        // every Scribe XP award tenfold, which is exactly the kind of change
+        // that looks like a cleanup and is a balance disaster. The divisor and
+        // the multiplier cancelled, so the surviving expression is the whole
+        // truth and is written out plainly.
         if (this.stats) {
-            if (this.stats.addXP) this.stats.addXP(Math.floor(scribeScore / 10));
+            if (this.stats.addXP) this.stats.addXP(scribeScore);
             if (this.stats.logRunToSupabase) this.stats.logRunToSupabase('scribe', wpm, accuracy, scribeScore);
         }
 
         if (this.onTrialComplete) {
-            this.onTrialComplete(wpm, rawWpm, accuracy, consistency, [...this.wpmSamples], this.maxStreak);
+            this.onTrialComplete(wpm, rawWpm, accuracy, consistency, [...this.wpmSamples], this.maxStreak, scribeScore);
         }
     }
 }

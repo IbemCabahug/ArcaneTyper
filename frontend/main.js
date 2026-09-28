@@ -733,7 +733,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ── Scribe Trial ──────────────────────────────────────────────────────────
 
-  scribe.onTrialComplete = async (wpm, rawWpm, accuracy, consistency, wpmSamples, maxStreak = 0) => {
+  // AT-L9: `scribeScore` is computed ONCE by `Scribe.finishTrial` and passed in
+  // as the 7th argument. This handler used to recompute the formula itself, and
+  // the two copies disagreed by a factor of ten — `run_history` recorded the
+  // scaled value while the Hall of Fame received the unscaled one, so your own
+  // Recent Runs and the public board reported the same run as two different
+  // scores. A second definition is the defect, so there is deliberately NO
+  // fallback copy here: if the score is not a finite number the caller changed,
+  // and this skips submission with a loud error rather than inventing a value
+  // that would disagree with `run_history` all over again. The result screen
+  // still updates either way, so a player is never stranded on a blank panel.
+  scribe.onTrialComplete = async (wpm, rawWpm, accuracy, consistency, wpmSamples, maxStreak = 0, scribeScore) => {
     game.stats.recordWpm(wpm);
 
     // Update accuracy display (already has % in the span)
@@ -745,18 +755,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Draw WPM graph
     drawWpmGraph(wpmSamples);
 
-    const scribeScore = Math.floor(wpm * (accuracy / 100));
+    if (Number.isFinite(scribeScore)) {
+      const qualifies = await leaderboard.isTop10('scribe', scribeScore, wpm, accuracy, maxStreak);
 
-    const qualifies = await leaderboard.isTop10('scribe', scribeScore, wpm, accuracy, maxStreak);
-
-    // Auto submit to leaderboard since we have a mage name. AT-F4: guests are
-    // excluded for the same reason as the Arena path above.
-    if (qualifies && game.stats.mageName) {
-      if (isGuest()) {
-        noteGuestScoreNotShared();
-      } else {
-        await leaderboard.addScore('scribe', game.stats.mageName, scribeScore, wpm, accuracy, maxStreak);
+      // Auto submit to leaderboard since we have a mage name. AT-F4: guests are
+      // excluded for the same reason as the Arena path above.
+      if (qualifies && game.stats.mageName) {
+        if (isGuest()) {
+          noteGuestScoreNotShared();
+        } else {
+          await leaderboard.addScore('scribe', game.stats.mageName, scribeScore, wpm, accuracy, maxStreak);
+        }
       }
+    } else {
+      console.error('[scribe] onTrialComplete received no score; skipping Hall of Fame submission. ' +
+        'The Scribe score is computed once in Scribe.finishTrial and passed in — do not re-derive it here.');
     }
 
     scribeHighscoreForm.classList.add('hidden');
