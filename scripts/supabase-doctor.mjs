@@ -157,7 +157,44 @@ for (const [table, cols] of Object.entries(EXPECTED)) {
 }
 
 // ── 5. row counts — makes an empty cloud profile/history obvious ───────────
+// AT-F4 (2026-09-28): these counts are taken with the ANON key, and `profiles`
+// SELECT is now `auth.uid() = id`, so an anonymous count returns 0 no matter how
+// many rows exist. Reporting that bare "0" would be worse than useless: it is
+// indistinguishable from an empty table, and a probe that answers 0 without
+// error is exactly what hid the original run_history policy bug (zero policies
+// → every insert 42501) for months. So the number is only printed when it is
+// actually visible, and the tables RLS hides from anon are named as such.
+//
+// When SUPABASE_ACCESS_KEY is present the real count is read through the
+// Management API, which runs as the table owner and bypasses RLS.
+const token = process.env.SUPABASE_ACCESS_KEY || envFile.SUPABASE_ACCESS_KEY;
+const ref = url.replace(/^https?:\/\//, '').split('.')[0];
+const mgmtCount = async (table) => {
+    if (!token || !ref || ref === 'your-project-ref') return null;
+    const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: `select count(*)::int as n from public.${table}` }),
+        signal: AbortSignal.timeout(15000)
+    });
+    if (!res.ok) return null;
+    return JSON.parse(await res.text())?.[0]?.n ?? null;
+};
+
+/** Tables whose SELECT policy does not admit the anonymous role. */
+const RLS_HIDDEN_FROM_ANON = new Set(['profiles']);
+
 for (const table of Object.keys(EXPECTED)) {
+    const privileged = await mgmtCount(table).catch(() => null);
+    if (privileged !== null) {
+        line(true, `${table} rows`, `${privileged} (owner read, RLS bypassed)`);
+        continue;
+    }
+    if (RLS_HIDDEN_FROM_ANON.has(table)) {
+        line(null, `${table} rows`,
+            'hidden from the anon key by RLS (own-row SELECT) — set SUPABASE_ACCESS_KEY in .env to see the real count');
+        continue;
+    }
     try {
         const res = await req(`/rest/v1/${table}?select=id`, {
             method: 'HEAD',

@@ -252,6 +252,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   // so the local sandbox stays open (Stats.requiresMageCard owns that rule).
   const needsMageCard = () => game.stats.requiresMageCard(!!supabase);
 
+  // AT-F4: the cloud Hall of Fame now requires a signed-in player, so a guest
+  // must not attempt the insert — the RLS policy is `TO authenticated` and the
+  // request would come back 403. A guest keeps their run and their LOCAL score
+  // board; they simply do not reach the shared one. This mirrors the AT-M9
+  // guest gates (Workshop / Arena / Forge) rather than inventing a new rule.
+  //
+  // `once` because this is reached at the end of EVERY run: a toast on each
+  // game over would be nagging, and saying it once per page load is enough for
+  // a player to understand why their name is missing from the boards.
+  const GUEST_HINT_KEY = 'typerMaster_guestLeaderboardHinted';
+  const noteGuestScoreNotShared = () => {
+    try {
+      if (localStorage.getItem(GUEST_HINT_KEY)) return;
+      localStorage.setItem(GUEST_HINT_KEY, '1');
+    } catch (e) { /* private mode: fall through and just say it */ }
+    MagicalToast.show('🏆 Sign in to publish your score to the Hall of Fame.', 4500);
+  };
+
   authUI.init(() => {
     profileUI.updateMenuStats();
   });
@@ -597,16 +615,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       finalStats.maxCombo || 0
     );
 
-    // Bypassing prompt: auto submit if they have a profile
+    // Auto submit if they have a profile. AT-F4: a guest is excluded — the cloud
+    // leaderboard INSERT policy is `TO authenticated`, so the attempt would be
+    // refused. The run itself and the local score board are unaffected.
     if (qualifies && game.stats.mageName) {
-      await leaderboard.addScore(
-        game.difficulty, // Daily uses 'normal' effectively
-        game.stats.mageName,
-        finalStats.score,
-        finalStats.getSessionWPM(),
-        finalStats.getAccuracy(),
-        finalStats.maxCombo || 0
-      );
+      if (isGuest()) {
+        noteGuestScoreNotShared();
+      } else {
+        await leaderboard.addScore(
+          game.difficulty, // Daily uses 'normal' effectively
+          game.stats.mageName,
+          finalStats.score,
+          finalStats.getSessionWPM(),
+          finalStats.getAccuracy(),
+          finalStats.maxCombo || 0
+        );
+      }
     }
 
     if (game.gameMode === 'daily') {
@@ -682,11 +706,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (stats.isAuthenticated) {
       stats.queueAbandonedRun('arena', wpm, accuracy, score); // run + profile insurance
     }
-    // Hall of Fame is name-keyed (guests submit too — same gate as onGameOver).
+    // AT-F4: the Hall of Fame is no longer name-keyed — it requires a session,
+    // so the same `isGuest()` gate as onGameOver applies here. Queueing a guest
+    // score would only fill the outbox with entries the replay can never land.
     if (stats.mageName) {
-      leaderboard.queuePendingScore(
-        game.difficulty, stats.mageName, score, wpm, accuracy, stats.maxCombo || 0
-      );
+      if (isGuest()) {
+        noteGuestScoreNotShared();
+      } else {
+        leaderboard.queuePendingScore(
+          game.difficulty, stats.mageName, score, wpm, accuracy, stats.maxCombo || 0
+        );
+      }
     }
 
     // One-shot flag consumed on the next page load: the confirmation toast is
@@ -719,9 +749,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const qualifies = await leaderboard.isTop10('scribe', scribeScore, wpm, accuracy, maxStreak);
 
-    // Auto submit to leaderboard since we have a mage name
+    // Auto submit to leaderboard since we have a mage name. AT-F4: guests are
+    // excluded for the same reason as the Arena path above.
     if (qualifies && game.stats.mageName) {
-      await leaderboard.addScore('scribe', game.stats.mageName, scribeScore, wpm, accuracy, maxStreak);
+      if (isGuest()) {
+        noteGuestScoreNotShared();
+      } else {
+        await leaderboard.addScore('scribe', game.stats.mageName, scribeScore, wpm, accuracy, maxStreak);
+      }
     }
 
     scribeHighscoreForm.classList.add('hidden');
