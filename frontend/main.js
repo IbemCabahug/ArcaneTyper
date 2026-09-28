@@ -1843,6 +1843,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
     });
+    paintSkillPrices();
 
     // Update wands
     wandBtns.forEach(btn => {
@@ -1853,6 +1854,37 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
   }
+
+  /**
+   * The price a Workshop node SHOWS must be the price it CHARGES.
+   *
+   * The 2026-09-26 rebalance repriced all 12 nodes to 15,000-120,000 XP by
+   * updating `data-cost` only. The visible `<span class="skill-cost">` labels
+   * were static markup that nothing ever wrote to, so the Workshop advertised
+   * the PRE-rebalance prices while charging the post-rebalance ones — the
+   * cheapest node read "1000 XP" and cost 15,000. Those old values are kept
+   * verbatim in verify-class-roster's `PRE_REBALANCE_TREE`, which is how the
+   * drift was identified.
+   *
+   * The markup is now correct too, but a correct snapshot is still a second
+   * copy: the next rebalance would move `data-cost` and leave the labels behind
+   * exactly as this one did. So the label is RENDERED from the same number the
+   * purchase reads (`spendXP(cost)` on the same `dataset.cost`), which makes
+   * the disagreement structurally impossible rather than merely fixed.
+   */
+  function paintSkillPrices() {
+    skillNodes.forEach(node => {
+      const cost = parseInt(node.dataset.cost, 10);
+      const label = node.querySelector('.skill-cost');
+      if (label && Number.isFinite(cost)) {
+        label.textContent = `${cost.toLocaleString('en-US')} XP`;
+      }
+    });
+  }
+
+  // Paint once at startup as well as on every update, so the price is right in
+  // the markup a player would see if this never ran.
+  paintSkillPrices();
 
   // Headers are static per class, so paint them once at startup (the menu is
   // hidden until then); updateWorkshopUI() only re-marks the bound branch.

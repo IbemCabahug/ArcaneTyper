@@ -347,6 +347,47 @@ check(
     Object.entries(tree).map(([c, n]) => `${c}=${Object.keys(n).length}`).join(' ')
 );
 
+// ── the price a node SHOWS is the price it CHARGES ─────────────────────────
+// Found 2026-09-28: the 2026-09-26 rebalance repriced all 12 nodes to
+// 15,000-120,000 XP by updating `data-cost` only. Nothing ever wrote to the
+// visible `<span class="skill-cost">`, so the Workshop advertised the
+// pre-rebalance prices while charging the new ones — the cheapest node read
+// "1000 XP" and cost 15,000. A player in a paid-currency shop is told a price
+// and charged a different one, and the fingerprint check below could not see it
+// because it only reads `data-cost`, which was correct throughout.
+//
+// Two halves, because one is not enough. The markup must be right, since it is
+// what a player sees if the paint never runs. And the paint must EXIST and
+// derive the label from the same number the purchase reads, so the next
+// rebalance cannot repeat this: a correct snapshot is still a second copy.
+const priceRows = [...htmlSrc.matchAll(
+    /<button id="skill-([a-z-]+)-btn"[^>]*data-cost="(\d+)"[^>]*>([\s\S]*?)<\/button>/g
+)].map((m) => {
+    const label = (m[3].match(/class="skill-cost">([^<]*)</) || [])[1];
+    return { id: m[1], charged: Number(m[2]), shown: parseInt(String(label).replace(/[^0-9]/g, ''), 10) };
+});
+check('every Workshop node ships exactly one price label', priceRows.length === 12, `${priceRows.length} found`);
+const lying = priceRows.filter((r) => r.shown !== r.charged);
+check('no Workshop node advertises a price different from the one it charges',
+    lying.length === 0,
+    lying.length
+        ? lying.map((r) => `${r.id}: shows ${r.shown}, charges ${r.charged}`).join('; ')
+        : `${priceRows.length} nodes agree`);
+check('the shown price is formatted, not a bare number',
+    priceRows.every((r) => /^\d{1,3}(,\d{3})* XP$/.test(
+        (htmlSrc.match(new RegExp(`id="skill-${r.id}-btn"[\\s\\S]{0,2000}?class="skill-cost">([^<]*)<`)) || [])[1] || '')),
+    'the Forge and the Discipline Scrolls both render "60,000 XP"; a bare 15000 reads as a different number at a glance');
+
+const mainJs = read('frontend/main.js');
+check('the price label is painted from the charged value at runtime',
+    /function paintSkillPrices\(\)[\s\S]*?node\.dataset\.cost[\s\S]*?label\.textContent\s*=/.test(mainJs),
+    'otherwise the next rebalance moves data-cost and strands the labels again, exactly as this one did');
+check('the paint runs at startup, not only when the menu opens',
+    /paintSkillPrices\(\);/.test(mainJs));
+check('the paint is called from updateWorkshopUI so an open menu refreshes',
+    /paintSkillPrices\(\);/.test(mainJs) &&
+    mainJs.indexOf('paintSkillPrices();') !== mainJs.lastIndexOf('paintSkillPrices();'));
+
 // Branch assignment is free to change (that IS the re-grouping); the id→cost
 // fingerprint is not: a dropped id silently kills a skill the player paid for.
 const fingerprint = (map) => Object.values(map).flatMap((nodes) => Object.entries(nodes)).sort().join('|');
