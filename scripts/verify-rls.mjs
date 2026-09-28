@@ -123,6 +123,50 @@ check('the profiles INSERT own-row guard is left intact',
     !/create policy[^;]*on public\.profiles\s+for insert\s+to/i.test(migration),
     'AT-F4 changed reads only; the write side was already correct and verified');
 
+// ── 5b. run_history SELECT is own-row too (AT-F4 follow-up) ────────────────
+// Same exposure as profiles had: SELECT `using (true)` published every user's
+// UUID and their whole run history to the public anon key. Narrowed in a second
+// migration once the owner made that call separately. This check exists so the
+// two tables cannot drift apart again.
+const RH = sqlOnly(read('supabase/migrations/20260928_run_history_select_tighten.sql'));
+check('the run_history own-row migration is present', RH.length > 0);
+check('run_history SELECT is narrowed to the caller own-row',
+    /create policy "Players can view their own runs\." on public\.run_history\s+for select using \(auth\.uid\(\) = user_id\)/.test(RH));
+check('the world-readable run_history policy is dropped',
+    /drop policy if exists "Anyone can view run history\."\s+on public\.run_history/.test(RH),
+    'the drop lines are column-aligned, so the pattern must allow any whitespace run');
+check('"Players can view their own runs." is dropped before it is created',
+    /drop policy if exists "Players can view their own runs\."\s+on public\.run_history/.test(RH),
+    'same 42710 idempotency trap as the AT-F4 migration');
+check('run_history INSERT own-row is NOT loosened by the read change',
+    !/create policy[^;]*on public\.run_history\s+for insert/i.test(RH) && RH.includes('auth.uid() = user_id'),
+    'that policy is the reason run_history is not forgeable; it was verified 2026-09-23');
+
+// The narrowing is only safe while the ONE client reader still scopes itself to
+// the session user. This asserts that against the real source rather than
+// trusting a line number in a comment — the first version of this check
+// grepped the migration's prose, which `sqlOnly` had already stripped, so it
+// passed/failed for a reason unrelated to the invariant.
+const statsSrc = read('backend/Stats.js');
+// `.select(` is required so the INSERT at Stats.js:898 is not counted as a read —
+// the first version matched both and reported "found 2".
+const runHistoryReads = [...statsSrc.matchAll(/from\('run_history'\)\s*\.select\([\s\S]{0,300}?;/g)].map((m) => m[0]);
+check('there is exactly one run_history READ in the client', runHistoryReads.length === 1,
+    `found ${runHistoryReads.length} (the .insert() call is not a read)`);
+const rhRead = runHistoryReads[0] || '';
+const rhUserIdFilters = [...rhRead.matchAll(/\.eq\('user_id',\s*([^)]+)\)/g)].map((m) => m[1].trim());
+check('the run_history read is scoped to the session user own-row',
+    rhUserIdFilters.includes('session.user.id'),
+    'this is the invariant that makes auth.uid() = user_id safe — verify it in Stats.js, not in a comment');
+// Asserted by comparing the extracted argument rather than with a negative
+// lookahead: `/\.eq\('user_id',\s*(?!session\.user\.id)/` backtracks `\s*` to
+// zero characters, evaluates the lookahead at the space, finds no
+// `session.user.id` there, and matches anyway — so it reports a leak on a
+// correct line. Extract and compare; it cannot be fooled.
+check('every user_id filter in that read is the session user',
+    rhUserIdFilters.length > 0 && rhUserIdFilters.every((a) => a === 'session.user.id'),
+    `filters: ${JSON.stringify(rhUserIdFilters)}`);
+
 // ── 6. the duplicate policies are gone, one per operation ─────────────────
 // The audit found TWO insert and TWO select policies on leaderboard, all
 // PERMISSIVE with identical expressions — residue from the 2026-09-23

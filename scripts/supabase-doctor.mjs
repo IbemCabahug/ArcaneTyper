@@ -181,8 +181,8 @@ const mgmtCount = async (table) => {
     return JSON.parse(await res.text())?.[0]?.n ?? null;
 };
 
-/** Tables whose SELECT policy does not admit the anonymous role. */
-const RLS_HIDDEN_FROM_ANON = new Set(['profiles']);
+/** Tables whose SELECT policy does not admit the anonymous role (AT-F4). */
+const RLS_HIDDEN_FROM_ANON = new Set(['profiles', 'run_history']);
 
 for (const table of Object.keys(EXPECTED)) {
     const privileged = await mgmtCount(table).catch(() => null);
