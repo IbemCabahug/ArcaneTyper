@@ -925,6 +925,66 @@ check('the locked paint is unchanged: only an unowned card is desaturated',
     cssSrc.includes('.skin-card.locked {') &&
         /\.skin-card\.locked\s*\{[^}]*filter: grayscale/.test(cssSrc));
 
+// ── The Patch Board must not announce an unearned character ────────────────
+// The Forge already encodes the owner's rule: the Voidweaver keeps its name
+// because its n/10 counter IS the teaser, while the Bloodseeker reads `???`
+// until `secretIdentity` is earned. The Patch Board is the other surface a
+// player reads before playing, and it is the easiest place to leak by accident
+// — a "next up" line, a "coming soon" aside, or just naming a character in a
+// fixes list. So the board is denied both names outright. This guard may name
+// them; the game may not, exactly as item 3 above already establishes.
+//
+// Scoped to the patchNotes block on purpose: the Forge cards in index.html DO
+// legitimately say VOIDWEAVER, and a wider check would forbid the design.
+const menuSrc = read('frontend/ui/MenuUI.js');
+const boardStart = menuSrc.indexOf('this.patchNotes = [');
+const boardEnd = menuSrc.indexOf('this.populatePatchBoard();');
+check('the patchNotes block could be located in MenuUI.js',
+    boardStart !== -1 && boardEnd > boardStart);
+const board = boardStart === -1 ? '' : menuSrc.slice(boardStart, boardEnd);
+
+for (const [id, name] of [['voidweaver', 'Voidweaver'], ['bloodseeker', 'Bloodseeker']]) {
+    check(`the Patch Board never names the ${name}`,
+        !new RegExp(id, 'i').test(board),
+        'an unearned character must not be announced in player-facing notes');
+}
+check('the Patch Board never uses the retired blood-glyph spelling',
+    !/runeseeker/i.test(board));
+for (const teaser of ['coming soon', 'unannounced', 'secret character', 'locked character', '???']) {
+    check(`the Patch Board has no "${teaser}" teaser`,
+        !board.toLowerCase().includes(teaser),
+        'teaser vocabulary is how an unreleased character leaks without being named');
+}
+
+// ── The four version locations must agree ──────────────────────────────────
+// A release needs the board entry, the two package manifests and the dashboard
+// subtitle to move together. They are four separate files, so they drift
+// silently; this is the same class of bug as the half-renamed character in item
+// 1, and it is why the release bump is checked rather than trusted.
+const fePkgSrc = read('frontend/package.json');
+const declared = JSON.parse(pkgSrc).version;
+const feDeclared = JSON.parse(fePkgSrc).version;
+const subtitle = (htmlSrc.match(/Enchanted Library Edition - v([0-9.]+)/) || [])[1];
+const boardTop = (board.match(/version: "v([0-9.]+)"/) || [])[1];
+check('the root and frontend manifests declare the same version',
+    declared === feDeclared, `root ${declared} vs frontend ${feDeclared}`);
+check('the dashboard subtitle matches the manifests',
+    subtitle === declared, `subtitle ${subtitle} vs manifest ${declared}`);
+check('the top Patch Board entry matches the manifests',
+    boardTop === declared, `board ${boardTop} vs manifest ${declared}`);
+check('the version is not left behind the board it documents',
+    compareVersions(declared, boardTop) >= 0 && compareVersions(boardTop, declared) >= 0,
+    `declared ${declared}, board ${boardTop}`);
+
+function compareVersions(a, b) {
+    const pa = String(a).split('.').map(Number);
+    const pb = String(b).split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+    }
+    return 0;
+}
+
 console.log('');
 if (failures) {
     console.error(`${failures} skin-id check(s) FAILED.`);

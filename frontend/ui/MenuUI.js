@@ -11,6 +11,19 @@ export class MenuUI {
 
         this.patchNotes = [
             {
+                version: "v2.3.3",
+                date: "September 28, 2026",
+                desc: "Phone & Tablet Repairs, Typing Fix & Scoreboard Security",
+                changes: [
+                    "Fixed: on phones and iPads the Mage Profile and Arena silhouettes could swell to fill the whole screen. They now scale to the screen you are actually on, and both are easy to tap again.",
+                    "Fixed: mobile keyboards could occasionally register the wrong character — most often a space you never pressed, which could cut a word short. What you type is now what registers.",
+                    "Fixed: composition keyboards (the kind used to type Japanese or Chinese) no longer register half-finished characters as keystrokes.",
+                    "Fixed: pasted text no longer counts as typing.",
+                    "Security: only signed-in mages can publish a score to the Hall of Fame. Guests can still play, practise and duel exactly as before — they just can't post to the board.",
+                    "Security: your profile and your run history are now private to your own account."
+                ]
+            },
+            {
                 version: "v2.3.2",
                 date: "September 23, 2026",
                 desc: "Cloud Score History Repaired",
