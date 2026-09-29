@@ -11,6 +11,18 @@ export class MenuUI {
 
         this.patchNotes = [
             {
+                version: "v2.3.4",
+                date: "September 29, 2026",
+                desc: "Arena Consent, Scribe Scoring & Honest Workshop Prices",
+                changes: [
+                    "Arena: REMATCH is now a mutual agreement. It used to drop you back into the lobby on your own, without ever asking your opponent — now one mage proposes and the other accepts or declines, and only then does a new match begin. A request left unanswered lapses after a moment instead of hanging.",
+                    "Arena: REMATCH and RETURN TO LIBRARY are now actually told apart on the result screen — the gold and grey styling was written but silently overridden, so they rendered identically. They also now say so when your opponent has already left, instead of the button quietly stopping.",
+                    "Arena: you can no longer start a Survival or Practice run while the Arena is open — including while it is simply sitting there waiting for you to create or join a room. Previously both ran at once, and the duel you eventually started inherited the abandoned run's score. The Arena also stays shut while a run is in progress.",
+                    "Fixed: the Scribe's Trial recorded two different scores for the same run — your score history and the Hall of Fame could disagree by a factor of ten.",
+                    "Fixed: some Workshop upgrades displayed one price and charged another after the recent economy rebalance. The price shown is now the price paid."
+                ]
+            },
+            {
                 version: "v2.3.3",
                 date: "September 28, 2026",
                 desc: "Phone & Tablet Repairs, Typing Fix & Scoreboard Security",
@@ -19,9 +31,6 @@ export class MenuUI {
                     "Fixed: mobile keyboards could occasionally register the wrong character — most often a space you never pressed, which could cut a word short. What you type is now what registers.",
                     "Fixed: composition keyboards (the kind used to type Japanese or Chinese) no longer register half-finished characters as keystrokes.",
                     "Fixed: pasted text no longer counts as typing.",
-                    "Arena: REMATCH is now a mutual agreement. It used to drop you back into the lobby on your own, without ever asking your opponent — now one mage proposes and the other accepts or declines, and only then does a new match begin. A request left unanswered lapses after a moment instead of hanging.",
-                    "Arena: REMATCH and RETURN TO LIBRARY are now actually told apart on the result screen — the gold and grey styling was written but silently overridden, so they rendered identically. They also never said so when your opponent had already left.",
-                    "Arena: you can no longer start a Survival or Practice run while the Arena is open — including while it is simply sitting there waiting for you to create or join a room. The Arena also stays shut while a run is in progress, so the two can no longer be on screen at once.",
                     "Security: only signed-in mages can publish a score to the Hall of Fame. Guests can still play, practise and duel exactly as before — they just can't post to the board.",
                     "Security: your profile and your run history are now private to your own account."
                 ]
