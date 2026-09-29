@@ -214,6 +214,14 @@ export class AuthUI {
             }
             this.isGuest = true;
             this.game.stats.isAuthenticated = false; // guests never qualify for admin bypass
+            // AT-F21a: drop the captured auth id too. `isAuthenticated = false`
+            // alone already fails isAdmin()'s first condition, but leaving a real
+            // user's id on the object means the bypass is one flag-flip away on a
+            // shared browser — and this is the exact "next account inherits the
+            // previous one's state" class of bug the PROGRESSION_KEYS list exists
+            // to prevent for localStorage.
+            this.game.stats.authUserId = null;
+            this.game.stats.authEmail = null;
             this.game.stats.mageName = "Guest " + displayName;
             this.game.stats.saveProgression();
 
@@ -447,6 +455,21 @@ export class AuthUI {
         const user = session && session.user;
         if (!user) return false;
 
+        // AT-F21a: capture the auth identity FIRST, before anything else can bail.
+        // This is the only place the admin bypass gets its input, and all three
+        // authenticated paths (login, register, session restore) pass through
+        // here, so it is the one place that can be relied on to have run.
+        //
+        // It is set from the SESSION, never from the display name: `user.id` is
+        // issued by Supabase, cannot be chosen at signup and cannot be edited
+        // afterwards. The old check keyed on `mageName === 'admin'`, which every
+        // player controls — that is the hole AT-F21 closes.
+        const stats = this.game.stats;
+        if (stats) {
+            stats.authUserId = user.id || null;
+            stats.authEmail = user.email || null;
+        }
+
         const meta = user.user_metadata || {};
         const emailName = user.email ? user.email.split('@')[0] : '';
         const name = String(meta.mage_title || '').trim()
@@ -454,11 +477,16 @@ export class AuthUI {
             || emailName
             || 'Anonymous Mage';
 
-        const applied = this.game.stats.setMageName
-            ? this.game.stats.setMageName(name)
-            : (this.game.stats.mageName = name, true);
+        const applied = stats && stats.setMageName
+            ? stats.setMageName(name)
+            : (stats.mageName = name, true);
 
-        console.info(`[AuthUI] Session identity resolved: ${this.game.stats.mageName}`);
+        // Debug aid only. The id is what decides; the address is printed so an
+        // admin can confirm which account the bypass actually resolved to.
+        if (stats && stats.isAdmin) {
+            console.info(`[AuthUI] Admin bypass: ${stats.isAdmin() ? 'GRANTED' : 'not granted'} for ${user.email || 'unknown'}`);
+        }
+        console.info(`[AuthUI] Session identity resolved: ${stats ? stats.mageName : '(none)'}`);
         return applied;
     }
 

@@ -4,6 +4,37 @@ import { syncQueue } from './syncQueue.js';
 import { DEFAULT_MAGE_CLASS, normalizeMageClass, normalizeMageClassForCharacter, isMageClassForCharacter, DISCIPLINE_SWITCH_COST, disciplineScrollId, scrollCostFor } from './MageClasses.js';
 import { DEFAULT_CHARACTER, isCharacter, normalizeCharacter, characterInfo } from './Characters.js';
 
+/**
+ * ADMIN ACCOUNTS (AT-F21a) — the ONE list that decides who bypasses the gates.
+ *
+ * WHY THIS IS A UUID AND NOT A NAME. `isAdmin()` used to test
+ * `mageName.toLowerCase() === 'admin'`, and a mageName is something every
+ * player chooses for themselves: it is typed at character creation, and
+ * `AuthUI._applyIdentity` falls back to the email prefix, so registering as
+ * `admin@anything.com` granted the full bypass with nothing typed. Signup is
+ * open and auto-confirmed, so that was not a theoretical hole — it was a
+ * four-character way to claim every character in the Forge, including the two
+ * secret ones the `???` cards exist to hide. Executed proof is recorded in
+ * docs/arcaneTyper-docs/future_feature.md AT-F21.
+ *
+ * A Supabase auth user id cannot be chosen at registration and cannot be
+ * changed afterwards, so keying on it removes the self-declaration entirely.
+ *
+ * To add or remove an admin: change the id here, bump the version, and redeploy.
+ * Read the id with:
+ *   select id, email from auth.users where email = '<the address>';
+ * There is deliberately NO name, NO localStorage key and NO env var involved —
+ * each of those is player-reachable, which is the bug being fixed.
+ *
+ * The email is carried ALONGSIDE the id purely so the console can say who an
+ * admin is during debugging; it is never used for the decision, because an
+ * address is player-chosen at signup and therefore forgeable in the same way
+ * the name was.
+ */
+const ADMIN_ACCOUNTS = [
+    { id: '593bafee-9d8b-4799-bcd0-7e07112f7bc7', email: 'nhovem.admin@gmail.com' }
+];
+
 /** localStorage keys that belong to ONE mage account (purged on logout). */
 const PROGRESSION_KEYS = [
     'typerMaster_xp',
@@ -186,6 +217,14 @@ export class Stats {
         // True only after a successful authenticated (non-guest) login.
         // Gates the admin bypass - see AuthUI. Never inferred from mageName alone.
         this.isAuthenticated = false;
+        // AT-F21a: the Supabase auth user id for the CURRENT session, and the only
+        // thing `isAdmin()` keys on. Null before sign-in, null for a guest, null in
+        // the local no-backend sandbox, and null again on logout — so the bypass can
+        // never survive into the next account on a shared browser. Deliberately NOT
+        // persisted: a stored id would be exactly the forgeable localStorage value
+        // this change exists to remove.
+        this.authUserId = null;
+        this.authEmail = null;
 
         // Single source of truth for the admin override: Achievements defers
         // to Stats.isAdmin() so guests can never trigger it (Bug #1B fix).
@@ -219,11 +258,29 @@ export class Stats {
     }
 
     isAdmin() {
-        // Restricted admin bypass (ROADMAP Bug #1B decision, 2026-08-24):
-        // requires an authenticated non-guest session AND the exact mage
-        // name "admin" (case-insensitive). Guests never qualify.
-        if (!this.isAuthenticated || !this.mageName) return false;
-        return this.mageName.toLowerCase().trim() === 'admin';
+        // AT-F21a: keyed to the ACCOUNT, not the display name.
+        //
+        // This used to be `mageName.toLowerCase() === 'admin'`, which any player
+        // could satisfy — by typing "admin" as their True Name, or by registering
+        // as admin@anything.com, because `_applyIdentity` falls back to the email
+        // prefix. It granted every skill, every Discipline, and every character
+        // INCLUDING the two secret ones. Signup is open and auto-confirmed, so
+        // that was a four-character way to take the whole Forge.
+        //
+        // Now it requires a real Supabase auth user id that is in ADMIN_ACCOUNTS.
+        // An auth id is issued by the server, cannot be chosen at signup, and
+        // cannot be edited afterwards — so there is nothing left to self-declare.
+        //
+        // The three conditions are all load-bearing and are asserted individually
+        // by `npm run verify:guests`:
+        //   1. a live session (guests are excluded — the Bug #1B fix, still true);
+        //   2. an auth user id actually captured (absent before sign-in, and
+        //      absent in the local no-backend sandbox);
+        //   3. that id being on the allowlist.
+        if (!this.isAuthenticated) return false;
+        const uid = this.authUserId;
+        if (!uid) return false;
+        return ADMIN_ACCOUNTS.some((a) => a.id === uid);
     }
 
     /**
@@ -983,6 +1040,14 @@ export class Stats {
         // The outbox holds writes for the account that is leaving, and the local
         // Hall of Fame cache is a per-browser artifact — neither should leak.
         syncQueue.clear();
+        // AT-F21a: the in-memory auth identity is this account's too. It is not in
+        // PROGRESSION_KEYS because it was never persisted — clearing it here keeps
+        // "purge everything belonging to the leaving mage" true of the whole object
+        // rather than only of storage. Logout reloads the page anyway, so this is
+        // defence in depth against a future sign-out path that does not.
+        this.isAuthenticated = false;
+        this.authUserId = null;
+        this.authEmail = null;
         try {
             localStorage.removeItem('typermaster_hall_of_fame_v2');
         } catch (e) { /* ignore */ }

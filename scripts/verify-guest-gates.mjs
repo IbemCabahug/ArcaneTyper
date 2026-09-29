@@ -65,6 +65,20 @@ function ruleBody(css, selector) {
     return css.slice(start, end < 0 ? css.length : end);
 }
 
+/**
+ * Slice a JS block out of source between two needles, INCLUSIVE of the end
+ * needle. Added for AT-F21a so the admin-bypass checks execute the SHIPPED
+ * `isAdmin()` rather than a restatement of it — a guard that reimplements the
+ * rule tests its own copy, which is the failure this repo has already paid for
+ * twice. Written here rather than imported because the suites are standalone.
+ */
+function slice(src, from, to) {
+    const a = src.indexOf(from);
+    if (a === -1) return '';
+    const b = to ? src.indexOf(to, a) : -1;
+    return src.slice(a, b === -1 ? src.length : b + to.length);
+}
+
 let failures = 0;
 function check(name, condition, detail = '') {
     if (!condition) failures++;
@@ -225,10 +239,90 @@ check(
     'AuthUI clears it on guest entry',
     authUiSrc.includes('this.game.stats.isAuthenticated = false;')
 );
+// The window is generous because AT-F21a put a long explanatory comment between
+// the brace and the first condition; the check is about the GUARD existing, not
+// about how much prose precedes it. The executed checks in 5b are what pin the
+// behaviour, and they would catch a bypass that merely moved.
 check(
     "Bug #1B's restricted admin bypass still requires authentication",
-    /isAdmin\(\)\s*\{[\s\S]{0,300}!this\.isAuthenticated/.test(statsSrc)
+    /isAdmin\(\)\s*\{[\s\S]{0,1600}!this\.isAuthenticated/.test(statsSrc)
 );
+
+// ── 5b. AT-F21a: the admin bypass is keyed to the ACCOUNT, not the name ──────
+//
+// The old rule was `mageName.toLowerCase() === 'admin'`, and a mageName is
+// something the player chooses: typed at character creation, or taken from the
+// email prefix by `_applyIdentity`. With signup open and auto-confirmed that
+// meant anyone could type four characters and own every character in the Forge,
+// including the two secret ones. These checks execute the SHIPPED isAdmin()
+// against the exact shapes that used to defeat it, so the rule cannot be
+// loosened back to a name without going red.
+const isAdminSrc = slice(statsSrc, '    isAdmin() {', '\n    }');
+check('isAdmin() could be sliced out of the shipped Stats.js', isAdminSrc.length > 0);
+
+if (isAdminSrc.length > 0) {
+    const adminListSrc = slice(statsSrc, 'const ADMIN_ACCOUNTS = [', '];');
+    check('the admin allowlist is declared as account ids', adminListSrc.length > 0);
+    // Compile the real method and the real allowlist together.
+    const factory = new Function(
+        `${adminListSrc};\n` +
+        'return { isAdmin() {' +
+        isAdminSrc.replace(/^\s*isAdmin\(\)\s*\{/, '').replace(/\}\s*$/, '') +
+        '}, ADMIN_ACCOUNTS };'
+    );
+    const { isAdmin: realIsAdmin, ADMIN_ACCOUNTS: REAL_LIST } = factory();
+    const ALLOWED = REAL_LIST[0] && REAL_LIST[0].id;
+
+    check('the allowlist is not empty (an admin must exist)', REAL_LIST.length >= 1,
+        'an empty list would silently leave nobody an admin');
+    check('every entry is keyed by a uuid, not a name or an address',
+        REAL_LIST.every((a) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(a.id)),
+        `entries: ${JSON.stringify(REAL_LIST)}`);
+
+    const run = (over) => realIsAdmin.call({
+        isAuthenticated: true, mageName: 'x', authUserId: null, ...over
+    });
+
+    // THE EXPLOIT. Each of these returned true before the fix.
+    check('THE HOLE: an authenticated player who simply types "admin" is NOT admin',
+        run({ mageName: 'admin', authUserId: '11111111-2222-3333-4444-555555555555' }) === false,
+        'the bypass is name-keyed again — anyone can claim the whole Forge');
+    check('THE HOLE: the padded/cased variant is NOT admin either',
+        run({ mageName: '  AdMiN  ', authUserId: '11111111-2222-3333-4444-555555555555' }) === false);
+    check('THE HOLE: the email-prefix path (admin@x.com) is NOT admin',
+        run({ mageName: 'admin', authEmail: 'admin@x.com', authUserId: '11111111-2222-3333-4444-555555555555' }) === false);
+    check('an authenticated player with a normal name is NOT admin',
+        run({ mageName: 'SomePlayer', authUserId: '11111111-2222-3333-4444-555555555555' }) === false);
+
+    // The intended path, and each of its three load-bearing conditions.
+    check('the allowlisted ACCOUNT is admin',
+        run({ authUserId: ALLOWED }) === true, 'the real admin lost their own bypass');
+    check('a guest is never admin even holding a valid id',
+        realIsAdmin.call({ isAuthenticated: false, authUserId: ALLOWED, mageName: 'Guest admin' }) === false);
+    check('a signed-in user with NO captured id is not admin',
+        run({ authUserId: null }) === false,
+        'a missing id must fail closed, not open');
+    check('admin is decided by id alone — a non-admin id with the admin NAME fails',
+        run({ authUserId: '11111111-2222-3333-4444-555555555555', mageName: 'admin' }) === false);
+    check('admin is decided by id alone — the admin id works under ANY name',
+        run({ authUserId: ALLOWED, mageName: 'Totally Different Name' }) === true);
+
+    // The id must come from the session, on every authenticated path.
+    check('the auth id is captured from the SESSION in _applyIdentity',
+        /_applyIdentity[\s\S]{0,2000}authUserId\s*=\s*user\.id/.test(authUiSrc),
+        'the bypass has no input, so nobody is ever admin');
+    check('guest entry clears the captured id',
+        /isGuest\s*=\s*true[\s\S]{0,600}authUserId\s*=\s*null/.test(authUiSrc),
+        'a real id would survive into guest mode on a shared browser');
+    check('the purge clears the captured id too',
+        /clearLocalProgression[\s\S]{0,900}authUserId\s*=\s*null/.test(statsSrc));
+    check('the id is never persisted to localStorage',
+        !/typerMaster_authUserId/.test(statsSrc) && !/typerMaster_authUserId/.test(authUiSrc),
+        'a stored id is a forgeable localStorage value — the bug being fixed');
+    check('the email is never used to decide admin',
+        !/authEmail\s*\)?\s*(\.some|\.includes|\.indexOf)/.test(isAdminSrc),
+        'an address is player-chosen at signup and forgeable exactly like the name was');
+}
 
 // ── 6. the guard is wired in ──────────────────────────────────────────────
 check(
