@@ -491,6 +491,36 @@
             <button id="duel-rematch-btn" class="primary-btn duel-result-rematch">REMATCH</button>
             <button id="duel-result-close-btn" class="primary-btn duel-result-return">RETURN TO LIBRARY</button>
           </div>
+
+          <!-- AT-F19 rematch consent. A rematch is a MUTUAL agreement, so the
+               result screen grows a second state instead of starting one: either
+               we are waiting on the opponent, or they have asked us and we answer.
+               Both are rendered into one panel so the two states cannot disagree
+               about which buttons are live. -->
+          <div id="duel-rematch-consent" class="duel-rematch-consent" hidden>
+            <!-- Outbound: we asked, they have not answered yet -->
+            <div id="duel-rematch-pending" class="duel-rematch-state" hidden>
+              <p class="duel-rematch-text">
+                <span class="duel-rematch-spinner" aria-hidden="true"></span>
+                <span id="duel-rematch-pending-text">Awaiting your opponent...</span>
+              </p>
+              <button id="duel-rematch-cancel-btn"
+                      class="primary-btn duel-rematch-cancel">CANCEL</button>
+            </div>
+            <!-- Inbound: they asked, we must answer -->
+            <div id="duel-rematch-inbound" class="duel-rematch-state" hidden>
+              <p class="duel-rematch-text">
+                <span id="duel-rematch-asker" class="duel-rematch-asker">Your opponent</span>
+                challenges you to a rematch.
+              </p>
+              <div class="duel-rematch-answers">
+                <button id="duel-rematch-accept-btn"
+                        class="primary-btn duel-result-rematch">ACCEPT</button>
+                <button id="duel-rematch-decline-btn"
+                        class="primary-btn duel-result-return">DECLINE</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

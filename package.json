@@ -22,10 +22,12 @@
     "verify:layout": "node scripts/verify-layout-fit.mjs",
     "verify:survival-word-loss": "node scripts/verify-survival-word-loss.mjs",
     "verify:unspoken": "node scripts/verify-unspoken-counter.mjs",
-    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:wpmgate && npm run verify:actives && npm run verify:vfx && npm run verify:unspoken && npm run verify:polish && npm run verify:skins && npm run verify:guests && npm run verify:layout && npm run verify:survival-word-loss && npm run verify:scribe-dict && npm run verify:rls && npm run verify:input && npm run verify:wordmatch",
+    "verify": "npm run verify:duel && npm run verify:vanish && npm run verify:perf && npm run verify:roster && npm run verify:wpm && npm run verify:wpmgate && npm run verify:actives && npm run verify:vfx && npm run verify:unspoken && npm run verify:polish && npm run verify:skins && npm run verify:guests && npm run verify:layout && npm run verify:survival-word-loss && npm run verify:scribe-dict && npm run verify:rls && npm run verify:input && npm run verify:wordmatch && npm run verify:rematch && npm run verify:exclusive",
     "verify:scribe-dict": "node scripts/verify-scribe-dict.mjs",
     "verify:rls": "node scripts/verify-rls.mjs",
     "verify:input": "node scripts/verify-mobile-input.mjs",
-    "verify:wordmatch": "node scripts/verify-word-match.mjs"
+    "verify:wordmatch": "node scripts/verify-word-match.mjs",
+    "verify:rematch": "node scripts/verify-rematch-consent.mjs",
+    "verify:exclusive": "node scripts/verify-mode-exclusivity.mjs"
   }
 }

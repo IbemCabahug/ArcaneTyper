@@ -33,6 +33,8 @@ export class Duel {
         this.onOpponentAttack = null;   // (type) => void
         this.onOpponentJoined = null;   // () => void
         this.onOpponentLeft = null;     // () => void
+        // AT-F19: rematch consent frames. (payload) => void
+        this.onRematch = null;
     }
 
     /**
@@ -119,6 +121,50 @@ export class Duel {
     }
 
     /**
+     * AT-F19 rematch: announce a rematch step to the opponent.
+     *
+     * Separate from broadcastRace because a rematch negotiation happens AFTER
+     * the race controller has been stopped, and because these frames are
+     * consumed by the consent UI rather than by DuelRace.
+     *
+     * @param {'request'|'accept'|'decline'|'start'} action
+     * @param {object} data - e.g. { roomCode } on 'start'
+     */
+    broadcastRematch(action, data = {}) {
+        if (!this.channel) return null;
+        return this.channel.send({
+            type: 'broadcast',
+            event: 'rematch',
+            payload: { player_key: this.presenceKey, player_name: this.playerName, action, ...data }
+        });
+    }
+
+    /** Mint a room code for a rematch without subscribing to it yet. */
+    newRoomCode() {
+        return this._generateCode();
+    }
+
+    /**
+     * AT-F19 rematch: move this player onto a fresh room code, keeping the
+     * existing channel callbacks (onRace/onRematch/onOpponent*) intact so the
+     * re-entered match is wired exactly like the first one.
+     *
+     * `inMatch` is reset because the room lock (markInMatch) belongs to the
+     * match that just ENDED; carrying it over would make the brand-new code
+     * refuse its own challenger in join().
+     *
+     * @param {string} newRoomCode
+     * @param {boolean} asHost - true for the player who minted the code
+     */
+    async rehome(newRoomCode, asHost) {
+        this.isHost = !!asHost;
+        this.roomCode = String(newRoomCode || '').toUpperCase().trim();
+        this.inMatch = false;
+        await this._subscribe();
+        return this.roomCode;
+    }
+
+    /**
      * Subscribe to the Supabase Realtime channel for this room.
      */
     async _subscribe() {
@@ -166,6 +212,13 @@ export class Duel {
         this.channel.on('broadcast', { event: 'race' }, ({ payload }) => {
             if (payload.player_key === this.presenceKey) return;
             if (this.onRace) this.onRace(payload);
+        });
+
+        // AT-F19 rematch negotiation (request/accept/decline/start). Local actions
+        // run directly — ignore echoes of our own payloads.
+        this.channel.on('broadcast', { event: 'rematch' }, ({ payload }) => {
+            if (payload.player_key === this.presenceKey) return;
+            if (this.onRematch) this.onRematch(payload);
         });
 
         // Presence tracking: detect when opponent joins or leaves

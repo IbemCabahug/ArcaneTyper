@@ -190,6 +190,18 @@ export class Game {
     }
 
     start(difficulty = 'normal', mode = 'classic', dictionaryType = 'classic') {
+        // AT-F20: starting a second run on top of a live one is never intended.
+        // `cancelAnimationFrame` alone does NOT make this safe — the old run's
+        // stats, words and score survive into the new one, so the caller
+        // silently inherited a half-dead game. Every legitimate caller either
+        // stops the previous run first or is starting the FIRST run, so a
+        // running game here means two subsystems are driving this object at
+        // once (the Arena + Survival case). Stop it properly rather than
+        // stacking a second loop on top of the first.
+        if (this.isRunning) {
+            this.stop();
+            this.reset();
+        }
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
         }

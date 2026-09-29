@@ -123,6 +123,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   const duelLobbyActiveCost = document.getElementById('duel-lobby-active-cost');
   const duelLobbyActiveEffect = document.getElementById('duel-lobby-active-effect');
   const duelLobbyClassInfo = document.getElementById('duel-lobby-class-info');
+
+  // AT-F19 rematch consent UI
+  const rematchConsent = document.getElementById('duel-rematch-consent');
+  const rematchPending = document.getElementById('duel-rematch-pending');
+  const rematchInbound = document.getElementById('duel-rematch-inbound');
+  const rematchAsker = document.getElementById('duel-rematch-asker');
+  const rematchPendingText = document.getElementById('duel-rematch-pending-text');
+  const rematchBtn = document.getElementById('duel-rematch-btn');
+  const rematchCancelBtn = document.getElementById('duel-rematch-cancel-btn');
+  const rematchAcceptBtn = document.getElementById('duel-rematch-accept-btn');
+  const rematchDeclineBtn = document.getElementById('duel-rematch-decline-btn');
+  const duelResultCloseBtn = document.getElementById('duel-result-close-btn');
   const duelResultTitle = document.getElementById('duel-result-title');
   const duelResultSubtitle = document.getElementById('duel-result-subtitle');
   const duelResMyScore = document.getElementById('duel-res-my-score');
@@ -199,6 +211,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   // AT-F9: the survival death-screen hook that startDuel swaps out for the duel
   // forfeit path. endDuel hands it back, or every later survival death stalls.
   let survivalGameOver = null;
+  // AT-F19 rematch: the channel kept ALIVE after the match ends, so a consent
+  // handshake has a transport. Deliberately NOT stored in `duel` — a dozen
+  // guards read `duel === null` to mean "no match in progress", and reusing it
+  // here would silently un-tear-down every one of them. `duel` is still nulled
+  // exactly as before; this holds only the retained handle.
+  let rematchLink = null;
+  // 'idle' | 'pending' (we asked) | 'inbound' (they asked) | 'starting'
+  let rematchState = 'idle';
+  // The last name the opponent announced on a rematch frame, for the prompt.
+  let rematchOpponentName = '';
+
+  // AT-F19: how long a rematch offer stays open before it lapses. Without a
+  // deadline a player who walked away leaves the other staring at a spinner
+  // forever. Same spirit as PRESENCE_SETTLE_MS — bounded, not indefinite.
+  const REMATCH_OFFER_TTL_MS = 20000;
+  let rematchTimer = null;
 
   // ── AT-F9 presence hardening ──────────────────────────────────────────────
   // Supabase presence emits `leave` (+`join`) for the SAME key whenever a client
@@ -219,6 +247,44 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!watched || !watched.channel) { resolve(true); return; }
       setTimeout(() => {
         if (duel !== watched || !duelActive || race) { resolve(false); return; }
+        let others = 0;
+        try {
+          others = Object.keys(watched.channel.presenceState())
+            .filter(k => k !== watched.presenceKey).length;
+        } catch (err) { others = 0; }
+        resolve(others === 0);
+      }, PRESENCE_SETTLE_MS);
+    });
+  }
+
+  /**
+   * AT-F19: has the opponent genuinely gone from a RETAINED post-match channel?
+   *
+   * This mirrors `opponentConfirmedGone` above for the same reason that helper
+   * exists. Supabase emits `leave` (+`join`) for the SAME presence key whenever a
+   * client re-tracks — and a re-track is routine here: `Duel.refreshPresence()`
+   * fires on every `visibilitychange`, so a player merely alt-tabbing back to
+   * the result screen re-tracks and emits a transient `leave`.
+   *
+   * Acting on that raw event (as the first version of this handler did) tore
+   * down the retained channel on a tab switch, so pressing REMATCH afterwards
+   * reported "your opponent is no longer connected" about an opponent who was
+   * sitting right there. Presence STATE, after a settle beat, is the only safe
+   * signal — the same lesson as AT-F9.
+   *
+   * @param {object} watched - the retained handle to inspect
+   * @returns {Promise<boolean>} true only when the opponent is truly absent
+   */
+  function rematchOpponentConfirmedGone(watched) {
+    return new Promise((resolve) => {
+      if (!watched || !watched.channel) { resolve(true); return; }
+      setTimeout(() => {
+        // Never act on a handle that has since been replaced or promoted into a
+        // live match — that decision now belongs to the rematch flow.
+        if (rematchLink !== watched || rematchState === 'starting') {
+          resolve(false);
+          return;
+        }
         let others = 0;
         try {
           others = Object.keys(watched.channel.presenceState())
@@ -462,6 +528,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ── Game Flow ─────────────────────────────────────────────────────────────
 
   function startGame() {
+    // AT-F20: refuse while an Arena room is live. Without this the survival loop
+    // and the duel loop both run, and the match that eventually starts inherits
+    // this run's words and score.
+    if (blockedByLiveDuelRoom()) return;
     startBtn.blur();
     restartBtn.blur();
 
@@ -543,6 +613,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function startPractice(skipFocus = false) {
+    // AT-F20: Practice drives its own loop but shares `game`'s canvas and stats,
+    // so an open Arena room blocks it for the same reason it blocks Survival.
+    if (blockedByLiveDuelRoom()) return;
     startMenu.classList.remove('active');
     startMenu.classList.add('hidden');
 
@@ -1335,7 +1408,66 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ── Mage Duels ─────────────────────────────────────────────────────────────
 
+  // AT-F20: Survival / Practice and the Arena were never mutually exclusive.
+  // Both drive the SAME `game` object, so opening a room and then starting a
+  // run left two game loops alive at once: the arena's `onOpponentJoined` still
+  // fired, `startDuel` called `game.start()` on top of a live survival run, and
+  // the duel inherited the abandoned run's words, stats and score. Nothing
+  // looked connected because the match HAD started — over corrupted state.
+  //
+  /**
+   * Is the Arena currently OCCUPYING the screen?
+   *
+   * AT-F20: this must be true whenever the lobby PANEL is on screen, not only
+   * once a room exists. The panel is a 45vw side panel (not a fullscreen
+   * overlay), so the game canvas and its HUD stay visible and clickable beside
+   * it — which is exactly how a player ends up running Survival *behind* an
+   * open Arena. With no room created yet there is no `duel` handle at all, so
+   * a channel-only check reports "nothing is live" while the panel is plainly
+   * on screen. `active` is the class the panel actually uses to be shown.
+   */
+  function duelLobbyOpen() {
+    return duelLobbyMenu.classList.contains('active') ||
+           !duelLobbyMenu.classList.contains('hidden');
+  }
+
+  // A live duel CHANNEL is the other half of the signal: a room can outlive the
+  // panel that showed it (quitting a run stops the game but never touched the
+  // lobby), so a hidden-but-waiting room is exactly the state that must block a
+  // new run. Panel OR channel — neither alone is sufficient.
+  function liveDuelRoom() {
+    return !!(duel || rematchLink);
+  }
+
+  /** Anything that means "the Arena is in play" and a new run must not start. */
+  function arenaInPlay() {
+    return duelLobbyOpen() || liveDuelRoom();
+  }
+
+  /**
+   * Refuse to start a Survival / Practice run while the Arena is in play.
+   * @returns {boolean} true when the caller may proceed
+   */
+  function blockedByLiveDuelRoom() {
+    if (!arenaInPlay()) return false;
+    MagicalToast.show(
+      '🔒 The Arena is already open',
+      'Close it first — press Escape or choose Return to Library.'
+    );
+    return true;
+  }
+
   function openDuelLobby() {
+    // AT-F20: the reverse direction. Starting a duel over a live survival run
+    // stacks two loops just as badly, and here it is invisible — the player
+    // thinks they are opening a menu, not replacing a running game.
+    if (game.isRunning) {
+      MagicalToast.show(
+        '🔒 A run is already in progress',
+        'Finish or abandon your current run before entering the Arena.'
+      );
+      return;
+    }
     setMenuBehind(true);
 
     // The Arena active is a class contract, not a Workshop perk. Paint the
@@ -1375,6 +1507,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         MagicalToast.show("The Arena requires a Supabase connection.<br><span style='font-size: 0.8em; color: var(--text-muted);'>Please configure your environment variables.</span>");
         return;
       }
+      // AT-F20: the `isRunning` guard lives in `openDuelLobby`, but the panel is
+      // un-hidden on the NEXT line. Revealing first and guarding second meant
+      // the Arena appeared over a live run and then refused to initialise —
+      // visible, inert, and impossible to reason about. Gate the REVEAL.
+      if (game.isRunning) {
+        MagicalToast.show(
+          '🔒 A run is already in progress',
+          'Finish or abandon your current run before entering the Arena.'
+        );
+        return;
+      }
       duelLobbyMenu.classList.remove('hidden');
       openDuelLobby();
     });
@@ -1390,10 +1533,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function startDuel(opponentName) {
+    // AT-F20: defence in depth. The entry points (startGame / startPractice /
+    // openDuelLobby) already refuse to overlap, and Game.start() now stops a
+    // live run before starting. This is the last line: if a duel is somehow
+    // entered while a run is still live, end that run FIRST so the match cannot
+    // inherit its words, score or stats. The owner's report was that the arena
+    // "didn't connect" — in fact it connected onto a live survival run.
+    if (game.isRunning && !duelActive) {
+      game.stop();
+      game.reset();
+      const ctx = game.canvas.getContext('2d');
+      ctx.clearRect(0, 0, game.canvas.width, game.canvas.height);
+    }
     duelActive = true;
     // Room lock (AT-F9): flag this presence so a third client cannot join
     // a match that is already running.
     if (duel) duel.markInMatch();
+    // AT-F19: install the rematch consent handler on the live match handle. It
+    // is a no-op until the match ends and the channel is retained, but binding
+    // it here means a rematch never needs to re-wire the channel — and the
+    // handler outlives the match on the very same object.
+    if (duel) duel.onRematch = (payload) => onRematchFrame(payload);
 
     // Dimension shift immediately
     document.body.classList.add('duel-dimension');
@@ -1531,11 +1691,57 @@ document.addEventListener('DOMContentLoaded', async () => {
     const parting = duel;
     duel = null;
     if (parting) {
+      // AT-F19: a match that ended WITH the opponent still present keeps its
+      // channel, so a rematch offer has a transport to travel on. The forfeit
+      // flush ordering below is preserved exactly — only the terminal
+      // disconnect() is swapped for retention.
+      //
+      // A 'disconnect' end is the exception: the opponent is GONE, so retaining
+      // would leak a channel nobody can answer and leave REMATCH promising a
+      // match that can never happen. Those matches disconnect as before.
+      const retainable = reason !== 'disconnect';
+      const finish = () => {
+        if (retainable) {
+          rematchLink = parting;
+          rematchState = 'idle';
+          rematchOpponentName = '';
+          // Clear any rematch UI left over from a previous negotiation.
+          rematchPending.hidden = true;
+          rematchInbound.hidden = true;
+          rematchConsent.hidden = true;
+          rematchBtn.disabled = false;
+          rematchBtn.textContent = 'REMATCH';
+          clearRematchTimer();
+          // AT-F19: the opponent leaving the result screen drops the retained
+          // channel. This must consult presence STATE after a settle beat, not
+          // the raw `leave` EVENT — see the note below; acting on the event is
+          // the exact AT-F9 bug this codebase already paid for once.
+          parting.onOpponentLeft = () => {
+            if (rematchState === 'starting') return;
+            rematchOpponentConfirmedGone(parting).then((gone) => {
+              if (!gone) return;
+              const held = rematchLink;
+              if (!held) return;
+              // Tell the asker WHY the offer vanished. Silently resetting the
+              // panel would leave a player who pressed REMATCH staring at a
+              // button that stopped responding for no visible reason.
+              const wasAsking = rematchState === 'pending';
+              rematchLink = null;
+              resetRematchUI(wasAsking
+                ? 'Your opponent left before answering.'
+                : 'Your opponent has left the Arena.');
+              held.disconnect();
+            });
+          };
+        } else {
+          parting.disconnect();
+        }
+      };
       if (forfeitFlush) {
         Promise.race([forfeitFlush, new Promise(res => setTimeout(res, 250))])
-          .then(() => parting.disconnect(), () => parting.disconnect());
+          .then(finish, finish);
       } else {
-        parting.disconnect();
+        finish();
       }
     }
 
@@ -1682,27 +1888,219 @@ document.addEventListener('DOMContentLoaded', async () => {
     startDuel(hostKey);
   });
 
-  // Rematch — re-open lobby
-  document.getElementById('duel-rematch-btn').addEventListener('click', () => {
-    game.stop();
-    game.reset();
+  // ═══════════════════════════════════════════════════════════════════════
+  // AT-F19 — Rematch is a MUTUAL agreement
+  //
+  // The shipped handler opened the lobby on a single local click: no frame was
+  // sent and the opponent was never asked, so "REMATCH" quietly meant "I would
+  // like another match" and only the clicker acted on it. A rematch must now be
+  // agreed by BOTH players before anything starts.
+  //
+  // Handshake, over the channel retained at match end:
+  //   request  — the asker proposes. Only the ASKER may send it.
+  //   accept   — the other side agrees. The HOST alone may then mint the next
+  //              room code, so both players land in the same room.
+  //   decline  — refused; both return to a clean result screen.
+  //   start    — host-only, carries the new roomCode; both rehome and re-enter.
+  //
+  // The HOST generates the code (not the asker) so there is exactly ONE code and
+  // exactly one authority for it. A challenger-generated code would need a second
+  // frame to learn it; a code generated by both would race.
+  // ═══════════════════════════════════════════════════════════════════════
 
-    const ctx = game.canvas.getContext('2d');
-    ctx.clearRect(0, 0, game.canvas.width, game.canvas.height);
+  /** Drop the retained channel for good. Safe to call more than once. */
+  function releaseRematchLink() {
+    const link = rematchLink;
+    rematchLink = null;
+    if (rematchState === 'starting') return; // a rematch is mid-flight; leave it
+    if (link) link.disconnect();
+  }
 
-    duelResultMenu.classList.remove('active');
-    duelResultMenu.classList.add('hidden');
-    openDuelLobby();
+  function clearRematchTimer() {
+    if (rematchTimer) clearTimeout(rematchTimer);
+    rematchTimer = null;
+  }
+
+  /** Reset every piece of rematch UI + state back to "no negotiation". */
+  function resetRematchUI(note) {
+    clearRematchTimer();
+    rematchState = 'idle';
+    rematchPending.hidden = true;
+    rematchInbound.hidden = true;
+    rematchConsent.hidden = true;
+    rematchBtn.disabled = false;
+    rematchBtn.textContent = 'REMATCH';
+    if (note) MagicalToast.show(note);
+  }
+
+  /** Show "we asked, waiting for them". */
+  function showRematchPending() {
+    rematchState = 'pending';
+    rematchPendingText.textContent = rematchOpponentName
+      ? `Awaiting ${rematchOpponentName}...`
+      : 'Awaiting your opponent...';
+    rematchPending.hidden = false;
+    rematchInbound.hidden = true;
+    rematchConsent.hidden = false;
+    rematchBtn.disabled = true;   // one live offer at a time
+    rematchBtn.textContent = 'REQUESTED';
+    clearRematchTimer();
+    rematchTimer = setTimeout(() => {
+      // The offer lapsed. We must NOT tear the channel down — the opponent may
+      // still be reading their own prompt — but we stop waiting.
+      rematchState = 'idle';
+      rematchPending.hidden = true;
+      rematchConsent.hidden = true;
+      rematchBtn.disabled = false;
+      rematchBtn.textContent = 'REMATCH';
+    }, REMATCH_OFFER_TTL_MS);
+  }
+
+  /** Show "they asked, you answer". */
+  function showRematchInbound(askerName) {
+    rematchOpponentName = askerName || rematchOpponentName;
+    rematchState = 'inbound';
+    rematchAsker.textContent = rematchOpponentName || 'Your opponent';
+    rematchInbound.hidden = false;
+    rematchPending.hidden = true;
+    rematchConsent.hidden = false;
+    rematchBtn.disabled = true;   // answering happens below, not by re-requesting
+    rematchBtn.textContent = 'REMATCH';
+    clearRematchTimer();
+    rematchTimer = setTimeout(() => resetRematchUI(), REMATCH_OFFER_TTL_MS);
+  }
+  /**
+   * Enter the new room on BOTH sides. Host rehomes as host; the challenger
+   * rehomes as guest, so `duel.isHost` keeps meaning exactly what it always
+   * meant for the countdown, the room lock and the forfeit paths.
+   */
+  async function enterRematchRoom(code, asHost, opponentName) {
+    rematchState = 'starting';
+    clearRematchTimer();
+    const link = rematchLink;
+    if (!link) return;
+
+    await link.rehome(code, asHost);
+
+    // Promote the retained handle back to the live match handle. This is the
+    // one moment `duel` becomes non-null again outside a lobby join, so the
+    // callbacks the first match installed are reused verbatim.
+    duel = link;
+    rematchLink = null;
+    rematchState = 'idle';
+    rematchPending.hidden = true;
+    rematchInbound.hidden = true;
+    rematchConsent.hidden = true;
+    rematchBtn.disabled = false;
+    rematchBtn.textContent = 'REMATCH';
+
+    startDuel(opponentName);
+  }
+
+  /** Handle a rematch frame from the opponent. */
+  function onRematchFrame(payload) {
+    const link = rematchLink;
+    if (!link) return;                       // no match to rematch
+    rematchOpponentName = payload.player_name || rematchOpponentName;
+
+    switch (payload.action) {
+      case 'request':
+        // Two offers at once: the earliest stands and the second is a no-op, so
+        // a double-click cannot stack two prompts.
+        if (rematchState !== 'idle') return;
+        showRematchInbound(payload.player_name);
+        break;
+
+      case 'accept':
+        // Only the host mints the next room. A guest that receives an accept
+        // simply waits — the host's `start` frame is what moves it.
+        if (!link.isHost) return;
+        {
+          const code = link.newRoomCode();
+          link.broadcastRematch('start', { roomCode: code });
+          enterRematchRoom(code, true, rematchOpponentName);
+        }
+        break;
+
+      case 'decline':
+        resetRematchUI('Your opponent declined the rematch.');
+        break;
+
+      case 'start':
+        if (link.isHost) return;             // we mint; we never follow one
+        enterRematchRoom(payload.roomCode, false, rematchOpponentName);
+        break;
+    }
+  }
+
+  // Propose a rematch. This no longer starts anything on its own.
+  rematchBtn.addEventListener('click', () => {
+    if (rematchState !== 'idle') return;
+    const link = rematchLink;
+    if (!link) {
+      // No retained channel — the opponent already left, or never was there.
+      // Say so rather than silently doing nothing.
+      MagicalToast.show('Your opponent is no longer connected.<br>Start a new duel from the Arena.');
+      return;
+    }
+    showRematchPending();
+    link.broadcastRematch('request');
   });
 
+  rematchCancelBtn.addEventListener('click', () => {
+    const link = rematchLink;
+    resetRematchUI('Rematch request withdrawn.');
+    if (link) link.broadcastRematch('decline');
+  });
+
+  rematchAcceptBtn.addEventListener('click', () => {
+    const link = rematchLink;
+    if (!link) return;
+    clearRematchTimer();
+    rematchState = 'starting';
+    rematchPending.hidden = true;
+    rematchInbound.hidden = true;
+    rematchConsent.hidden = true;
+    link.broadcastRematch('accept');
+    // A guest waits for the host's `start` frame; a host that accepted its
+    // opponent's request mints the room immediately.
+    if (link.isHost) {
+      const code = link.newRoomCode();
+      link.broadcastRematch('start', { roomCode: code });
+      enterRematchRoom(code, true, rematchOpponentName);
+    }
+  });
+
+  rematchDeclineBtn.addEventListener('click', () => {
+    const link = rematchLink;
+    resetRematchUI('You declined the rematch.');
+    if (link) link.broadcastRematch('decline');
+  });
+
+
+
   // Return to Library from result screen
-  document.getElementById('duel-result-close-btn').addEventListener('click', () => {
+  duelResultCloseBtn.addEventListener('click', () => {
     game.stop();
     game.reset(); // Clear underlying canvas elements
 
     // Clear the physical canvas frame to remove static drawings
     const ctx = game.canvas.getContext('2d');
     ctx.clearRect(0, 0, game.canvas.width, game.canvas.height);
+
+    // AT-F19: leaving the result screen is an implicit DECLINE. Without this
+    // the retained channel would outlive the match it belonged to, and the
+    // opponent would keep a REMATCH offer on screen that can never be answered.
+    const held = rematchLink;
+    const wasNegotiating = rematchState !== 'idle';
+    if (held) {
+      rematchLink = null;
+      resetRematchUI();
+      if (wasNegotiating) held.broadcastRematch('decline');
+      held.disconnect();
+    } else {
+      resetRematchUI();
+    }
 
     duelResultMenu.classList.remove('active');
     duelResultMenu.classList.add('hidden');
