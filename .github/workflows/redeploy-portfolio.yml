@@ -1,0 +1,146 @@
+name: Redeploy Portfolio
+
+# WHY THIS FILE EXISTS (added 2026-09-29)
+#
+# The portfolio at portfolio-ibem.vercel.app renders a GitHub telemetry badge
+# for this repo on its Quest Board and on /quests/arcanetyper: stars, default
+# branch, "Pushed: <relative>", and the latest commit SHA + message.
+#
+# That data is fetched at BUILD TIME, not at request time. src/lib/github.ts
+# calls the GitHub REST API from the frontmatter of two prerendered Astro pages
+# (src/pages/quests/index.astro and src/pages/quests/[slug].astro). Neither sets
+# `export const prerender = false`, so the fetched values are baked into static
+# HTML and only change when the portfolio is rebuilt.
+#
+# The consequence, observed on 2026-09-29: the live site advertised commit
+# 05cc78c / "Pushed: 2026-09-23T09:40:54Z" while this repo's master was already
+# at 0af20a0 / 2026-09-29T03:57:45Z — 41 commits stale, missing the entire
+# v2.3.4 release. Pushing here could never update it, because nothing connected
+# the two repositories.
+#
+# This workflow is that missing link: a push to master pings a Vercel deploy
+# hook, which triggers a fresh portfolio build, which re-runs the GitHub fetch
+# and re-freezes the badge with current values.
+#
+# ONE-TIME SETUP (repo owner) — two steps, both manual:
+#
+#   1. In Vercel: open the portfolio project -> Settings -> Git -> Deploy
+#      Hooks -> Add. Name it e.g. "ArcaneTyper master". Copy the URL. It looks
+#      like https://api.vercel.com/v1/integrations/deploy/<slug>/<token>
+#      and is SECRET — anyone holding it can trigger production deploys.
+#
+#   2. In THIS repo: Settings -> Secrets and variables -> Actions -> New
+#      repository secret:
+#        PORTFOLIO_DEPLOY_HOOK = <the URL from step 1>
+#
+# Then run this workflow once from the Actions tab ("Run workflow") and confirm
+# green. Until that secret exists, every run below fails loudly on purpose —
+# see the guard in the job.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Collapse bursts of pushes into one deploy. Ten rapid commits should cost one
+# portfolio build, not ten — and a cancel-in-progress keeps an older commit from
+# winning a race against a newer one.
+concurrency:
+  group: portfolio-redeploy
+  cancel-in-progress: true
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard — deploy hook secret present?
+        env:
+          PORTFOLIO_DEPLOY_HOOK: ${{ secrets.PORTFOLIO_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$PORTFOLIO_DEPLOY_HOOK" ]; then
+            echo "FAIL: repository secret PORTFOLIO_DEPLOY_HOOK is not set."
+            echo "This job cannot rebuild the portfolio without it, so the Quest"
+            echo "Board telemetry stays frozen at whatever the last build captured."
+            echo ""
+            echo "To fix, in THIS repo:"
+            echo "  Settings -> Secrets and variables -> Actions -> New repository secret"
+            echo "  Name:  PORTFOLIO_DEPLOY_HOOK"
+            echo "  Value: the deploy hook URL from the Vercel portfolio project"
+            echo "         (Settings -> Git -> Deploy Hooks -> Add)."
+            exit 1
+          fi
+
+      - name: Show what triggered this
+        run: |
+          echo "Commit : ${{ github.sha }}"
+          echo "Author : ${{ github.actor }}"
+          echo "Message: ${{ github.event.head_commit.message }}"
+
+      - name: Trigger portfolio redeploy
+        env:
+          PORTFOLIO_DEPLOY_HOOK: ${{ secrets.PORTFOLIO_DEPLOY_HOOK }}
+        run: |
+          # Verified against the live endpoint 2026-09-29: this API answers
+          # 415 Unsupported Media Type if the request carries no Content-Type,
+          # so the header is mandatory, not decoration.
+          #
+          # The body goes to a file and only the status code comes back on
+          # stdout. Folding them together with 2>&1 corrupts the parse: curl
+          # writes its own "curl: (22) ..." line to stderr, which then lands
+          # after the status code and defeats `tail -n1`.
+          body=$(mktemp)
+          err=$(mktemp)
+
+          code=$(curl -sS -X POST "$PORTFOLIO_DEPLOY_HOOK" \
+            -H 'Content-Type: application/json' \
+            -o "$body" -w '%{http_code}' 2>"$err")
+          rc=$?
+
+          if [ "$rc" -ne 0 ]; then
+            echo "FAIL: the deploy hook request itself errored (curl exit $rc)."
+            sed 's/^/  /' "$err"
+            echo ""
+            echo "Usual causes: no network egress from the runner, or the hook"
+            echo "URL was revoked/rotated in Vercel. Re-copy it from"
+            echo "Vercel -> portfolio project -> Settings -> Git -> Deploy Hooks."
+            rm -f "$body" "$err"
+            exit 1
+          fi
+
+          echo "HTTP $code"
+          sed 's/^/  /' "$body"
+          rm -f "$body" "$err"
+
+          case "$code" in
+            200|201|202)
+              echo "OK — portfolio rebuild queued. Expect /quests to show this"
+              echo "commit within a minute or two, once the Vercel build finishes."
+              ;;
+            401|403)
+              echo "FAIL: the deploy hook rejected the request ($code)."
+              echo "The secret is most likely wrong, truncated, or points at a"
+              echo "different Vercel project than the one serving the portfolio."
+              exit 1
+              ;;
+            404)
+              echo "FAIL: deploy hook not found ($code). It was deleted or rotated."
+              echo "Create a new one in Vercel and update the secret."
+              exit 1
+              ;;
+            415)
+              echo "FAIL: 415 Unsupported Media Type."
+              echo "This job sends 'Content-Type: application/json', so a 415 here"
+              echo "means the URL is not a Vercel deploy hook at all — check for a"
+              echo "truncated or mis-pasted secret."
+              exit 1
+              ;;
+            429)
+              echo "FAIL: rate limited by Vercel (429). Deploy hooks have a"
+              echo "per-project request cap; wait and re-run this workflow."
+              exit 1
+              ;;
+            *)
+              echo "FAIL: unexpected HTTP $code from the deploy hook."
+              exit 1
+              ;;
+          esac
