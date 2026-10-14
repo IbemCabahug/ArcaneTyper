@@ -45,6 +45,15 @@ export class AuthUI {
         this.failedAttempts = parseInt(sessionStorage.getItem('at_auth_failed_attempts') || '0', 10);
         this.lockoutUntil = parseInt(sessionStorage.getItem('at_auth_lockout_until') || '0', 10);
         this.lockoutTimer = null;
+
+        // Turnstile (Cloudflare) via Supabase-native CAPTCHA. OPT-IN: only active
+        // when VITE_TURNSTILE_SITE_KEY is set at build time AND Supabase's "Enable
+        // CAPTCHA protection" toggle is on. When the key is absent every helper
+        // below is a no-op and auth behaves exactly as before (safe to merge
+        // before Cloudflare/Supabase are configured).
+        this.turnstileSiteKey = import.meta.env?.VITE_TURNSTILE_SITE_KEY || '';
+        this.turnstileWidgetId = null;
+        this.turnstileToken = '';
     }
 
     init(updateProgressionUIParams) {
@@ -268,14 +277,17 @@ export class AuthUI {
                     return;
                 }
 
+                const captchaToken = await this._getTurnstileToken();
                 const { data, error } = await supabase.auth.signInWithPassword({
                     email: loginEmail,
                     password: password,
+                    options: captchaToken ? { captchaToken } : undefined,
                 });
 
                 this.ccCreateBtn.disabled = false;
 
                 if (error) {
+                    this._resetTurnstile(); // token is single-use; force a fresh one next attempt
                     this.failedAttempts++;
                     sessionStorage.setItem('at_auth_failed_attempts', this.failedAttempts.toString());
 
@@ -329,6 +341,7 @@ export class AuthUI {
                 await this.game.stats.saveProgression();
 
             } else {
+                const captchaToken = await this._getTurnstileToken();
                 const { data, error } = await supabase.auth.signUp({
                     email: emailToUse,
                     password: password,
@@ -337,13 +350,15 @@ export class AuthUI {
                             mage_title: displayName,
                             discipline: discipline,
                             true_name: username
-                        }
+                        },
+                        ...(captchaToken ? { captchaToken } : {}),
                     }
                 });
 
                 this.ccCreateBtn.disabled = false;
 
                 if (error) {
+                    this._resetTurnstile(); // token is single-use; force a fresh one next attempt
                     if (error.message.toLowerCase().includes('rate limit')) {
                         console.warn("Supabase rate limit exceeded. Engaging temporal stasis.");
                         this.lockoutUntil = Date.now() + 60000;
@@ -391,6 +406,15 @@ export class AuthUI {
 
         this.ccMenu.classList.remove('hidden');
         this.ccMenu.classList.add('active');
+
+        // Start the Turnstile widget as soon as the form opens instead of on
+        // submit: loading the Cloudflare script is async, so a submit-triggered
+        // init raced the script load and shipped that attempt with no token.
+        // The reset also clears a token a previous attempt already consumed
+        // (e.g. logout → login again without a page reload).
+        this._resetTurnstile();
+        this._initTurnstile();
+
         this.ccUsername.focus();
     }
 
@@ -488,6 +512,100 @@ export class AuthUI {
         }
         console.info(`[AuthUI] Session identity resolved: ${stats ? stats.mageName : '(none)'}`);
         return applied;
+    }
+
+    // ---------------------------------------------------------------------
+    // Turnstile (Cloudflare) via Supabase-native CAPTCHA.
+    // OPT-IN via VITE_TURNSTILE_SITE_KEY. Enforcement is server-side (Supabase
+    // GoTrue validates the token with Cloudflare Siteverify); the client only
+    // supplies it. No key => all methods below are no-ops => auth unchanged.
+    // ---------------------------------------------------------------------
+    _turnstileEnabled() {
+        return Boolean(this.turnstileSiteKey);
+    }
+
+    /** Lazily load the Cloudflare script and mount the widget in #cc-turnstile. */
+    _initTurnstile() {
+        if (!this.turnstileSiteKey) return;
+        const mount = document.getElementById('cc-turnstile');
+        if (!mount) return;
+
+        const render = () => {
+            if (!window.turnstile || this.turnstileWidgetId !== null) return;
+            try {
+                this.turnstileWidgetId = window.turnstile.render(mount, {
+                    sitekey: this.turnstileSiteKey,
+                    theme: 'dark',
+                    callback: (token) => { this.turnstileToken = token; },
+                    'expired-callback': () => { this.turnstileToken = ''; },
+                    'error-callback': () => { this.turnstileToken = ''; return true; },
+                });
+            } catch (e) {
+                console.warn('[AuthUI] Turnstile render failed:', e);
+            }
+        };
+
+        if (window.turnstile) { render(); return; }
+
+        let s = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
+        if (!s) {
+            s = document.createElement('script');
+            s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+            s.async = true;
+            s.defer = true;
+            s.addEventListener('error', () => console.warn('[AuthUI] Turnstile script failed to load'));
+            document.head.appendChild(s);
+        }
+        s.addEventListener('load', render);
+    }
+
+    /**
+     * Return a Turnstile token for the pending auth call, or '' when CAPTCHA is
+     * off/unavailable. The Cloudflare script loads asynchronously, so we wait
+     * (bounded) for the script + widget before looking for a response; if the
+     * widget hasn't solved yet we trigger execute() and wait for the callback.
+     * A single shared deadline keeps the submit button from stalling too long.
+     * @returns {Promise<string>}
+     */
+    async _getTurnstileToken() {
+        if (!this.turnstileSiteKey) return '';
+        if (this.turnstileWidgetId === null) this._initTurnstile();
+
+        // Never bail out just because the script hasn't arrived yet — returning
+        // '' instantly on a cold load meant the FIRST attempt after every page
+        // reload shipped with no token at all.
+        const deadline = Date.now() + 8000;
+        while (!window.turnstile || this.turnstileWidgetId === null) {
+            if (Date.now() >= deadline) return '';
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        let token = this.turnstileToken || window.turnstile.getResponse(this.turnstileWidgetId);
+        if (!token) {
+            try { window.turnstile.execute(this.turnstileWidgetId); } catch (_) { /* managed auto-runs */ }
+            token = await this._waitForTurnstileToken(Math.max(0, deadline - Date.now()));
+        }
+        return token || '';
+    }
+
+    /** Poll until the widget callback yields a token, or the timeout elapses. */
+    _waitForTurnstileToken(timeoutMs) {
+        return new Promise((resolve) => {
+            const started = Date.now();
+            const poll = setInterval(() => {
+                const t = this.turnstileToken
+                    || (window.turnstile && this.turnstileWidgetId !== null ? window.turnstile.getResponse(this.turnstileWidgetId) : '');
+                if (t) { clearInterval(poll); resolve(t); }
+                else if (Date.now() - started > timeoutMs) { clearInterval(poll); resolve(''); }
+            }, 100);
+        });
+    }
+
+    /** Tokens are single-use; reset the widget after each attempt. */
+    _resetTurnstile() {
+        if (!this.turnstileSiteKey || !window.turnstile || this.turnstileWidgetId === null) return;
+        this.turnstileToken = '';
+        try { window.turnstile.reset(this.turnstileWidgetId); } catch (_) { /* ignore */ }
     }
 
     startLockoutCountdown() {
