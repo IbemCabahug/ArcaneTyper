@@ -29,6 +29,7 @@ export class AuthUI {
         this.ccEmail = document.getElementById('cc-email');
         this.ccUsernameLabel = document.getElementById('cc-username-label');
         this.togglePasswordBtn = document.getElementById('toggle-password-btn');
+        this.ccTurnstile = document.getElementById('cc-turnstile');
 
         // NOTE (AT-L8): `#mage-class-select` lives in the Mage Profile menu and is
         // owned by ProfileUI — AuthUI only fills the registration picker
@@ -161,6 +162,11 @@ export class AuthUI {
                 this.ccEmailContainer.style.display = 'none';
                 this.ccPassword.parentElement.parentElement.style.display = 'none';
                 this.ccClassContainer.style.display = 'none';
+                // Cloudflare is guest-exempt: handleAuthSubmit's guest branch
+                // returns before any token fetch or Supabase call, so the widget
+                // is inert here — hide it with the other auth-only fields instead
+                // of leaving a CAPTCHA sitting on the GUEST ACCESS screen.
+                this.ccTurnstile.style.display = 'none';
 
                 this.ccNicknameContainer.style.display = 'flex';
                 this.ccName.placeholder = "e.g. Wandering Scribe";
@@ -183,6 +189,7 @@ export class AuthUI {
 
                 this.ccUsernameLabel.parentElement.style.display = 'flex';
                 this.ccPassword.parentElement.parentElement.style.display = 'flex';
+                this.ccTurnstile.style.display = 'flex';
                 this.ccNicknameContainer.style.display = 'none';
                 this.ccEmailContainer.style.display = 'none';
                 this.ccClassContainer.style.display = 'none';
@@ -414,6 +421,10 @@ export class AuthUI {
         // (e.g. logout → login again without a page reload).
         this._resetTurnstile();
         this._initTurnstile();
+        // Same screen, two layouts: keep the mount in sync with the current
+        // mode so a stale isGuestMode flag can't reopen the form with the
+        // widget sitting on a guest-only layout.
+        this.ccTurnstile.style.display = this.isGuestMode ? 'none' : 'flex';
 
         this.ccUsername.focus();
     }
