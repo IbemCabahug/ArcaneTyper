@@ -244,11 +244,14 @@ export class ProfileUI {
             }
             list.innerHTML = runs.map(run => {
                 const when = run.created_at ? new Date(run.created_at).toLocaleDateString() : '';
-                const mode = String(run.mode || 'arena').toUpperCase();
+                const mode = String(run.mode || 'arena').replace(/[^a-zA-Z0-9_\-]/g, '').toUpperCase();
+                const score = Math.floor(Number(run.score) || 0);
+                const wpm = Math.floor(Number(run.wpm) || 0);
+                const acc = Math.floor(Number(run.accuracy) || 0);
                 return `<li class="recent-run-row">
                     <span class="recent-run-mode">${mode}</span>
-                    <span class="recent-run-score">${run.score ?? 0}</span>
-                    <span class="recent-run-meta">${run.wpm ?? 0} WPM · ${run.accuracy ?? 0}%</span>
+                    <span class="recent-run-score">${score}</span>
+                    <span class="recent-run-meta">${wpm} WPM · ${acc}%</span>
                     <span class="recent-run-date">${when}</span>
                 </li>`;
             }).join('');

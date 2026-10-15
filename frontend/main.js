@@ -984,14 +984,38 @@ document.addEventListener('DOMContentLoaded', async () => {
       const tr = document.createElement('tr');
       const rankClass = index === 0 ? 'top-rank' : '';
       const streakVal = entry.streak !== undefined ? entry.streak : 0;
-      tr.innerHTML = `
-        <td class="col-rank rank-text ${rankClass}">#${index + 1}</td>
-        <td class="col-name ${rankClass}">${entry.name}</td>
-        <td class="col-score ${category === 'score' ? 'category-highlight' : ''}">${entry.score}</td>
-        <td class="col-wpm ${category === 'wpm' ? 'category-highlight' : ''}">${entry.wpm}</td>
-        <td class="col-accuracy ${category === 'accuracy' ? 'category-highlight' : ''}">${entry.accuracy}%</td>
-        <td class="col-streak ${category === 'streak' ? 'category-highlight' : ''}">${streakVal}</td>
-      `;
+
+      const tdRank = document.createElement('td');
+      tdRank.className = `col-rank rank-text ${rankClass}`.trim();
+      tdRank.textContent = `#${index + 1}`;
+
+      const tdName = document.createElement('td');
+      tdName.className = `col-name ${rankClass}`.trim();
+      tdName.textContent = entry.name || 'Anonymous Mage';
+
+      const tdScore = document.createElement('td');
+      tdScore.className = `col-score ${category === 'score' ? 'category-highlight' : ''}`.trim();
+      tdScore.textContent = String(entry.score ?? 0);
+
+      const tdWpm = document.createElement('td');
+      tdWpm.className = `col-wpm ${category === 'wpm' ? 'category-highlight' : ''}`.trim();
+      tdWpm.textContent = `${entry.wpm}`;
+
+      const tdAcc = document.createElement('td');
+      tdAcc.className = `col-accuracy ${category === 'accuracy' ? 'category-highlight' : ''}`.trim();
+      tdAcc.textContent = `${entry.accuracy ?? 0}%`;
+
+      const tdStreak = document.createElement('td');
+      tdStreak.className = `col-streak ${category === 'streak' ? 'category-highlight' : ''}`.trim();
+      tdStreak.textContent = String(streakVal);
+
+      tr.appendChild(tdRank);
+      tr.appendChild(tdName);
+      tr.appendChild(tdScore);
+      tr.appendChild(tdWpm);
+      tr.appendChild(tdAcc);
+      tr.appendChild(tdStreak);
+
       tbody.appendChild(tr);
     });
   }
