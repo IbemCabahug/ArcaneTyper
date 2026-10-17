@@ -4,6 +4,7 @@ import { Projectile } from './Projectile.js';
 import { WordDictionary } from './WordDictionary.js';
 import { Stats } from '../backend/Stats.js';
 import { RenderCache } from './RenderCache.js';
+import './VisualQuality.js';
 
 import { Particle } from './Particle.js';
 import { ParticlePool } from './ParticlePool.js';
@@ -112,6 +113,7 @@ export class Game {
 
         this.resizeCanvas();
         window.addEventListener('resize', () => this.resizeCanvas());
+        document.addEventListener('visibilitychange', () => { this._fpsMeasuring = false; });
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', () => this.resizeCanvas());
         }
@@ -357,16 +359,23 @@ export class Game {
         if (!this.isRunning) return;
         this._frameTicked = true; // heartbeat for the resurrection watchdog
 
-        let dt = currentTime - this.lastTime;
+        const frameElapsed = currentTime - this.lastTime;
+        let dt = frameElapsed;
         dt = Math.min(dt, 50);
         this.lastTime = currentTime;
 
-        // --- Adaptive quality monitor ---
-        // Tracks frame rate; on sustained slow frames (slow PC / heavy scenes)
-        // flips a global low-quality flag that renderers consult to skip
-        // expensive effects (shadowBlur, gradients). Recovers automatically.
-        this._fpsAccum = (this._fpsAccum || 0) + dt;
-        this._fpsFrames = (this._fpsFrames || 0) + 1;
+        // FPS diagnostics are independent of the user's visual-quality choice.
+        // Measure real frame delivery, not the clamped simulation delta.
+        // Paused/hidden frames and the first resumed frame are not samples.
+        const measuring = !this.isPaused && !document.hidden;
+        if (!measuring || !this._fpsMeasuring) {
+            this._fpsAccum = 0;
+            this._fpsFrames = 0;
+        }
+        const sampleElapsed = measuring && this._fpsMeasuring ? frameElapsed : 0;
+        this._fpsMeasuring = measuring;
+        this._fpsAccum = (this._fpsAccum || 0) + sampleElapsed;
+        this._fpsFrames = (this._fpsFrames || 0) + (sampleElapsed > 0 ? 1 : 0);
         if (this._fpsAccum >= 1000) {
             const fps = Math.round(this._fpsFrames / (this._fpsAccum / 1000));
             this.currentFps = fps;
@@ -391,19 +400,7 @@ export class Game {
                 }
             }
 
-            if (fps < 40) {
-                this._lowFpsStrikes = (this._lowFpsStrikes || 0) + 1;
-                if (this._lowFpsStrikes >= 2 && !window.__atLowQuality) {
-                    window.__atLowQuality = true;
-                    console.warn('[Perf] FPS ' + fps + ' — enabling low-quality render mode');
-                }
-            } else {
-                this._lowFpsStrikes = 0;
-                if (fps > 55 && window.__atLowQuality) {
-                    window.__atLowQuality = false;
-                    console.info('[Perf] FPS recovered — restoring full quality');
-                }
-            }
+            // Diagnostic only. VisualQuality owns the persisted user choice.
         }
 
         // --- AT-F13: a paused frame is frozen, not redrawn ---
@@ -1346,7 +1343,7 @@ export class Game {
             ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
             ctx.fill();
             ctx.strokeStyle = `rgba(255, 65, 88, ${0.95 * fade})`;
-            ctx.lineWidth = lowQ ? 1.2 : 2.2;
+            ctx.lineWidth = 2.2;
             ctx.stroke();
 
             ctx.fillStyle = 'rgba(48, 0, 14, 0.62)';
@@ -1363,7 +1360,7 @@ export class Game {
             ctx.translate(w / 2, h / 2);
             ctx.globalAlpha = impactAlpha * fade;
             ctx.strokeStyle = '#ff6b7a';
-            ctx.lineWidth = lowQ ? 1.2 : 2.4;
+            ctx.lineWidth = 2.4;
             ctx.shadowColor = '#ff1744';
             ctx.shadowBlur = lowQ ? 0 : 16;
             ctx.beginPath();
@@ -1397,7 +1394,7 @@ export class Game {
             const sigilSpin = stage * 0.12 + Math.PI / 6;
             ctx.globalAlpha = sigilAlpha;
             ctx.strokeStyle = '#ff1744';
-            ctx.lineWidth = lowQ ? 1.1 : 2.2;
+            ctx.lineWidth = 2.2;
             ctx.shadowColor = '#ff1744';
             ctx.shadowBlur = lowQ ? 0 : 14;
             ctx.beginPath();
@@ -1411,7 +1408,7 @@ export class Game {
             ctx.stroke();
             ctx.setLineDash([]);
             ctx.strokeStyle = stage >= 5 ? '#fff0ef' : '#ff6b7a';
-            ctx.lineWidth = lowQ ? 1.2 : 2;
+            ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(0, -58);
             ctx.lineTo(50, 38);
@@ -1435,12 +1432,12 @@ export class Game {
             ctx.globalAlpha = fade;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.font = `bold ${lowQ ? 24 : 32}px Cinzel, serif`;
+            ctx.font = 'bold 32px Cinzel, serif';
             ctx.fillStyle = '#fff0ef';
             ctx.shadowColor = '#ff1744';
             ctx.shadowBlur = lowQ ? 0 : 12;
             ctx.fillText('BLOOD MOON', w / 2, h * 0.68);
-            ctx.font = `bold ${lowQ ? 12 : 15}px Cinzel, serif`;
+            ctx.font = 'bold 15px Cinzel, serif';
             ctx.fillStyle = '#ffb3ad';
             ctx.fillText('THE HARVEST BEGINS', w / 2, h * 0.68 + 28);
             ctx.restore();
@@ -1498,7 +1495,7 @@ export class Game {
         // visual difference from Wizard and Bloodseeker Supernovas.
         const horizon = Math.max(8, maxRadius * collapse);
         ctx.strokeStyle = `rgba(0, 229, 255, ${(0.28 + (1 - collapse) * 0.55) * fade})`;
-        ctx.lineWidth = lowQ ? 1.2 : 2.6;
+        ctx.lineWidth = 2.6;
         if (!lowQ) {
             ctx.shadowColor = '#7c4dff';
             ctx.shadowBlur = 16;
@@ -1509,7 +1506,7 @@ export class Game {
 
         if (stage >= 2 && stage <= 5) {
             ctx.strokeStyle = `rgba(124, 77, 255, ${(0.42 + local * 0.28) * fade})`;
-            ctx.lineWidth = lowQ ? 1 : 1.8;
+            ctx.lineWidth = 1.8;
             ctx.setLineDash([12, 9]);
             ctx.beginPath();
             ctx.ellipse(cx, cy, horizon * 0.68, horizon * 0.27, Math.PI / 4, 0, Math.PI * 2);
@@ -1523,7 +1520,7 @@ export class Game {
         // fragments around the singularity.
         if (stage >= 1 && stage <= 5) {
             ctx.strokeStyle = `rgba(192, 132, 252, ${0.34 * fade})`;
-            ctx.lineWidth = lowQ ? 1 : 1.4;
+            ctx.lineWidth = 1.4;
             for (let i = 0; i < 4; i++) {
                 const a = i * Math.PI / 2 + stage * 0.09;
                 ctx.beginPath();
@@ -1554,12 +1551,12 @@ export class Game {
             ctx.globalAlpha = fade;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.font = `bold ${lowQ ? 24 : 32}px Cinzel, serif`;
+            ctx.font = 'bold 32px Cinzel, serif';
             ctx.fillStyle = '#e9d5ff';
             ctx.shadowColor = '#7c4dff';
             ctx.shadowBlur = lowQ ? 0 : 12;
             ctx.fillText('SINGULARITY', cx, h * 0.68);
-            ctx.font = `bold ${lowQ ? 12 : 15}px Cinzel, serif`;
+            ctx.font = 'bold 15px Cinzel, serif';
             ctx.fillStyle = '#00e5ff';
             ctx.fillText('SPACE BENDS INWARD', cx, h * 0.68 + 28);
             ctx.restore();
@@ -1602,7 +1599,7 @@ export class Game {
         ctx.fill();
 
         ctx.strokeStyle = o.rim;
-        ctx.lineWidth = (lowQ ? 1.2 : 2.4) * s;
+        ctx.lineWidth = 2.4 * s;
         ctx.shadowColor = o.shadow;
         ctx.shadowBlur = lowQ ? 0 : 18 * s;
         ctx.beginPath();

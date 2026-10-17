@@ -1,3 +1,4 @@
+import { visualQuality } from '../VisualQuality.js';
 import { Particle } from '../Particle.js';
 import { FloatingText } from '../FloatingText.js';
 import { Projectile } from '../Projectile.js';
@@ -360,6 +361,7 @@ export class CombatSystem {
         const colors = elementColors.particles;
         let numParticles = 30 + Math.random() * 15;
         numParticles *= (1 + bonusMultiplier);
+        numParticles *= visualQuality.explosionScale;
 
         const MAX_PARTICLES = window.__atLowQuality ? 100 : 250;
         numParticles = Math.min(numParticles, MAX_PARTICLES);

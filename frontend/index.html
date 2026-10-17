@@ -208,6 +208,7 @@
         </div>
         <!-- Floating Menu Actions Container -->
         <div id="start-menu-floating-actions">
+          <button id="open-settings-btn" class="menu-floating-btn" title="Settings" aria-label="Settings">⚙</button>
           <!-- Trophy Button -->
           <button id="open-achievements-icon-btn" class="menu-floating-btn trophy-btn" title="Trophy Room (Achievements)">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none"
@@ -255,6 +256,16 @@
           TO LIBRARY</button>
       </div>
 
+      <dialog id="settings-dialog" aria-labelledby="settings-heading">
+        <h2 id="settings-heading">Settings</h2>
+        <label class="performance-setting">
+          <input id="performance-optimization" type="checkbox" aria-describedby="performance-description" autofocus />
+          <span>Performance Optimization</span>
+        </label>
+        <p id="performance-description">Prioritize game performance by reducing certain visual effects and graphical processing.</p>
+        <button id="close-settings-btn" class="primary-btn" type="button">CLOSE SETTINGS</button>
+      </dialog>
+
       <!-- Pause Menu -->
       <div id="pause-menu" class="overlay-menu hidden">
         <div class="pause-card">
@@ -285,6 +296,7 @@
           </div>
 
           <button id="resume-btn" class="primary-btn" style="margin-top: 15px; width: 100%;">RESUME SPELLCASTING</button>
+          <button id="pause-settings-btn" class="primary-btn" type="button">SETTINGS</button>
           <button id="pause-return-btn" class="primary-btn"
             style="margin-top: 10px; width: 100%; background: transparent; border-color: var(--text-muted); color: var(--text-muted);">FORFEIT RUN</button>
           <div style="font-size: 0.75rem; color: #b892b0; opacity: 0.8; text-align: center; pointer-events: none; margin-top: 15px; font-family: monospace;">Press <span style="color: #ffd700; font-weight: bold; border: 1px solid rgba(255, 215, 0, 0.4); padding: 1px 5px; border-radius: 3px; background: rgba(0,0,0,0.3); box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);">Escape</span> to resume instantly</div>

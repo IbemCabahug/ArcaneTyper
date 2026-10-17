@@ -1,4 +1,5 @@
 import { Particle } from './Particle.js';
+import { visualQuality } from './VisualQuality.js';
 
 /**
  * ParticlePool — Zero-allocation particle manager for ArcaneTyper.
@@ -27,10 +28,12 @@ export class ParticlePool {
      * Spawns or recycles a particle at (x, y) with the specified color/config.
      */
     spawn(x, y, color) {
+        this._trimToBudget();
+        const budget = Math.min(this.maxParticles, visualQuality.particleBudget);
         // 1. Find the first inactive particle
         for (let i = 0; i < this.maxParticles; i++) {
             const p = this.pool[i];
-            if (!p.active) {
+            if (!p.active && this._activeCount < budget) {
                 p.init(x, y, color);
                 this._activeCount++;
                 return p;
@@ -41,7 +44,7 @@ export class ParticlePool {
         let lowestLifeIndex = 0;
         let minLife = 999;
         for (let i = 0; i < this.maxParticles; i++) {
-            if (this.pool[i].life < minLife) {
+            if (this.pool[i].active && this.pool[i].life < minLife) {
                 minLife = this.pool[i].life;
                 lowestLifeIndex = i;
             }
@@ -81,6 +84,7 @@ export class ParticlePool {
     }
 
     update(dt) {
+        this._trimToBudget();
         let active = 0;
         for (let i = 0; i < this.maxParticles; i++) {
             const p = this.pool[i];
@@ -102,6 +106,19 @@ export class ParticlePool {
             if (p.active && p.life > 0) {
                 p.draw(ctx);
             }
+        }
+    }
+
+    _trimToBudget() {
+        const budget = Math.min(this.maxParticles, visualQuality.particleBudget);
+        if (this._activeCount <= budget) return;
+        // Retain the newest live effects when switching profiles mid-scene.
+        const active = this.pool.filter(p => p.active).sort((a, b) => a.life - b.life);
+        for (const p of active) {
+            if (this._activeCount <= budget) break;
+            p.active = false;
+            p.life = 0;
+            this._activeCount--;
         }
     }
 

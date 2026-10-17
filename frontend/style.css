@@ -1,3 +1,20 @@
+#settings-dialog {
+    margin: auto;
+    width: min(440px, 90vw);
+    max-height: 85dvh;
+    overflow: auto;
+    padding: 24px;
+    color: var(--text-primary, #ffffff);
+    background: var(--bg-deep, #100b20);
+    border: 1px solid var(--accent-primary);
+    border-radius: 12px;
+}
+#settings-dialog::backdrop { background: rgba(0, 0, 0, 0.8); }
+.performance-setting { display: flex; align-items: center; gap: 12px; margin: 24px 0 12px; cursor: pointer; }
+.performance-setting input { width: 22px; height: 22px; accent-color: var(--accent-primary); }
+#performance-description { color: var(--text-muted); line-height: 1.6; margin-bottom: 24px; }
+#pause-settings-btn { margin-top: 10px; width: 100%; }
+
 :root {
   --bg-deep: #0f0a14;
   --bg-mid: #1c112e;

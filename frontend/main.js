@@ -15,6 +15,7 @@ import { DuelRace } from './game/DuelRace.js';
 import { mageClassInfo, classesForCharacter, DISCIPLINE_SWITCH_COST, scrollCostFor } from '../backend/MageClasses.js';
 import { characterInfo } from '../backend/Characters.js';
 import { CharacterRenderer } from './game/CharacterRenderer.js';
+import { initSettingsUI } from './ui/SettingsUI.js';
 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -56,6 +57,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const menuUI = new MenuUI(game, document.getElementById('start-menu'));
 
   menuUI.init();
+  initSettingsUI();
 
   // ── Cloud sync wiring ──────────────────────────────────────────────────────
   // Before 2026-09-23 every Supabase failure ended as a console.warn, so a
