@@ -12,7 +12,7 @@ import { supabase } from '../backend/supabaseClient.js';
 import { dbHealth } from '../backend/dbHealth.js';
 import { syncQueue } from '../backend/syncQueue.js';
 import { DuelRace } from './game/DuelRace.js';
-import { mageClassInfo, classesForCharacter, DISCIPLINE_SWITCH_COST, scrollCostFor } from '../backend/MageClasses.js';
+import { mageClassInfo, classesForCharacter, DISCIPLINE_SWITCH_COST, scrollCostFor, activeForClass } from '../backend/MageClasses.js';
 import { characterInfo } from '../backend/Characters.js';
 import { CharacterRenderer } from './game/CharacterRenderer.js';
 import { initSettingsUI } from './ui/SettingsUI.js';
@@ -1350,6 +1350,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         profileUI.refreshClassSelection?.();
         MagicalToast.show(`${name} equipped.`);
         updateForgeUI();
+        game.audio?.prepareCharacterProfile?.(id, game.stats.mageClass);
+        const activeSkill = activeForClass(game.stats?.mageClass);
+        game.audio?.playSigilSound?.(activeSkill?.id, id, { stage: 'preview', gainScale: 0.85 });
       }
     });
   });

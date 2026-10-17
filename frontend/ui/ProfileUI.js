@@ -1,5 +1,5 @@
 import { MagicalToast } from './MagicalToast.js';
-import { DEFAULT_MAGE_CLASS, DISCIPLINE_SWITCH_COST, classesForCharacter, mageClassInfo, normalizeMageClassForCharacter, scrollCostFor } from '../../backend/MageClasses.js';
+import { DEFAULT_MAGE_CLASS, DISCIPLINE_SWITCH_COST, classesForCharacter, mageClassInfo, normalizeMageClassForCharacter, scrollCostFor, activeForClass } from '../../backend/MageClasses.js';
 
 export class ProfileUI {
     constructor(game) {
@@ -89,7 +89,14 @@ export class ProfileUI {
                     // silent deduction reads as a bug.
                     `<br><span style="font-size: 0.8em; color: var(--text-muted);">Binding cost ${DISCIPLINE_SWITCH_COST.toLocaleString('en-US')} XP.</span>`
                 );
-                if (this.game.audio) this.game.audio.playSound('click');
+                const char = this.game.stats?.selectedCharacter || 'wizard';
+                this.game.audio?.prepareCharacterProfile?.(char, info.id);
+                const activeSkill = activeForClass(info.id);
+                if (this.game.audio?.playSigilSound) {
+                    this.game.audio.playSigilSound(activeSkill?.id, char, { stage: 'preview', gainScale: 0.85 });
+                } else if (this.game.audio?.playSound) {
+                    this.game.audio.playSound('click');
+                }
                 return;
             }
             // A refusal: explain WHICH rule stopped it. `setMageClass` records

@@ -1,6 +1,15 @@
+import { resolveCharacterAudioProfile, resolveSigilAudioProfile } from './audio/CharacterAudioProfiles.js';
+
 export class AudioController {
-    constructor() {
-        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    constructor(ctx = null) {
+        if (ctx) {
+            this.ctx = ctx;
+        } else if (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        } else {
+            this.ctx = null;
+        }
+
         this.bgOscillator1 = null;
         this.bgOscillator2 = null;
         this.bgFilter = null;
@@ -15,24 +24,159 @@ export class AudioController {
         this.tremoloGain = null;
         this.isPlayingBg = false;
 
-        // Master volume & Mute (AT-F3 with localStorage persistence)
-        const savedVolume = localStorage.getItem('typerMaster_volume');
-        const savedMuted = localStorage.getItem('typerMaster_muted');
-        this._volume = savedVolume !== null ? parseFloat(savedVolume) : 0.5;
+        // Master volume & Mute (AT-F3 with localStorage persistence and robust NaN guard)
+        let savedVolume = null;
+        let savedMuted = null;
+        try {
+            if (typeof localStorage !== 'undefined') {
+                savedVolume = localStorage.getItem('typerMaster_volume');
+                savedMuted = localStorage.getItem('typerMaster_muted');
+            }
+        } catch (_) {}
+        const parsedVol = savedVolume !== null ? parseFloat(savedVolume) : 0.5;
+        this._volume = Number.isFinite(parsedVol) ? Math.max(0, Math.min(1, parsedVol)) : 0.5;
         this._isMuted = savedMuted === 'true';
 
-        this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = this._isMuted ? 0 : this._volume;
-        this.masterGain.connect(this.ctx.destination);
+        if (this.ctx) {
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.value = this._isMuted ? 0 : this._volume;
+            if (this.ctx.destination) {
+                this.masterGain.connect(this.ctx.destination);
+            }
+
+            // Internal SFX Bus (all keystrokes, sigil cues, explosions, and UI clicks route here)
+            this.sfxGain = this.ctx.createGain();
+            this.sfxGain.connect(this.masterGain);
+        } else {
+            this.masterGain = null;
+            this.sfxGain = null;
+        }
+
+        // Voice Limiting & Pre-baked AudioBuffer Caching (CHARACTER-AUDIO-RESEARCH)
+        this._maxTypingVoices = 6;
+        this._maxTransientVoices = 12;
+        this._activeTypingVoices = [];
+        this._activeTransientVoices = [];
+        this._profileBufferCache = new Map();
+        this._lastVariantByProfile = new Map();
+        this._prepareGeneration = 0;
+        this._sharedNoiseBuffer = null;
 
         // Intensity state
         this.currentIntensity = 0; // 0.0 to 1.0 based on combo
     }
 
+    _canPlaySfx() {
+        return Boolean(this.ctx && !this._isMuted && this._volume > 0);
+    }
+
     _resumeContext() {
-        if (this.ctx.state === 'suspended') {
-            this.ctx.resume();
+        if (this.ctx && this.ctx.state === 'suspended') {
+            try {
+                const p = this.ctx.resume();
+                if (p && typeof p.catch === 'function') {
+                    p.catch(() => {});
+                }
+            } catch (_) {}
         }
+    }
+
+    _getSharedNoiseBuffer() {
+        if (this._sharedNoiseBuffer) return this._sharedNoiseBuffer;
+        if (!this.ctx) return null;
+        try {
+            const sampleRate = this.ctx.sampleRate || 44100;
+            const bufferSize = Math.floor(sampleRate * 0.5);
+            const buffer = this.ctx.createBuffer(1, bufferSize, sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            this._sharedNoiseBuffer = buffer;
+            return buffer;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    _registerTypingVoice(sourceNode, gainNode) {
+        if (!sourceNode) return;
+        // Strict cap of 6 concurrent typing voices (CHARACTER-AUDIO-RESEARCH)
+        while (this._activeTypingVoices.length >= this._maxTypingVoices) {
+            const oldest = this._activeTypingVoices.shift();
+            if (oldest && oldest.gainNode) {
+                try {
+                    const now = this.ctx.currentTime;
+                    oldest.gainNode.gain.cancelScheduledValues(now);
+                    oldest.gainNode.gain.setValueAtTime(oldest.gainNode.gain.value, now);
+                    oldest.gainNode.gain.linearRampToValueAtTime(0.0001, now + 0.008);
+                    setTimeout(() => {
+                        try {
+                            oldest.sourceNode.stop();
+                            oldest.sourceNode.disconnect();
+                            oldest.gainNode.disconnect();
+                        } catch (_) {}
+                    }, 10);
+                } catch (_) {}
+            }
+        }
+
+        const voiceEntry = { sourceNode, gainNode };
+        this._activeTypingVoices.push(voiceEntry);
+
+        sourceNode.onended = () => {
+            const idx = this._activeTypingVoices.indexOf(voiceEntry);
+            if (idx !== -1) this._activeTypingVoices.splice(idx, 1);
+            try { sourceNode.disconnect(); } catch (_) {}
+            try { gainNode.disconnect(); } catch (_) {}
+        };
+    }
+
+    _registerTransientVoice(sourceNode, gainNode) {
+        if (!sourceNode) return;
+        while (this._activeTransientVoices.length >= this._maxTransientVoices) {
+            const oldest = this._activeTransientVoices.shift();
+            if (oldest && oldest.gainNode) {
+                try {
+                    const now = this.ctx.currentTime;
+                    oldest.gainNode.gain.cancelScheduledValues(now);
+                    oldest.gainNode.gain.linearRampToValueAtTime(0.0001, now + 0.01);
+                    setTimeout(() => {
+                        try {
+                            oldest.sourceNode.stop();
+                            oldest.sourceNode.disconnect();
+                            oldest.gainNode.disconnect();
+                        } catch (_) {}
+                    }, 12);
+                } catch (_) {}
+            }
+        }
+
+        const entry = { sourceNode, gainNode };
+        this._activeTransientVoices.push(entry);
+
+        sourceNode.onended = () => {
+            const idx = this._activeTransientVoices.indexOf(entry);
+            if (idx !== -1) this._activeTransientVoices.splice(idx, 1);
+            try { sourceNode.disconnect(); } catch (_) {}
+            try { gainNode.disconnect(); } catch (_) {}
+        };
+    }
+
+    stopAllTransientVoices() {
+        for (const v of [...this._activeTypingVoices, ...this._activeTransientVoices]) {
+            try {
+                if (v.sourceNode) {
+                    v.sourceNode.stop();
+                    v.sourceNode.disconnect();
+                }
+                if (v.gainNode) {
+                    v.gainNode.disconnect();
+                }
+            } catch (_) {}
+        }
+        this._activeTypingVoices = [];
+        this._activeTransientVoices = [];
     }
 
     /**
@@ -77,6 +221,9 @@ export class AudioController {
         } catch (_) {}
         const target = this._isMuted ? 0 : this._volume;
         this.masterGain.gain.setValueAtTime(target, this.ctx.currentTime);
+        if (this._isMuted) {
+            this.stopAllTransientVoices();
+        }
         return this._isMuted;
     }
 
@@ -84,7 +231,162 @@ export class AudioController {
         return this._isMuted;
     }
 
+    setCharacterAudioProfile(character, mageClass) {
+        const profile = resolveCharacterAudioProfile(character, mageClass);
+        if (!profile) return null;
+        this._activeProfileKey = profile.key;
+        this.prepareCharacterProfile(character, mageClass).catch(() => {});
+        return profile;
+    }
+
+    /**
+     * Pre-bakes 3 variants of the typing profile into AudioBuffers via OfflineAudioContext.
+     * Guarantees zero runtime synthesis overhead and zero per-keystroke garbage collection.
+     */
+    async prepareCharacterProfile(character, mageClass) {
+        const profile = resolveCharacterAudioProfile(character, mageClass);
+        if (!profile) return null;
+
+        // Increment generation token BEFORE checking the cache so switching back to an
+        // already-cached profile still invalidates any slower in-flight OfflineAudioContext render.
+        const token = ++this._prepareGeneration;
+        this._activeProfileKey = profile.key;
+
+        if (this._profileBufferCache.has(profile.key)) {
+            return this._profileBufferCache.get(profile.key);
+        }
+
+        const OfflineContextClass = this._offlineContextClass
+            || (typeof window !== 'undefined' && (window.OfflineAudioContext || window.webkitOfflineAudioContext))
+            || null;
+        if (!OfflineContextClass) return null;
+
+        const sampleRate = this.ctx?.sampleRate || 44100;
+        const duration = profile.typingDuration || 0.06;
+        const length = Math.ceil(sampleRate * (duration + 0.02));
+        const noiseBuf = this._getSharedNoiseBuffer();
+        const bakedVariants = [];
+
+        try {
+            for (let v = 0; v < 3; v++) {
+                const offCtx = new OfflineContextClass(1, length, sampleRate);
+                profile.renderTyping(offCtx, offCtx.destination, v, 0, noiseBuf);
+                const rendered = await offCtx.startRendering();
+                bakedVariants.push(rendered);
+            }
+            if (this._prepareGeneration === token) {
+                this._profileBufferCache.set(profile.key, bakedVariants);
+                this._activeProfileKey = profile.key;
+            }
+            return bakedVariants;
+        } catch (e) {
+            console.warn('[AudioController] OfflineAudioContext baking skipped:', e);
+            return null;
+        }
+    }
+
+    playUiClick() {
+        if (!this._canPlaySfx()) return;
+        this._resumeContext();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        // Short, crisp high-pitched neutral UI tick
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1200, t);
+        osc.frequency.exponentialRampToValueAtTime(800, t + 0.05);
+
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(0.12, t + 0.005);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+
+        this._registerTransientVoice(osc, gain);
+        osc.start(t);
+        osc.stop(t + 0.06);
+    }
+
+    playTypeSound(character = 'wizard', mageClass = 'Novice') {
+        if (!this._canPlaySfx()) return;
+        this._resumeContext();
+
+        const profile = resolveCharacterAudioProfile(character, mageClass);
+        const cached = this._profileBufferCache.get(profile.key);
+
+        if (cached && cached.length > 0) {
+            // Pick next non-repeating variant
+            const prev = this._lastVariantByProfile.get(profile.key) ?? -1;
+            const offset = 1 + Math.floor(Math.random() * (cached.length - 1));
+            const variantIdx = prev < 0 ? Math.floor(Math.random() * cached.length) : (prev + offset) % cached.length;
+            this._lastVariantByProfile.set(profile.key, variantIdx);
+
+            const buffer = cached[variantIdx];
+            const source = this.ctx.createBufferSource();
+            source.buffer = buffer;
+
+            // Micro pitch variation: +/- 1.2%
+            source.playbackRate.value = 1.0 + (Math.random() - 0.5) * 0.024;
+
+            const voiceGain = this.ctx.createGain();
+            // Micro gain variation: +/- 4%
+            const gainJitter = 1.0 + (Math.random() - 0.5) * 0.08;
+            voiceGain.gain.setValueAtTime(gainJitter, this.ctx.currentTime);
+
+            source.connect(voiceGain);
+            voiceGain.connect(this.sfxGain);
+
+            this._registerTypingVoice(source, voiceGain);
+            source.start(this.ctx.currentTime);
+            return;
+        }
+
+        // Procedural fallback: execute the profile's recipe directly on this.ctx
+        const t = this.ctx.currentTime;
+        const voiceGain = this.ctx.createGain();
+        voiceGain.connect(this.sfxGain);
+
+        const prev = this._lastVariantByProfile.get(profile.key) ?? -1;
+        const variantIdx = (prev + 1) % 3;
+        this._lastVariantByProfile.set(profile.key, variantIdx);
+
+        const nodes = profile.renderTyping(this.ctx, voiceGain, variantIdx, t, this._getSharedNoiseBuffer());
+        if (nodes && nodes.length > 0) {
+            const primarySource = nodes.find(n => n && typeof n.start === 'function' && typeof n.stop === 'function') || nodes[0];
+            this._registerTypingVoice(primarySource, voiceGain);
+        }
+
+        // Trigger background pre-bake for upcoming keystrokes
+        if (!this._profileBufferCache.has(profile.key)) {
+            this.prepareCharacterProfile(character, mageClass).catch(() => {});
+        }
+    }
+
+    playSigilSound(skillId, character = 'wizard', { stage = 'arm', gainScale = 1.0 } = {}) {
+        if (!this._canPlaySfx()) return;
+        this._resumeContext();
+
+        const profile = resolveSigilAudioProfile(skillId, character);
+        if (!profile || typeof profile.renderSigil !== 'function') {
+            this.playMagicSpark();
+            return;
+        }
+
+        const t = this.ctx.currentTime;
+        const sigilGain = this.ctx.createGain();
+        sigilGain.connect(this.sfxGain);
+
+        const nodes = profile.renderSigil(this.ctx, sigilGain, { stage, gainScale }, t, this._getSharedNoiseBuffer());
+        if (nodes && nodes.length > 0) {
+            const primarySource = nodes.find(n => n && typeof n.start === 'function' && typeof n.stop === 'function') || nodes[0];
+            this._registerTransientVoice(primarySource, sigilGain);
+        }
+    }
+
     playMagicSpark() {
+        if (!this._canPlaySfx()) return;
         this._resumeContext();
         const t = this.ctx.currentTime;
         const osc = this.ctx.createOscillator();
@@ -94,42 +396,20 @@ export class AudioController {
         osc.frequency.setValueAtTime(800, t);
         osc.frequency.exponentialRampToValueAtTime(1200, t + 0.1); // High pitch slide up
 
-        gain.gain.setValueAtTime(0, t);
+        gain.gain.setValueAtTime(0.0001, t);
         gain.gain.linearRampToValueAtTime(0.3, t + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
 
         osc.connect(gain);
-        gain.connect(this.masterGain);
+        gain.connect(this.sfxGain);
 
-        this._attachCleanup(osc, gain);
+        this._registerTransientVoice(osc, gain);
         osc.start(t);
         osc.stop(t + 0.2);
     }
 
-    playTypeSound() {
-        this._resumeContext();
-        const t = this.ctx.currentTime;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-
-        // Short, crisp high-pitched "tick" with crystalline clarity
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(1200, t);
-        osc.frequency.exponentialRampToValueAtTime(800, t + 0.05);
-
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.12, t + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.005, t + 0.05);
-
-        osc.connect(gain);
-        gain.connect(this.masterGain);
-
-        this._attachCleanup(osc, gain);
-        osc.start(t);
-        osc.stop(t + 0.06);
-    }
-
     playErrorSound() {
+        if (!this._canPlaySfx()) return;
         this._resumeContext();
         const t = this.ctx.currentTime;
         const osc = this.ctx.createOscillator();
@@ -140,19 +420,20 @@ export class AudioController {
         osc.frequency.setValueAtTime(120, t);
         osc.frequency.linearRampToValueAtTime(90, t + 0.1);
 
-        gain.gain.setValueAtTime(0, t);
+        gain.gain.setValueAtTime(0.0001, t);
         gain.gain.linearRampToValueAtTime(0.2, t + 0.02);
         gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
 
         osc.connect(gain);
-        gain.connect(this.masterGain);
+        gain.connect(this.sfxGain);
 
-        this._attachCleanup(osc, gain);
+        this._registerTransientVoice(osc, gain);
         osc.start(t);
         osc.stop(t + 0.2);
     }
 
     playLevelUp() {
+        if (!this._canPlaySfx()) return;
         this._resumeContext();
         const t = this.ctx.currentTime;
 
@@ -167,20 +448,21 @@ export class AudioController {
             osc.type = 'sine';
             osc.frequency.setValueAtTime(freq, noteTime);
 
-            gain.gain.setValueAtTime(0, noteTime);
+            gain.gain.setValueAtTime(0.0001, noteTime);
             gain.gain.linearRampToValueAtTime(0.2, noteTime + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.01, noteTime + 0.3);
 
             osc.connect(gain);
-            gain.connect(this.masterGain);
+            gain.connect(this.sfxGain);
 
-            this._attachCleanup(osc, gain);
+            this._registerTransientVoice(osc, gain);
             osc.start(noteTime);
             osc.stop(noteTime + 0.4);
         });
     }
 
     playComboSound(combo) {
+        if (!this._canPlaySfx()) return;
         this._resumeContext();
         const t = this.ctx.currentTime;
 
@@ -234,20 +516,21 @@ export class AudioController {
             osc.frequency.setValueAtTime(rootFreq * ratio, noteTime);
 
             // Envelope: fast attack, long smooth decay (bell-like)
-            gain.gain.setValueAtTime(0, noteTime);
+            gain.gain.setValueAtTime(0.0001, noteTime);
             gain.gain.linearRampToValueAtTime(0.4, noteTime + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.01, noteTime + 0.6);
 
             osc.connect(gain);
-            gain.connect(this.masterGain);
+            gain.connect(this.sfxGain);
 
-            this._attachCleanup(osc, gain);
+            this._registerTransientVoice(osc, gain);
             osc.start(noteTime);
             osc.stop(noteTime + 1.0);
         });
     }
 
     playExplosion() {
+        if (!this._canPlaySfx()) return;
         this._resumeContext();
         const t = this.ctx.currentTime;
 
@@ -270,29 +553,25 @@ export class AudioController {
 
         osc.connect(filter);
         filter.connect(gain);
-        gain.connect(this.masterGain);
+        gain.connect(this.sfxGain);
 
-        this._attachCleanup(osc, filter, gain);
+        this._registerTransientVoice(osc, gain);
+        this._attachCleanup(osc, filter);
         osc.start(t);
         osc.stop(t + 0.6);
     }
 
     playShatter() {
+        if (!this._canPlaySfx()) return;
         this._resumeContext();
         const t = this.ctx.currentTime;
         const duration = 0.3;
 
-        // White noise burst for glass shattering
-        const bufferSize = Math.floor(this.ctx.sampleRate * duration);
-        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-
-        for (let i = 0; i < bufferSize; i++) {
-            data[i] = Math.random() * 2 - 1;
-        }
+        const noiseBuf = this._getSharedNoiseBuffer();
+        if (!noiseBuf) return;
 
         const noise = this.ctx.createBufferSource();
-        noise.buffer = buffer;
+        noise.buffer = noiseBuf;
 
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'highpass';
@@ -304,9 +583,10 @@ export class AudioController {
 
         noise.connect(filter);
         filter.connect(gain);
-        gain.connect(this.masterGain);
+        gain.connect(this.sfxGain);
 
-        this._attachCleanup(noise, filter, gain);
+        this._registerTransientVoice(noise, gain);
+        this._attachCleanup(noise, filter);
         noise.start(t);
         noise.stop(t + duration);
     }
@@ -319,6 +599,7 @@ export class AudioController {
      * ward closes over it.
      */
     playVoidAbsorb() {
+        if (!this._canPlaySfx()) return;
         this._resumeContext();
         const t = this.ctx.currentTime;
 
@@ -340,7 +621,7 @@ export class AudioController {
 
         osc.connect(filter);
         filter.connect(oscGain);
-        oscGain.connect(this.masterGain);
+        oscGain.connect(this.sfxGain);
 
         // Quiet sub thud on capture, so the absorption has weight without the
         // damage connotation of playExplosion().
@@ -352,9 +633,11 @@ export class AudioController {
         subGain.gain.setValueAtTime(0.22, t);
         subGain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
         sub.connect(subGain);
-        subGain.connect(this.masterGain);
+        subGain.connect(this.sfxGain);
 
-        this._attachCleanup(osc, filter, oscGain, sub, subGain);
+        this._registerTransientVoice(osc, oscGain);
+        this._registerTransientVoice(sub, subGain);
+        this._attachCleanup(osc, filter);
         osc.start(t);
         osc.stop(t + 0.36);
         sub.start(t);
@@ -498,7 +781,7 @@ export class AudioController {
 
     playSound(soundName) {
         if (soundName === 'click') {
-            this.playTypeSound();
+            this.playUiClick();
         } else if (soundName === 'tada') {
             this.playLevelUp();
         }

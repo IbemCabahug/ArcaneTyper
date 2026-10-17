@@ -14,6 +14,12 @@
 .performance-setting input { width: 22px; height: 22px; accent-color: var(--accent-primary); }
 #performance-description { color: var(--text-muted); line-height: 1.6; margin-bottom: 24px; }
 #pause-settings-btn { margin-top: 10px; width: 100%; }
+#open-settings-btn {
+    position: absolute;
+    top: 20px;
+    left: 24px;
+    z-index: 60;
+}
 
 :root {
   --bg-deep: #0f0a14;
@@ -3782,6 +3788,11 @@ h2 {
     opacity: 0.25 !important;
   }
 
+  #open-settings-btn {
+    top: 8px;
+    left: 12px;
+  }
+
   #start-menu-floating-actions {
     bottom: 12px;
     left: 12px;
@@ -3987,6 +3998,11 @@ h2 {
   .duel-silhouette-img {
     height: 48vh !important;
     opacity: 0.25 !important;
+  }
+
+  #open-settings-btn {
+    top: 6px;
+    left: 10px;
   }
 
   #start-menu-floating-actions {
@@ -4287,6 +4303,11 @@ h2 {
     padding: 6px 16px;
     font-size: 0.92rem;
     min-width: 180px;
+  }
+
+  #open-settings-btn {
+    top: 14px;
+    left: 24px;
   }
 
   #top-right-controls {

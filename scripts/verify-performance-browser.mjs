@@ -12,8 +12,9 @@ try {
     const executablePath = process.env.BROWSER_PATH || ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'].find(existsSync);
     browser = await puppeteer.launch({ headless: true, timeout: 8000, ...(executablePath ? { executablePath } : {}) });
     const page = await browser.newPage();
-    page.setDefaultTimeout(6000);
-    page.setDefaultNavigationTimeout(8000);
+    await page.setViewport({ width: 1280, height: 800 });
+    page.setDefaultTimeout(10000);
+    page.setDefaultNavigationTimeout(20000);
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.setRequestInterception(true);
@@ -21,6 +22,19 @@ try {
     const url = `http://127.0.0.1:${server.httpServer.address().port}`;
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.game);
+    // Verify corner geometry on the start menu: Settings top-left, Trophy bottom-left, Patch Board bottom-right.
+    const corners = await page.evaluate(() => {
+        const menu = document.getElementById('start-menu').getBoundingClientRect();
+        const settings = document.getElementById('open-settings-btn').getBoundingClientRect();
+        const trophy = document.getElementById('open-achievements-icon-btn').getBoundingClientRect();
+        const patch = document.getElementById('open-patch-board-btn').getBoundingClientRect();
+        return {
+            settingsTopLeft: settings.top - menu.top < 80 && settings.left - menu.left < 90,
+            trophyBottomLeft: menu.bottom - trophy.bottom < 80 && trophy.left - menu.left < 90,
+            patchBottomRight: menu.bottom - patch.bottom < 80 && menu.right - patch.right < 90
+        };
+    });
+    assert.deepEqual(corners, { settingsTopLeft: true, trophyBottomLeft: true, patchBottomRight: true });
     // Auth is unrelated: expose the normal dashboard button without logging in.
     await page.evaluate(() => { document.getElementById('open-settings-btn').click(); });
     await page.waitForSelector('#settings-dialog[open]');

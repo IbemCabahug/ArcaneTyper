@@ -38,7 +38,14 @@ assert.doesNotMatch(game, /window\.__atLowQuality\s*=/);
 assert.doesNotMatch(game, /lowQ \? 24 : 32|lowQ \? 12 : 15/);
 assert.match(game, /sampleElapsed > 0/);
 const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../frontend/style.css', import.meta.url), 'utf8');
 for (const id of ['settings-dialog', 'open-settings-btn', 'pause-settings-btn', 'performance-optimization']) {
     assert.equal(html.split(`id="${id}"`).length - 1, 1);
 }
-console.log('PASS single settings controls, readable text and authoritative preference');
+const floatingActions = html.slice(html.indexOf('id="start-menu-floating-actions"'), html.indexOf('id="patch-board-menu"'));
+assert.doesNotMatch(floatingActions, /id="open-settings-btn"/);
+assert.match(floatingActions, /id="open-achievements-icon-btn"/);
+assert.match(floatingActions, /id="open-patch-board-btn"/);
+assert.match(html, /<button id="open-settings-btn"[^>]*>\s*<svg\b/);
+assert.match(css, /#open-settings-btn\s*\{[^}]*position:\s*absolute[^}]*top:\s*20px[^}]*left:\s*24px/s);
+console.log('PASS single settings controls, top-left placement, balanced bottom bar, readable text and authoritative preference');

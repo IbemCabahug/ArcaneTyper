@@ -48,6 +48,7 @@ export class Game {
         MeteorRenderer.preloadAll();
 
         this.words = [];
+        this.projectiles = [];
         this.particles = new ParticlePool(400);
         this.ambientParticles = [];
         this.floatingTexts = [];
@@ -228,6 +229,7 @@ export class Game {
 
         this.reset();
         this.isRunning = true;
+        this.audio.prepareCharacterProfile?.(this.stats?.selectedCharacter, this.stats?.mageClass);
         this.audio.startBackgroundMusic();
         this.inputHandler.enable();
         this.lastTime = performance.now();
@@ -262,6 +264,7 @@ export class Game {
             this._heartbeatInterval = null;
         }
         this.audio.stopBackgroundMusic();
+        this.audio.stopAllTransientVoices?.();
         this.inputHandler.disable();
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
@@ -480,6 +483,7 @@ export class Game {
         if (!this.isRunning || this.isPaused) return;
         this.isPaused = true;
         this.audio.stopBackgroundMusic();
+        this.audio.stopAllTransientVoices?.();
         this.inputHandler.disable();
     }
 
@@ -1149,14 +1153,23 @@ export class Game {
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(pulse, pulse);
-        const halo = ctx.createRadialGradient(0, 0, radius * 0.25, 0, 0, radius * 2.8);
-        halo.addColorStop(0, `rgba(255, 164, 158, ${backgroundAlpha * 0.78})`);
-        halo.addColorStop(0.35, `rgba(255, 23, 68, ${backgroundAlpha * 0.42})`);
-        halo.addColorStop(1, 'rgba(80, 0, 18, 0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(0, 0, radius * 2.8, 0, Math.PI * 2);
-        ctx.fill();
+
+        const haloImg = RenderCache.bake('at_ready_blood_moon_halo', 128, 128, (cCtx) => {
+            const h = cCtx.createRadialGradient(64, 64, 64 * (0.25 / 2.8), 64, 64, 64);
+            h.addColorStop(0, 'rgba(255, 164, 158, 0.78)');
+            h.addColorStop(0.35, 'rgba(255, 23, 68, 0.42)');
+            h.addColorStop(1, 'rgba(80, 0, 18, 0)');
+            cCtx.fillStyle = h;
+            cCtx.beginPath();
+            cCtx.arc(64, 64, 64, 0, Math.PI * 2);
+            cCtx.fill();
+        });
+
+        ctx.save();
+        ctx.globalAlpha = backgroundAlpha;
+        const haloR = radius * 2.8;
+        ctx.drawImage(haloImg, -haloR, -haloR, haloR * 2, haloR * 2);
+        ctx.restore();
 
         ctx.fillStyle = `rgba(255, 179, 173, ${0.18 + readiness * 0.42})`;
         ctx.beginPath();
@@ -2228,12 +2241,13 @@ export class Game {
         const wizX = this.canvas.width / 2;
         const wizY = this.canvas.height;
 
-        this.particles.push(new Particle(wizX, wizY - 15, 'shockwave_blue'));
+        this.particles.spawn(wizX, wizY - 15, 'shockwave_blue');
         const shardColors = ['#00e5ff', '#ffd700', '#ffffff', '#29b6f6', '#d500f9'];
-        for (let s = 0; s < 16; s++) {
-            const sAngle = Math.PI + (s / 15) * Math.PI + (Math.random() - 0.5) * 0.3;
+        const count = window.__atLowQuality ? 8 : 16;
+        for (let s = 0; s < count; s++) {
+            const sAngle = Math.PI + (s / Math.max(1, count - 1)) * Math.PI + (Math.random() - 0.5) * 0.3;
             const speed = 0.35 + Math.random() * 0.45;
-            const shard = new Particle(
+            this.particles.spawn(
                 wizX + Math.cos(sAngle) * 75,
                 wizY - 15 + Math.sin(sAngle) * 75,
                 {
@@ -2246,7 +2260,6 @@ export class Game {
                     decay: 0.015 + Math.random() * 0.01
                 }
             );
-            this.particles.push(shard);
         }
     }
 
@@ -2267,13 +2280,16 @@ export class Game {
         // both clients paint the same mage the same colour (ArenaTeams.js).
         ctx.save();
         ctx.globalAlpha = 0.5;
-        const aura = ctx.createRadialGradient(x, y + 6, 4, x, y + 6, 86);
-        aura.addColorStop(0, teamColor);
-        aura.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = aura;
-        ctx.beginPath();
-        ctx.ellipse(x, y + 6, 86, 26, 0, 0, Math.PI * 2);
-        ctx.fill();
+        const auraImg = RenderCache.bake(`at_team_aura_${teamColor}`, 176, 56, (cCtx) => {
+            const aura = cCtx.createRadialGradient(88, 28, 4, 88, 28, 86);
+            aura.addColorStop(0, teamColor);
+            aura.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            cCtx.fillStyle = aura;
+            cCtx.beginPath();
+            cCtx.ellipse(88, 28, 86, 26, 0, 0, Math.PI * 2);
+            cCtx.fill();
+        });
+        ctx.drawImage(auraImg, x - 88, y + 6 - 28);
         ctx.restore();
 
         // Sprite — deliberately NOT mirrored (owner decision, AT-F9 P3):

@@ -64,15 +64,19 @@ export class CharacterRenderer {
 
         // Dark center reads as an event horizon, while a bright rim supplies
         // the classic lensing cue: darkness framed by distorted light.
-        const core = ctx.createRadialGradient(0, 0, 2, 0, 0, r * 0.72);
-        core.addColorStop(0, 'rgba(0,0,4,0.92)');
-        core.addColorStop(0.42, `rgba(124,77,255,${0.12 + tier * 0.025})`);
-        core.addColorStop(0.72, `rgba(0,229,255,${0.10 + tier * 0.018})`);
-        core.addColorStop(1, 'rgba(0,0,8,0)');
-        ctx.fillStyle = core;
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2);
-        ctx.fill();
+        const coreR = r * 0.72;
+        const coreImg = RenderCache.bake(`at_void_streak_core_${tier}`, 128, 128, (cCtx) => {
+            const core = cCtx.createRadialGradient(64, 64, 2 * (64 / 45), 64, 64, 64);
+            core.addColorStop(0, 'rgba(0,0,4,0.92)');
+            core.addColorStop(0.42, `rgba(124,77,255,${0.12 + tier * 0.025})`);
+            core.addColorStop(0.72, `rgba(0,229,255,${0.10 + tier * 0.018})`);
+            core.addColorStop(1, 'rgba(0,0,8,0)');
+            cCtx.fillStyle = core;
+            cCtx.beginPath();
+            cCtx.arc(64, 64, 64, 0, Math.PI * 2);
+            cCtx.fill();
+        });
+        ctx.drawImage(coreImg, -coreR, -coreR, coreR * 2, coreR * 2);
 
         // Full boundary remains present from the first streak tier.
         ctx.strokeStyle = cyan;
@@ -205,14 +209,18 @@ export class CharacterRenderer {
         const moonR = 11 + tier * 3.2 + pulse * 0.7;
 
         // Blood Moon phase behind the cowl: crescent → half → gibbous → eclipse.
-        const moon = ctx.createRadialGradient(0, moonY, moonR * 0.35, 0, moonY, moonR * 1.45);
-        moon.addColorStop(0, `rgba(255,235,240,${0.42 + tier * 0.09})`);
-        moon.addColorStop(0.55, `rgba(255,110,140,${0.30 + tier * 0.07})`);
-        moon.addColorStop(1, 'rgba(74,0,16,0)');
-        ctx.fillStyle = moon;
-        ctx.beginPath();
-        ctx.arc(0, moonY, moonR * 1.45, 0, Math.PI * 2);
-        ctx.fill();
+        const moonR145 = moonR * 1.45;
+        const moonHaloImg = RenderCache.bake(`at_blood_streak_moon_${tier}`, 128, 128, (cCtx) => {
+            const moon = cCtx.createRadialGradient(64, 64, 64 * (0.35 / 1.45), 64, 64, 64);
+            moon.addColorStop(0, `rgba(255,235,240,${0.42 + tier * 0.09})`);
+            moon.addColorStop(0.55, `rgba(255,110,140,${0.30 + tier * 0.07})`);
+            moon.addColorStop(1, 'rgba(74,0,16,0)');
+            cCtx.fillStyle = moon;
+            cCtx.beginPath();
+            cCtx.arc(64, 64, 64, 0, Math.PI * 2);
+            cCtx.fill();
+        });
+        ctx.drawImage(moonHaloImg, -moonR145, moonY - moonR145, moonR145 * 2, moonR145 * 2);
 
         ctx.fillStyle = tier >= 3 ? hot : rose;
         ctx.beginPath();
@@ -486,14 +494,17 @@ export class CharacterRenderer {
 
                 // Ethereal Radial Aether Bloom
                 const bloomRadius = 54 + pulse * 2;
-                const bloom = ctx.createRadialGradient(0, 0, 10, 0, 0, bloomRadius);
-                bloom.addColorStop(0, 'rgba(0, 229, 255, 0.22)');
-                bloom.addColorStop(0.5, 'rgba(213, 0, 249, 0.12)');
-                bloom.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                ctx.fillStyle = bloom;
-                ctx.beginPath();
-                ctx.arc(0, 0, bloomRadius, 0, Math.PI * 2);
-                ctx.fill();
+                const bloomImg = RenderCache.bake('at_wizard_bloom', 128, 128, (cCtx) => {
+                    const b = cCtx.createRadialGradient(64, 64, 64 * (10 / 54), 64, 64, 64);
+                    b.addColorStop(0, 'rgba(0, 229, 255, 0.22)');
+                    b.addColorStop(0.5, 'rgba(213, 0, 249, 0.12)');
+                    b.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    cCtx.fillStyle = b;
+                    cCtx.beginPath();
+                    cCtx.arc(64, 64, 64, 0, Math.PI * 2);
+                    cCtx.fill();
+                });
+                ctx.drawImage(bloomImg, -bloomRadius, -bloomRadius, bloomRadius * 2, bloomRadius * 2);
 
                 // Outer Runic Boundary Wheel (52px)
                 ctx.save();
@@ -662,15 +673,18 @@ export class CharacterRenderer {
                 const singR = 82 + bonusR + pulse * 2.5;
 
                 // Blinding Singularity Halo
-                const singGrad = ctx.createRadialGradient(0, 0, 5, 0, 0, singR);
-                singGrad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-                singGrad.addColorStop(0.4, 'rgba(0, 229, 255, 0.25)');
-                singGrad.addColorStop(0.8, 'rgba(213, 0, 249, 0.15)');
-                singGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                ctx.fillStyle = singGrad;
-                ctx.beginPath();
-                ctx.arc(0, 0, singR, 0, Math.PI * 2);
-                ctx.fill();
+                const singImg = RenderCache.bake('at_wizard_singularity', 128, 128, (cCtx) => {
+                    const s = cCtx.createRadialGradient(64, 64, 64 * (5 / 82), 64, 64, 64);
+                    s.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
+                    s.addColorStop(0.4, 'rgba(0, 229, 255, 0.25)');
+                    s.addColorStop(0.8, 'rgba(213, 0, 249, 0.15)');
+                    s.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    cCtx.fillStyle = s;
+                    cCtx.beginPath();
+                    cCtx.arc(64, 64, 64, 0, Math.PI * 2);
+                    cCtx.fill();
+                });
+                ctx.drawImage(singImg, -singR, -singR, singR * 2, singR * 2);
 
                 // Outermost Singularity Ring
                 ctx.strokeStyle = '#ffffff';

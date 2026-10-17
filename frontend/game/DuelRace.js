@@ -685,7 +685,7 @@ export class DuelRace {
         }
         if (skill.kind === 'time_stop') {
             this._pendingTimeStop = this.mine;
-            this.game.audio?.playMagicSpark?.();
+            this._playSigilCue(skill.id, this.mine, 'request', 1.0);
             this._floatAtSlot(this.mine, `${skill.title.toUpperCase()}!`, '#c084fc', BUFF_FLOAT_SIZE);
             this.duel.broadcastRace('cast', { idx: this.idx, skill: skill.id });
             if (this.isHost) this._activateTimeStop(this.mine, skill.value, true);
@@ -699,7 +699,7 @@ export class DuelRace {
             this.hp[this.mine] = Math.max(1, this.hp[this.mine] - skill.value);
         }
         this._armActive(this.mine, skill);
-        this.game.audio?.playMagicSpark?.();
+        this._playSigilCue(skill.id, this.mine, 'arm', 1.0);
         this._floatAtSlot(this.mine, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.mine), BUFF_FLOAT_SIZE);
         // One frame, host-authoritative. A buff has to survive a word we never
         // claimed (Glacial Ward absorbs a LOSS), which a `claim` payload cannot
@@ -709,6 +709,18 @@ export class DuelRace {
         if (skill.kind === 'self_sacrifice' && this.isHost) this._sendState();
         this._render();
         return true;
+    }
+
+    _playSigilCue(skillId, slot, stage = 'arm', gainScale = 1.0) {
+        const char = this.characters?.[slot]
+            || this.game.duelCharacters?.[slot]
+            || (slot === this.mine ? this.game.stats?.selectedCharacter : this.game.duelOpponent?.character)
+            || 'wizard';
+        if (this.game.audio?.playSigilSound) {
+            this.game.audio.playSigilSound(skillId, char, { stage, gainScale });
+        } else {
+            this.game.audio?.playMagicSpark?.();
+        }
     }
 
     _armActive(slot, skill, duration = ACTIVE_WINDOW_MS) {
@@ -756,6 +768,7 @@ export class DuelRace {
         this.game.duelTimeStopSlot = slot;
         this.game.duelAuras[slot] = 'time-stop';
         this._pendingTimeStop = null;
+        this._playSigilCue('time-stop', slot, 'activate', 1.0);
         if (broadcast) {
             this.duel.broadcastRace('time_stop', { until, slot, skill: 'time-stop' });
         }
@@ -784,6 +797,7 @@ export class DuelRace {
         this.game.duelAuras[this.timeStopSlot] = 'time-stop';
         this._pendingTimeStop = null;
         this._floatAtSlot(this.timeStopSlot, 'TIME STOP!', '#c084fc', BUFF_FLOAT_SIZE);
+        this._playSigilCue('time-stop', this.timeStopSlot, 'activate', 1.0);
         clearTimeout(this._timeStopTimer);
         this._timeStopTimer = setTimeout(() => {
             if (this.timeStopUntil !== until) return;
@@ -812,6 +826,7 @@ export class DuelRace {
             this.hp[this.theirs] = Math.max(1, this.hp[this.theirs] - skill.value);
         }
         this._armActive(this.theirs, skill);
+        this._playSigilCue(skill.id, this.theirs, 'arm', 0.55);
         this._floatAtSlot(this.theirs, `${skill.title.toUpperCase()} ARMED!`, teamColorFor(this.theirs), BUFF_FLOAT_SIZE);
         if (skill.kind === 'self_sacrifice') this._sendState();
         this._render();
@@ -880,6 +895,7 @@ export class DuelRace {
      */
     _adoptBuffs(p) {
         if (!p || !p.armed) return;
+        const prevTheirs = this.buffs[this.theirs];
         this.buffs = { A: p.armed.A || null, B: p.armed.B || null };
         if (p.buffUntil) {
             const now = Date.now();
@@ -894,6 +910,9 @@ export class DuelRace {
                 this.buffs.B = null;
             }
             this.game.duelBuffUntil = this.buffUntil;
+        }
+        if (!prevTheirs && this.buffs[this.theirs]) {
+            this._playSigilCue(this.buffs[this.theirs], this.theirs, 'arm', 0.55);
         }
     }
 

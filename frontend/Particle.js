@@ -83,13 +83,15 @@ export class Particle {
         this.isVoidMote = false;
 
         // Setup shockwave properties if indicated
-        if (color === 'shockwave' || color === 'shockwave_purple' || color === 'shockwave_red') {
+        if (color === 'shockwave' || color === 'shockwave_purple' || color === 'shockwave_red' || color === 'shockwave_blue') {
             this.isShockwave = true;
             this.isRune = false;
             if (color === 'shockwave_purple') {
                 this.color = 'rgba(224, 64, 251, 0.9)'; // Neon purple expanding ring
             } else if (color === 'shockwave_red') {
                 this.color = 'rgba(255, 23, 68, 0.9)'; // Crimson red expanding ring
+            } else if (color === 'shockwave_blue') {
+                this.color = 'rgba(0, 229, 255, 0.9)'; // Cyan/blue expanding ring
             } else {
                 this.color = 'rgba(255, 215, 0, 0.8)'; // Gold expanding ring
             }

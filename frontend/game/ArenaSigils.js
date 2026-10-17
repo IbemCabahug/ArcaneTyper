@@ -1,3 +1,4 @@
+import { RenderCache } from '../RenderCache.js';
 
 /**
  * ArenaSigils.js — procedural PvP active sigils.
@@ -129,15 +130,19 @@ function drawNova(ctx, r, character = 'wizard') {
         // hard-coded violet from when every Novice was arcane-shaded; it is
         // derived from the accent now so the well cannot disagree with the
         // character it is painted on.
-        const well = ctx.createRadialGradient(0, 0, 0, 0, 0, r * .30);
-        well.addColorStop(0, 'rgba(4, 2, 12, 0.95)');
-        well.addColorStop(1, hexAlpha(fx.accent, 0.10));
+        const wellR = r * .30;
+        const wellImg = RenderCache.bake(`at_sigil_novice_void_${fx.accent}`, 64, 64, (cCtx) => {
+            const well = cCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+            well.addColorStop(0, 'rgba(4, 2, 12, 0.95)');
+            well.addColorStop(1, hexAlpha(fx.accent, 0.10));
+            cCtx.fillStyle = well;
+            cCtx.beginPath();
+            cCtx.arc(32, 32, 32, 0, Math.PI * 2);
+            cCtx.fill();
+        });
+        ctx.drawImage(wellImg, -wellR, -wellR, wellR * 2, wellR * 2);
         ctx.beginPath();
-        ctx.arc(0, 0, r * .30, 0, Math.PI * 2);
-        ctx.fillStyle = well;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(0, 0, r * .30, 0, Math.PI * 2);
+        ctx.arc(0, 0, wellR, 0, Math.PI * 2);
         ctx.strokeStyle = fx.accent;
         ctx.lineWidth = 1.4;
         ctx.stroke();
@@ -319,15 +324,19 @@ function drawSingulistMark(ctx, r, now = 0) {
 
     // The dense core the space is falling into. Desaturated-black, because a
     // singularity is a hole, not a light source.
-    const core = ctx.createRadialGradient(0, 0, 0, 0, 0, r * .34);
-    core.addColorStop(0, 'rgba(0, 0, 0, 0.96)');
-    core.addColorStop(1, hexAlpha(effect.color, 0.18));
+    const coreR = r * .34;
+    const coreImg = RenderCache.bake(`at_sigil_singulist_${effect.color}`, 64, 64, (cCtx) => {
+        const core = cCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        core.addColorStop(0, 'rgba(0, 0, 0, 0.96)');
+        core.addColorStop(1, hexAlpha(effect.color, 0.18));
+        cCtx.beginPath();
+        cCtx.arc(32, 32, 32, 0, Math.PI * 2);
+        cCtx.fillStyle = core;
+        cCtx.fill();
+    });
+    ctx.drawImage(coreImg, -coreR, -coreR, coreR * 2, coreR * 2);
     ctx.beginPath();
-    ctx.arc(0, 0, r * .34, 0, Math.PI * 2);
-    ctx.fillStyle = core;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(0, 0, r * .34, 0, Math.PI * 2);
+    ctx.arc(0, 0, coreR, 0, Math.PI * 2);
     ctx.strokeStyle = effect.accent;
     ctx.lineWidth = 1.2;
     ctx.stroke();

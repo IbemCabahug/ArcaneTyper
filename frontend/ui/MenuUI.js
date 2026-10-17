@@ -11,6 +11,17 @@ export class MenuUI {
 
         this.patchNotes = [
             {
+                version: "v2.3.5",
+                date: "October 17, 2026",
+                desc: "Bespoke Discipline Audio, Arena Sigil Cues & Canvas Performance Optimization",
+                changes: [
+                    "Audio: every character and bound Discipline now speaks with its own synthesized keystroke timbre — each with three non-repeating micro-variants pre-baked at startup for zero typing latency.",
+                    "Arena: casting a Discipline sigil now plays a distinct signature sound cue, and your opponent's armed sigil sounds a softer audio telegraph so an incoming play is heard as well as seen.",
+                    "Menu & Profile: equipping a character in the Forge or binding a Discipline scroll in your Mage Profile now previews that Discipline's signature sigil sound, while UI buttons use a dedicated crisp click.",
+                    "Performance: added a persistent Performance Optimization toggle in Settings (accessible from both the main menu and the pause screen) that streamlines high-combo canvas effects, pre-renders complex sigil layers into offscreen sprites, and caps background particle density without dulling word bursts."
+                ]
+            },
+            {
                 version: "v2.3.4",
                 date: "September 29, 2026",
                 desc: "Arena Consent, Scribe Scoring & Honest Workshop Prices",

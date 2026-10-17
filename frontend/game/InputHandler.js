@@ -79,7 +79,7 @@ export class InputHandler {
             word.untyped = word.untyped.slice(1);
             this.game.stats.recordStroke(true);
             if (this.game.onDuelCombo) this.game.onDuelCombo(this.game.stats.combo);
-            this.game.audio.playTypeSound();
+            this.game.audio.playTypeSound(this.game.stats?.selectedCharacter, this.game.stats?.mageClass);
 
             // Spark at typed position (centralized to match word baseline)
             this.game.ctx.font = 'bold 32px Cinzel, serif';

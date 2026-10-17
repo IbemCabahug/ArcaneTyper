@@ -93,6 +93,15 @@
 
       <!-- Start Menu -->
       <div id="start-menu" class="overlay-menu active">
+        <!-- Top Left Settings Button -->
+        <button id="open-settings-btn" class="menu-floating-btn settings-btn" title="Settings" aria-label="Settings">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+
         <!-- Top Right Controls (Spellbook) -->
         <div id="top-right-controls"
           style="position: absolute; top: 20px; right: 20px; z-index: 10; pointer-events: auto;">
@@ -111,7 +120,7 @@
              needed one, and why a short frame could not be compacted at all. -->
         <div class="menu-column">
           <h1>ARCANE<span class="highlight">TYPER</span></h1>
-          <p class="subtitle">Enchanted Library Edition - v2.3.4</p>
+          <p class="subtitle">Enchanted Library Edition - v2.3.5</p>
           <div style="text-align: center; margin-bottom: 5px;">
             <h2 id="menu-mage-name"
               style="color: #fff; margin: 0; text-shadow: 0 0 10px rgba(255,255,255,0.5);">Anonymous
@@ -208,7 +217,6 @@
         </div>
         <!-- Floating Menu Actions Container -->
         <div id="start-menu-floating-actions">
-          <button id="open-settings-btn" class="menu-floating-btn" title="Settings" aria-label="Settings">⚙</button>
           <!-- Trophy Button -->
           <button id="open-achievements-icon-btn" class="menu-floating-btn trophy-btn" title="Trophy Room (Achievements)">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none"
