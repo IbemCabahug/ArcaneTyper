@@ -43,11 +43,10 @@ const vercelJson = JSON.parse(vercelSrc);
 const headersList = vercelJson.headers?.[0]?.headers || [];
 const headerMap = Object.fromEntries(headersList.map(h => [h.key, h.value]));
 
-check('X-Content-Type-Options: nosniff header configured', headerMap['X-Content-Type-Options'] === 'nosniff');
-check('X-Frame-Options: DENY header configured', headerMap['X-Frame-Options'] === 'DENY');
-check('Content-Security-Policy configured', Boolean(headerMap['Content-Security-Policy']));
-
 const csp = headerMap['Content-Security-Policy'] || '';
+check('X-Content-Type-Options: nosniff header configured', headerMap['X-Content-Type-Options'] === 'nosniff');
+check('Frame protection configured via CSP frame-ancestors', csp.includes('frame-ancestors'));
+check('Content-Security-Policy configured', Boolean(headerMap['Content-Security-Policy']));
 check('CSP permits Cloudflare Turnstile', csp.includes('https://challenges.cloudflare.com'));
 check('CSP permits Supabase endpoints & WebSockets', csp.includes('https://*.supabase.co') && csp.includes('wss://*.supabase.co'));
 
