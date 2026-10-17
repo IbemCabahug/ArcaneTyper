@@ -26,7 +26,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; frame-ancestors 'self' https://portfolio-ibem.vercel.app https://*.vercel.app http://localhost:* http://127.0.0.1:*; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https://challenges.cloudflare.com https://*.supabase.co wss://*.supabase.co; frame-src https://challenges.cloudflare.com;"
+          "value": "default-src 'self'; frame-ancestors 'self' https://portfolio-ibem.vercel.app https://*.vercel.app http://localhost http://localhost:* http://localhost:4321 http://localhost:3000 http://localhost:5173 http://127.0.0.1 http://127.0.0.1:* http://127.0.0.1:4321 http://127.0.0.1:3000 http://127.0.0.1:5173; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https://challenges.cloudflare.com https://*.supabase.co wss://*.supabase.co; frame-src https://challenges.cloudflare.com;"
         }
       ]
     }
